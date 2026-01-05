@@ -1,0 +1,48 @@
+{
+  "environment": "dev",
+  "oauth_api_connection_id": "oauth_api",
+  "universite": "ul",
+  "api_endpoint_admin": "finances/cdv/v1/preprod/${univ}/admin",
+  "api_endpoint_table": "finances/cdv/v1/preprod/${univ}/table",
+  "amue_max_history_days": "7",
+  "amue_polling_interval_minutes": "10",
+  "amue_max_wait_hours": "6",
+  "amue_api_max_retries": "3",
+  "amue_api_retry_delay_seconds": "2",
+  "amue_report_recipients": "admin@example.com,data-team@example.com",
+  "smtp_host": "mailhog",
+  "smtp_port": "1025",
+  "smtp_mail_from": "airflow@amue-project.local",
+  "amue_tables_to_import": [
+    {
+      "name": "CSKS",
+      "primary_key": "",
+      "delta": "",
+      "last_import": "2026-01-05T10:04:29.607130",
+      "finger_print": "02d47bed3ca0d1e122ef2e66838ad97d"
+    },
+    {
+      "name": "COVP",
+      "primary_key": "",
+      "delta": "",
+      "last_import": "",
+      "finger_print": ""
+    },
+    {
+      "name": "CEPC",
+      "primary_key": "",
+      "delta": "",
+      "last_import": "2026-01-05T10:04:29.617848",
+      "finger_print": "b7302ec550babc91d5a55d10c6d1aec0"
+    },
+    {
+      "name": "EKET",
+      "primary_key": "",
+      "delta": "bedat",
+      "last_import": "",
+      "finger_print": ""
+    }
+  ],
+  "amue_last_successful_run": "",
+  "last_import_report": ""
+}
