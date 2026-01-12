@@ -1,5 +1,6 @@
 """
 Gestionnaire de vérification des statuts AMUE
+Mise à jour avec vérification de la variable 'finish'
 """
 from datetime import datetime, timedelta
 from string import Template
@@ -71,6 +72,42 @@ class AMUEStatusChecker:
         """Vérifie uniquement le code HTTP (pour polling)"""
         params = {'status': ''}
         return self.api_hook.call_api(self.endpoint, params, check_status_only=True)
+
+    def check_finish_status(self) -> Optional[str]:
+        """
+        Vérifie la variable 'finish' du JSON de statut
+
+        Cette méthode est utilisée par le polling pour s'assurer que le traitement
+        côté AMUE est terminé avant de continuer.
+
+        Returns:
+            Valeur de 'finish' si présente (date/heure de fin), None sinon
+
+        Raises:
+            AirflowException: Si erreur lors de la récupération
+        """
+        print("[STATUS] Vérification variable 'finish'")
+
+        try:
+            params = {'status': ''}
+            response = self.api_hook.call_api(self.endpoint, params)
+
+            if not isinstance(response, dict):
+                print("[WARN] Réponse non-JSON lors de la vérification 'finish'")
+                return None
+
+            finish_value = response.get('finish')
+
+            if finish_value:
+                print(f"[STATUS] Variable 'finish' trouvée: {finish_value}")
+                return finish_value
+            else:
+                print("[STATUS] Variable 'finish' non renseignée (traitement en cours)")
+                return None
+
+        except Exception as e:
+            print(f"[ERROR] Erreur lors de la vérification 'finish': {str(e)}")
+            raise AirflowException(f"Impossible de vérifier 'finish': {str(e)}")
 
     def _get_last_success_date(self) -> datetime.date:
         """Récupère la date du dernier succès"""

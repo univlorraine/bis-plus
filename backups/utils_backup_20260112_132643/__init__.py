@@ -5,8 +5,22 @@ Contient toutes les classes et fonctions réutilisables
 
 # Import des hooks et utilitaires de base
 from .amue_api_hook import AMUEAPIHook
-from .amue_notifications import send_failure_notification
-from .amue_transformers import parse_column_definition, compute_structure_hash
+
+# Import des transformateurs et utilitaires
+from .amue_utils import (
+    parse_column_definition,
+    compute_structure_hash,
+    compute_structure_hash_with_pk,
+    format_primary_keys,
+    compare_fingerprints
+)
+
+# Import des notifications
+from .amue_notification_utils import (
+    NotificationService,
+    ErrorContext,
+    send_failure_notification
+)
 
 # Import des services métier
 from .amue_status_checker import AMUEStatusChecker
@@ -23,7 +37,12 @@ __all__ = [
     'AMUEAPIHook',
     'parse_column_definition',
     'compute_structure_hash',
+    'compute_structure_hash_with_pk',
+    'format_primary_keys',
+    'compare_fingerprints',
     'send_failure_notification',
+    'NotificationService',
+    'ErrorContext',
 
     # Services métier
     'AMUEStatusChecker',

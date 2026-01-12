@@ -237,19 +237,6 @@ services:
         echo
         echo "Installing jq for configuration scripts..."
         apt-get update && apt-get install -y jq || echo "Failed to install jq"
-        echo
-        echo "Configuration automatique si fichiers présents..."
-        if [[ -f /opt/airflow/config/airflow_variables.json ]] && [[ -f /opt/airflow/config/airflow_connections.json ]]; then
-          echo "Fichiers de configuration trouvés, lancement de la configuration..."
-          if [[ -f /opt/airflow/scripts/setup_airflow_config.sh ]]; then
-            chmod +x /opt/airflow/scripts/setup_airflow_config.sh
-            /opt/airflow/scripts/setup_airflow_config.sh --internal || echo "Configuration échouée, continuez manuellement"
-          else
-            echo "Script de configuration non trouvé"
-          fi
-        else
-          echo "Fichiers de configuration non trouvés, configuration manuelle requise"
-        fi
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'

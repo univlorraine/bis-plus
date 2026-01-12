@@ -126,7 +126,7 @@ cmd_start() {
 
 cmd_stop() {
     log_info "Arrêt des services..."
-    $DOCKER_CMD down
+    $DOCKER_CMD stop
     log_success "Services arrêtés"
 }
 

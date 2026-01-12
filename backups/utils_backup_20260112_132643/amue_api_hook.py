@@ -14,19 +14,18 @@ class AMUEAPIHook:
         conn_id: ID de la connexion Airflow contenant les credentials OAuth
 
     Example:
-        >>> hook = AMUEAPIHook(conn_id='oauth_api')
-        >>> data = hook.call_api('finances/cdv/v1/preprod/ul/table', {'nom': 'CSKS'})
+        >>> hook = AMUEAPIHook()
+        >>> data = hook.call_api('finances/cdv/v1/preprod/{CODE_UNIV}/table', {'nom': 'CSKS'})
     """
 
-    def __init__(self, conn_id: str):
+    def __init__(self):
         """
         Initialise le hook avec la connexion Airflow
 
         Args:
             conn_id: ID de la connexion Airflow
         """
-        self.conn_id = conn_id
-        self.connection = Connection.get(conn_id)
+        self.connection = Connection.get('oauth_api')
         self.access_token: Optional[str] = None
 
     def get_oauth_token(self) -> str:
@@ -49,7 +48,7 @@ class AMUEAPIHook:
 
         if not token_url:
             raise ValueError(
-                f"token_url manquant dans la connexion '{self.conn_id}'! "
+                f"token_url manquant dans la connexion 'oauth_api'! "
                 "Ajoutez-le dans Admin > Connections > Extra: "
                 '{"token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token"}'
             )

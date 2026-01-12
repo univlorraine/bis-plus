@@ -91,65 +91,116 @@ log_success "Structure créée"
 
 log_info "Étape 3/6: Vérification des fichiers de configuration"
 
-if [[ ! -f "config/airflow_variables.json" ]]; then
-    log_warning "Fichier airflow_variables.json manquant, création avec valeurs par défaut..."
-    cat > config/airflow_variables.json << 'EOFVARS'
+ask() {
+    local prompt="$1"
+    local default="$2"
+    local result
+
+    if [[ -n "$default" ]]; then
+        read -rp "$prompt [$default] : " result
+        echo "${result:-$default}"
+    else
+        read -rp "$prompt : " result
+        echo "$result"
+    fi
+}
+
+ask_secret() {
+    local prompt="$1"
+    local result
+    read -rsp "$prompt : " result
+    echo "$result"
+}
+
+log_info "Configuration interactive des variables Airflow"
+
+UNIVERSITE=$(ask "Nom de l'université" "")
+AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires du rapport (séparés par des virgules)" "admin@example.com")
+SMTP_MAIL_FROM=$(ask "Adresse d'envoi SMTP" "airflow@amue-project.local")
+
+log_info "Configuration des tables AMUE à importer"
+
+TABLES_JSON="[]"
+
+while true; do
+    TABLE_NAME=$(ask "Nom de la table AMUE (vide pour terminer)" "")
+    [[ -z "$TABLE_NAME" ]] && break
+
+    TABLE_DELTA=$(ask "Colonne delta pour $TABLE_NAME" "")
+
+    TABLES_JSON=$(echo "$TABLES_JSON" | jq \
+        --arg name "$TABLE_NAME" \
+        --arg delta "$TABLE_DELTA" \
+        '. + [{
+            name: $name,
+            primary_key: "",
+            delta: $delta,
+            last_import: "",
+            finger_print: ""
+        }]')
+done
+
+cat > config/airflow_variables.json << EOFVARS
 {
   "environment": "dev",
   "oauth_api_connection_id": "oauth_api",
-  "universite": "A_MODIFIER",
-  "api_endpoint_admin": "finances/cdv/v1/preprod/${univ}/admin",
-  "api_endpoint_table": "finances/cdv/v1/preprod/${univ}/table",
+  "universite": "$UNIVERSITE",
+  "api_endpoint_admin": "finances/cdv/v1/preprod/\${univ}/admin",
+  "api_endpoint_table": "finances/cdv/v1/preprod/\${univ}/table",
   "amue_max_history_days": "7",
   "amue_polling_interval_minutes": "10",
   "amue_max_wait_hours": "6",
   "amue_api_max_retries": "3",
   "amue_api_retry_delay_seconds": "2",
-  "amue_report_recipients": "admin@example.com,data-team@example.com",
+  "amue_report_recipients": "$AMUE_REPORT_RECIPIENTS",
   "smtp_host": "mailhog",
   "smtp_port": "1025",
-  "smtp_mail_from": "airflow@amue-project.local",
-  "amue_tables_to_import": [
-    {
-      "name": "CSKS",
-      "primary_key": "",
-      "delta": "",
-      "last_import": "",
-      "finger_print": ""
-    }
-  ],
+  "smtp_mail_from": "$SMTP_MAIL_FROM",
+  "amue_tables_to_import": $TABLES_JSON,
   "amue_last_successful_run": "",
   "last_import_report": ""
 }
 EOFVARS
-fi
 
-if [[ ! -f "config/airflow_connections.json" ]]; then
-    log_warning "Fichier airflow_connections.json manquant, création avec valeurs par défaut..."
-    cat > config/airflow_connections.json << 'EOFCONNS'
+log_info "Configuration interactive des connexions"
+
+OAUTH_LOGIN=$(ask "OAuth client_id" "")
+OAUTH_PASSWORD=$(ask_secret "OAuth client_secret")
+echo
+
+PG_HOST=$(ask "PostgreSQL host" "postgres-data")
+PG_DATABASE=$(ask "PostgreSQL database" "business_data")
+PG_SCHEMA=$(ask "PostgreSQL schema" "public")
+PG_LOGIN=$(ask "PostgreSQL login" "datauser")
+PG_PASSWORD=$(ask_secret "PostgreSQL password")
+PG_PORT=$(ask "PostgreSQL port" "5432")
+echo
+
+cat > config/airflow_connections.json << EOFCONNS
 {
   "oauth_api": {
     "conn_type": "http",
-    "host": "https://api.amue.fr",
-    "login": "your_client_id",
-    "password": "your_client_secret",
+    "host": "https://sandbox.api.amue.fr",
+    "login": "$OAUTH_LOGIN",
+    "password": "$OAUTH_PASSWORD",
     "extra": {
-      "token_url": "https://oauth.amue.fr/token",
-      "grant_type": "client_credentials",
+      "token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token",
+      "api_base_url": "https://sandbox.api.amue.fr"
     }
   },
   "postgres_data": {
     "conn_type": "postgres",
-    "host": "postgres-data",
-    "schema": "business_data",
-    "login": "datauser",
-    "password": "datapass",
-    "port": 5432
+    "host": "$PG_HOST",
+    "schema": "$PG_DATABASE",
+    "login": "$PG_LOGIN",
+    "password": "$PG_PASSWORD",
+    "port": $PG_PORT,
+    "extra": {
+      "options": "-c search_path=$PG_SCHEMA"
+    }
   }
 }
 EOFCONNS
-    log_warning "IMPORTANT: Modifiez config/airflow_connections.json avec vos vraies credentials!"
-fi
 
 ENV_FILE=".env"
 
@@ -275,17 +326,17 @@ cat << EOF
 
 📝 Prochaines étapes:
    1. Modifiez config/airflow_connections.json avec vos vraies credentials
-   2. Exécutez: ./scripts/setup_airflow_config.sh --external
+   2. Exécutez: ./manage.sh config
    3. Accédez à http://localhost:8080
-   4. Activez le DAG amue_multi_table_import_v2
+   4. Activez le DAG amue_multi_table_import
 
 ⚙️ Commandes utiles:
-   - Logs:              $DOCKER_CMD logs -f airflow-scheduler
-   - Arrêter:           $DOCKER_CMD down
-   - Redémarrer:        $DOCKER_CMD restart
-   - Reconfig:          ./scripts/setup_airflow_config.sh --external
-   - Vérifier config:   ./scripts/setup_airflow_config.sh --verify
-   - Exporter config:   ./scripts/setup_airflow_config.sh --export
+   - Logs:              ./manage.sh logs airflow-scheduler
+   - Arrêter:           ./manage.sh stop
+   - Redémarrer:        ./manage.sh restart
+   - Reconfig:          ./manage.sh config
+   - Vérifier config:   ./manage.sh verify
+   - Exporter config:   ./manage.sh export
 
 EOF
 

@@ -6,8 +6,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag, task, Variable
 from airflow.exceptions import AirflowException
 from typing import List, Dict
-
-from utils import (
+from amue import (
     AMUEAPIHook,
     AMUEStatusChecker,
     AMUETableFilter,
@@ -47,8 +46,7 @@ def amue_multi_table_import_v2():
     @task
     def check_historical_status() -> Dict:
         """Vérifie les statuts historiques"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         status_checker = AMUEStatusChecker(api_hook)
         max_days = int(Variable.get('amue_max_history_days', default='7'))
@@ -62,8 +60,7 @@ def amue_multi_table_import_v2():
     @task
     def wait_for_update_ready(history_result: Dict) -> Dict:
         """Attend que l'API soit prête"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         status_checker = AMUEStatusChecker(api_hook)
         polling_service = AMUEPollingService(status_checker)
@@ -77,8 +74,7 @@ def amue_multi_table_import_v2():
     @task
     def filter_tables_to_process(polling_result: Dict, history_result: Dict) -> List[Dict]:
         """Filtre les tables à traiter"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         status_checker = AMUEStatusChecker(api_hook)
         current_status = status_checker.get_current_status()
@@ -98,8 +94,7 @@ def amue_multi_table_import_v2():
     @task(task_id='verify_status')
     def verify_table_status(table_info: Dict) -> Dict:
         """Vérifie le statut d'une table"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         verifier = AMUETableVerifier(api_hook)
         return verifier.verify_status(table_info)
@@ -107,8 +102,7 @@ def amue_multi_table_import_v2():
     @task(task_id='verify_structure')
     def verify_table_structure(table_info: Dict) -> Dict:
         """Vérifie la structure d'une table"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         verifier = AMUETableVerifier(api_hook)
         return verifier.verify_structure(table_info)
@@ -190,8 +184,7 @@ def amue_multi_table_import_v2():
     @task(task_id='import_data')
     def import_table_data(table_mgmt: Dict) -> Dict:
         """Importe les données d'une table"""
-        oauth_conn_id = Variable.get('oauth_api_connection_id', default='oauth_api')
-        api_hook = AMUEAPIHook(conn_id=oauth_conn_id)
+        api_hook = AMUEAPIHook()
 
         importer = AMUEDataImporter(api_hook)
 

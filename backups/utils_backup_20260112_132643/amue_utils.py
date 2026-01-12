@@ -1,5 +1,6 @@
 """
 Fonctions de transformation pour les données AMUE
+Mise à jour avec fingerprint incluant les clés primaires
 """
 import re
 import hashlib
@@ -56,7 +57,7 @@ def parse_column_definition(definition: str) -> str:
     base_type = match.group(1).upper()
     params = match.group(2) or ''
 
-    # Cas spécial: INTEGER avec paramètre -> adapter la taille
+    # Cas spécial : INTEGER avec paramètre -> adapter la taille
     if base_type in ('INTEGER', 'INT') and params:
         try:
             size = int(params.strip('()'))
@@ -88,9 +89,10 @@ def parse_column_definition(definition: str) -> str:
 
 def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
     """
-    Calcule un hash MD5 de la structure d'une table
+    Calcule un hash MD5 de la structure d'une table (colonnes uniquement)
 
-    Utilisé pour détecter les changements de structure entre deux versions
+    ⚠️ DEPRECATED: Utiliser compute_structure_hash_with_pk() à la place
+    Cette fonction est conservée pour compatibilité mais ne devrait plus être utilisée
 
     Args:
         columns: Liste de dicts avec clés 'name' et 'type_postgres'
@@ -106,7 +108,7 @@ def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
         >>> compute_structure_hash(columns)
         'a1b2c3d4e5f6...'
     """
-    # Crée une chaîne normalisée: "col1:type1,col2:type2,..."
+    # Crée une chaîne normalisée : "col1 : type1, col2 : type2, ..."
     structure_str = ','.join([
         f"{col['name']}:{col['type_postgres']}"
         for col in columns
@@ -114,6 +116,61 @@ def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
 
     # Calcule le hash MD5
     return hashlib.md5(structure_str.encode('utf-8')).hexdigest()
+
+
+def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: str = '') -> str:
+    """
+    Calcule un hash MD5 de la structure d'une table incluant les clés primaires
+
+    Le fingerprint inclut maintenant :
+    - Les colonnes avec leurs types
+    - Les clés primaires (ordre important)
+
+    Cela permet de détecter les changements de clés primaires en plus des changements
+    de colonnes/types.
+
+    Args:
+        columns: Liste de dicts avec clés 'name' et 'type_postgres'
+        primary_keys: Chaîne avec clés primaires séparées par virgules (ex: "id,code")
+
+    Returns:
+        Hash MD5 hexadécimal (32 caractères)
+
+    Examples:
+        >>> columns = [
+        ...     {'name': 'id', 'type_postgres': 'INTEGER'},
+        ...     {'name': 'name', 'type_postgres': 'VARCHAR(50)'}
+        ... ]
+        >>> compute_structure_hash_with_pk(columns, 'id')
+        'b2c3d4e5f6a7...'
+        >>> compute_structure_hash_with_pk(columns, 'id,name')
+        'c3d4e5f6a7b8...'  # Hash différent car PK différente
+    """
+    # Partie 1 : Structure des colonnes
+    columns_str = ','.join([
+        f"{col['name']}:{col['type_postgres']}"
+        for col in columns
+    ])
+
+    # Partie 2 : Clés primaires normalisées
+    if primary_keys:
+        # Normalise les clés primaires (trim, lowercase, ordre)
+        pk_list = [pk.strip().lower() for pk in primary_keys.split(',') if pk.strip()]
+        pk_list.sort()  # Tri pour garantir la cohérence
+        pk_str = ','.join(pk_list)
+    else:
+        pk_str = 'NO_PRIMARY_KEY'
+
+    # Combinaison des deux parties
+    full_structure = f"COLUMNS:{columns_str}|PRIMARY_KEYS:{pk_str}"
+
+    # Calcule le hash MD5
+    fingerprint = hashlib.md5(full_structure.encode('utf-8')).hexdigest()
+
+    print(f"[FINGERPRINT] Colonnes: {len(columns)}, PK: {pk_str}")
+    print(f"[FINGERPRINT] Hash: {fingerprint}")
+
+    return fingerprint
 
 
 def format_primary_keys(primary_keys: str) -> List[str]:
@@ -140,3 +197,39 @@ def format_primary_keys(primary_keys: str) -> List[str]:
         for pk in primary_keys.split(',')
         if pk.strip()
     ]
+
+
+def compare_fingerprints(old_fingerprint: str, new_fingerprint: str,
+                        table_name: str = None) -> Dict[str, any]:
+    """
+    Compare deux fingerprints et retourne des informations détaillées
+
+    Utile pour diagnostiquer quel aspect de la structure a changé
+
+    Args:
+        old_fingerprint: Ancien hash
+        new_fingerprint: Nouveau hash
+        table_name: Nom de la table (pour logs)
+
+    Returns:
+        Dict avec 'changed' (bool), 'old', 'new', 'table_name'
+
+    Example:
+        >>> compare_fingerprints('abc123', 'def456', 'CSKS')
+        {'changed': True, 'old': 'abc123', 'new': 'def456', 'table_name': 'CSKS'}
+    """
+    changed = old_fingerprint != new_fingerprint
+
+    result = {
+        'changed': changed,
+        'old': old_fingerprint,
+        'new': new_fingerprint,
+        'table_name': table_name
+    }
+
+    if changed and table_name:
+        print(f"[FINGERPRINT] {table_name}: Structure changée")
+        print(f"  Ancien: {old_fingerprint[:16]}...")
+        print(f"  Nouveau: {new_fingerprint[:16]}...")
+
+    return result
