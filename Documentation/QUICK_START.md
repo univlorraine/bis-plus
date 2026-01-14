@@ -71,7 +71,7 @@ Modifiez `config/airflow_connections.json`:
 
 ```bash
 # Via CLI
-./manage.sh trigger amue_multi_table_import_v2
+./manage.sh trigger amue_multi_table_import
 
 # Ou via l'interface web
 # Aller sur http://localhost:8080

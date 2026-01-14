@@ -6,8 +6,8 @@ from string import Template
 from typing import Dict, List
 
 from airflow.exceptions import AirflowException
-from airflow.sdk import Variable
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
 
 
@@ -52,13 +52,13 @@ class AMUETableVerifier:
             postgres_conn_id='postgres_data',
             options='-c search_path=splus'
         )
-        self.environment = Variable.get('environment', default='production')
+        self.environment = VarMgr.get('environment', default='production')
         try:
-            univ = Variable.get('universite')
+            univ = VarMgr.get('universite')
         except KeyError:
             raise AirflowException("La variable 'univ' doit être définie pour initialiser AMUETableVerifier")
         try:
-            endpointadm = Variable.get('api_endpoint_admin')
+            endpointadm = VarMgr.get('api_endpoint_admin')
         except KeyError:
             raise AirflowException("La variable 'api_endpoint_admin' doit être définie pour initialiser AMUETableVerifier")
         try:

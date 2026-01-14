@@ -245,8 +245,8 @@ Prochaines étapes:
    Password : airflow
 
 2. Activez et déclenchez le DAG:
-   ./manage.sh unpause amue_multi_table_import_v2
-   ./manage.sh trigger amue_multi_table_import_v2
+   ./manage.sh unpause amue_multi_table_import
+   ./manage.sh trigger amue_multi_table_import
 
 3. Suivez l'exécution:
    - Interface Web: http://localhost:8080

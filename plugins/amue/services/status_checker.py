@@ -5,8 +5,8 @@ Mise à jour avec vérification de la variable 'finish'
 from datetime import datetime, timedelta
 from string import Template
 from typing import Dict, List, Optional
-from airflow.sdk import Variable
 from airflow.exceptions import AirflowException
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 
 class AMUEStatusChecker:
@@ -15,11 +15,11 @@ class AMUEStatusChecker:
     def __init__(self, api_hook):
         self.api_hook = api_hook
         try:
-            univ = Variable.get('universite')
+            univ = VarMgr.get('universite')
         except KeyError:
             raise AirflowException("La variable 'univ' doit être définie pour initialiser AMUEStatusChecker")
         try:
-            endpointadm = Variable.get('api_endpoint_admin')
+            endpointadm = VarMgr.get('api_endpoint_admin')
         except KeyError:
             raise AirflowException("La variable 'api_endpoint_admin' doit être définie pour initialiser AMUEStatusChecker")
         try:
@@ -112,7 +112,7 @@ class AMUEStatusChecker:
     def _get_last_success_date(self) -> datetime.date:
         """Récupère la date du dernier succès"""
         try:
-            last_success_str = Variable.get('amue_last_successful_run', default='')
+            last_success_str = VarMgr.get('amue_last_successful_run', default='')
             if last_success_str:
                 return datetime.fromisoformat(last_success_str).date()
         except:

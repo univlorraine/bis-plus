@@ -3,7 +3,7 @@ DAG refactorisé pour l'import AMUE
 Architecture propre avec séparation des responsabilités
 """
 from datetime import datetime, timedelta
-from airflow.sdk import dag, task, Variable
+from airflow.sdk import dag, task
 from airflow.exceptions import AirflowException
 from typing import List, Dict
 from amue import (
@@ -16,7 +16,8 @@ from amue import (
     AMUEPollingService,
     AMUEMetadataManager,
     AMUEReportGenerator,
-    send_failure_notification
+    send_failure_notification,
+    AirflowVariableManager as VarMngr,
 )
 
 
@@ -36,7 +37,7 @@ from amue import (
         'on_failure_callback': send_failure_notification,
     }
 )
-def amue_multi_table_import_v2():
+def amue_multi_table_import():
     """DAG principal d'import AMUE"""
 
     # ========================================================================
@@ -49,7 +50,7 @@ def amue_multi_table_import_v2():
         api_hook = AMUEAPIHook()
 
         status_checker = AMUEStatusChecker(api_hook)
-        max_days = int(Variable.get('amue_max_history_days', default='7'))
+        max_days = int(VarMngr.get('amue_max_history_days', default='7'))
 
         return status_checker.check_historical_status(max_days)
 
@@ -224,7 +225,7 @@ def amue_multi_table_import_v2():
 
     # 1. Historique et polling
     history = check_historical_status()
-    polling = wait_for_update_ready(history)
+    polling = wait_fclor_update_ready(history)
 
     # 2. Filtrage
     tables_to_process = filter_tables_to_process(polling, history)
@@ -252,4 +253,4 @@ def amue_multi_table_import_v2():
 
 
 # Instanciation du DAG
-amue_import_dag = amue_multi_table_import_v2()
+amue_import_dag = amue_multi_table_import()

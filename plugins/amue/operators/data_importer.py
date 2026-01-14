@@ -5,9 +5,10 @@ import time
 from datetime import datetime
 from string import Template
 from typing import Dict, List
-from airflow.sdk import Variable
+from psycopg2 import sql
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 
 class AMUEDataImporter:
@@ -20,11 +21,11 @@ class AMUEDataImporter:
             options='-c search_path=splus'
         )
         try:
-            univ = Variable.get('universite')
+            univ = VarMgr.get('universite')
         except KeyError:
             raise AirflowException("La variable 'univ' doit être définie pour initialiser AMUEDataImporter")
         try:
-            endpointtbl = Variable.get('api_endpoint_table')
+            endpointtbl = VarMgr.get('api_endpoint_table')
         except KeyError:
             raise AirflowException(
                 "La variable 'api_endpoint_table' doit être définie pour initialiser AMUEDataImporter")
@@ -33,8 +34,8 @@ class AMUEDataImporter:
         except KeyError as e:
             raise AirflowException(f"Erreur lors de la substitution dans l'endpoint: {e}")
 
-        self.max_retries = int(Variable.get('amue_api_max_retries', default='3'))
-        self.retry_delay = int(Variable.get('amue_api_retry_delay_seconds', default='30'))
+        self.max_retries = int(VarMgr.get('amue_api_max_retries', default='3'))
+        self.retry_delay = int(VarMgr.get('amue_api_retry_delay_seconds', default='30'))
 
     def import_table(self, table_name: str, columns: List[str], primary_keys: List[str],
                      import_config: Dict) -> Dict:
@@ -219,28 +220,43 @@ class AMUEDataImporter:
 
     def _build_insert_sql(self, table_name: str, columns: List[str],
                           primary_keys: List[str], use_upsert: bool) -> str:
-        """Construit la requête INSERT ou UPSERT"""
-        column_names = ', '.join(columns)
-        placeholders = ', '.join(['%s'] * len(columns))
+        # Identifiants sécurisés
+        table_id = sql.Identifier(table_name)
+        column_ids = [sql.Identifier(col) for col in columns]
+
+        placeholders = sql.SQL(', ').join([sql.Placeholder()] * len(columns))
+        column_list = sql.SQL(', ').join(column_ids)
 
         if use_upsert and primary_keys:
-            update_cols = [col for col in columns if col not in primary_keys]
-            conflict_target = ', '.join(primary_keys)
-            update_set = ', '.join([f"{col} = EXCLUDED.{col}" for col in update_cols])
+            pk_ids = [sql.Identifier(pk) for pk in primary_keys]
+            update_cols = [sql.Identifier(col) for col in columns if col not in primary_keys]
 
-            print("[IMPORT] Mode: UPSERT")
-            return f"""
-                INSERT INTO {table_name} ({column_names})
+            query = sql.SQL("""
+                INSERT INTO {table} ({columns})
                 VALUES ({placeholders})
-                ON CONFLICT ({conflict_target})
-                DO UPDATE SET {update_set}
-            """
+                ON CONFLICT ({pks})
+                DO UPDATE SET {updates}
+            """).format(
+                table=table_id,
+                columns=column_list,
+                placeholders=placeholders,
+                pks=sql.SQL(', ').join(pk_ids),
+                updates=sql.SQL(', ').join([
+                    sql.SQL("{} = EXCLUDED.{}").format(col, col)
+                    for col in update_cols
+                ])
+            )
         else:
-            print("[IMPORT] Mode: INSERT")
-            return f"""
-                INSERT INTO {table_name} ({column_names})
+            query = sql.SQL("""
+                INSERT INTO {table} ({columns})
                 VALUES ({placeholders})
-            """
+            """).format(
+                table=table_id,
+                columns=column_list,
+                placeholders=placeholders
+            )
+
+        return query.as_string(self.postgres_hook.get_conn())
 
     def _prepare_records(self, data: List[Dict], columns: List[str]) -> List[tuple]:
         """Prépare les records pour l'insertion"""

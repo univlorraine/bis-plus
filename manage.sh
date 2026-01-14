@@ -95,7 +95,7 @@ Commandes disponibles:
 Exemples:
   ./manage.sh start
   ./manage.sh logs airflow-scheduler
-  ./manage.sh trigger amue_multi_table_import_v2
+  ./manage.sh trigger amue_multi_table_import
   ./manage.sh config
   ./manage.sh test-email
 

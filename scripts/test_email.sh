@@ -202,7 +202,7 @@ Prochaines étapes:
 2. Vérifiez que l'email de test est visible
 
 3. Pour tester avec votre DAG:
-   ./manage.sh trigger amue_multi_table_import_v2
+   ./manage.sh trigger amue_multi_table_import
 
 4. Configuration pour production:
    - Éditez: config/airflow.cfg partie [smtp]

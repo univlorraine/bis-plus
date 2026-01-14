@@ -4,7 +4,7 @@ Responsable de la gestion du schéma DDL des tables AMUE
 """
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from airflow.sdk import Variable
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
 
@@ -38,7 +38,7 @@ class AMUETableManager:
             postgres_hook: Hook PostgreSQL personnalisé (optionnel)
         """
         self.postgres_hook = postgres_hook or self._create_default_hook()
-        self.environment = Variable.get('environment', default='production')
+        self.environment = VarMgr.get('environment', default='production')
 
     def _create_default_hook(self) -> PostgresHook:
         """Crée le hook PostgreSQL par défaut"""

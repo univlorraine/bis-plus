@@ -409,7 +409,7 @@ Cliquer sur le bouton `Trigger DAG` (▶) à droite du nom du DAG.
 #### Via CLI
 
 ```bash
-./manage.sh trigger amue_multi_table_import_v2
+./manage.sh trigger amue_multi_table_import
 ```
 
 ### Suivi de l'Exécution

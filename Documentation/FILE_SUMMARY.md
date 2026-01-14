@@ -337,7 +337,7 @@ _AIRFLOW_WWW_USER_PASSWORD=airflow
    ↓
 3. Vérifier logs: ./manage.sh logs dag-processor
    ↓
-4. Tester: ./manage.sh test amue_multi_table_import_v2
+4. Tester: ./manage.sh test amue_multi_table_import
 ```
 
 ---
@@ -431,7 +431,7 @@ docker-compose.yml
 ./manage.sh start
 ./manage.sh status
 ./manage.sh logs scheduler
-./manage.sh trigger amue_multi_table_import_v2
+./manage.sh trigger amue_multi_table_import
 
 # Maintenance
 ./manage.sh db-backup

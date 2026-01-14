@@ -69,7 +69,7 @@ amue_multi_table_import.py (800+ lignes)
 ### Après (Code Refactorisé)
 
 ```
-amue_multi_table_import_v2.py (200 lignes)
+amue_multi_table_import.py (200 lignes)
 ├── Délègue à des services spécialisés
 └── utils/
     ├── AMUEStatusChecker (statuts)
@@ -182,7 +182,7 @@ nano config/airflow_connections.json
 ./manage.sh start
 
 # Déclencher import
-./manage.sh trigger amue_multi_table_import_v2
+./manage.sh trigger amue_multi_table_import
 
 # Voir les logs
 ./manage.sh logs scheduler
@@ -287,7 +287,7 @@ def test_full_import_flow():
 
 ```bash
 # Test du DAG
-./manage.sh test amue_multi_table_import_v2
+./manage.sh test amue_multi_table_import
 
 # Test des connexions
 ./manage.sh shell

@@ -109,7 +109,7 @@ Votre installation est correcte. Vous pouvez :
    - Password: airflow
 
 2. Déclencher un import :
-   ./manage.sh trigger amue_multi_table_import_v2
+   ./manage.sh trigger amue_multi_table_import
 
 3. Voir les logs :
    ./manage.sh logs scheduler

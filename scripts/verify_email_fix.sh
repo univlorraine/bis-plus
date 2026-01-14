@@ -168,7 +168,7 @@ Le correctif email Airflow 3.x est correctement appliqué.
 Vous pouvez maintenant :
 1. Tester avec: ./manage.sh test-email
 2. Voir les emails: http://localhost:8025
-3. Déclencher le DAG: ./manage.sh trigger amue_multi_table_import_v2
+3. Déclencher le DAG: ./manage.sh trigger amue_multi_table_import
 
 EOF
 

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from airflow.sdk import Variable
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from airflow.utils.email import send_email
 
 
@@ -38,7 +38,7 @@ class NotificationService:
 
     def _load_recipients(self) -> List[str]:
         """Charge la liste des destinataires"""
-        recipients_var = Variable.get('amue_report_recipients', default='admin@example.com')
+        recipients_var = VarMgr.get('amue_report_recipients', default='admin@example.com')
         return [r.strip() for r in recipients_var.split(',') if r.strip()]
 
     def send_error_notification(self, error_context: ErrorContext) -> None:
@@ -239,7 +239,7 @@ class NotificationService:
         }
 
         try:
-            Variable.set('last_import_report', json.dumps(report))
+            VarMgr.set('last_import_report', json.dumps(report))
             print("[NOTIFICATION] Rapport d'erreur sauvegardé")
         except Exception as e:
             print(f"[WARN] Échec sauvegarde rapport: {str(e)}")

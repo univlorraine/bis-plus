@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import List, Dict
-from airflow.sdk import Variable
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 
 class AMUEReportGenerator:
@@ -59,9 +59,9 @@ class AMUEReportGenerator:
         """Envoie un email via SMTP directement"""
         # Récupère la configuration SMTP depuis Airflow
         try:
-            smtp_host = Variable.get('smtp_host', default='mailhog')
-            smtp_port = int(Variable.get('smtp_port', default='1025'))
-            smtp_from = Variable.get('smtp_mail_from', default='airflow@amue-project.local')
+            smtp_host = VarMgr.get('smtp_host', default='mailhog')
+            smtp_port = int(VarMgr.get('smtp_port', default='1025'))
+            smtp_from = VarMgr.get('smtp_mail_from', default='airflow@amue-project.local')
         except:
             # Valeurs par défaut si variables non configurées
             smtp_host = 'mailhog'
@@ -101,18 +101,11 @@ class AMUEReportGenerator:
 
     def _save_report(self, report: Dict) -> None:
         """Sauvegarde le rapport dans les variables"""
-        try:
-            from airflow.sdk.definitions.variable import Variable as SdkVariable
-            SdkVariable.set('last_import_report', json.dumps(report))
-        except:
-            try:
-                Variable.set('last_import_report', json.dumps(report))
-            except:
-                pass
+        VarMgr.set('last_import_report', json.dumps(report))
 
     def _get_recipients(self) -> List[str]:
         """Récupère la liste des destinataires"""
-        recipients_var = Variable.get('amue_report_recipients', default='admin@example.com')
+        recipients_var = VarMgr.get('amue_report_recipients', default='admin@example.com')
         return [r.strip() for r in recipients_var.split(',')]
 
     def _build_email_html(self, report: Dict) -> str:

@@ -87,35 +87,35 @@ def parse_column_definition(definition: str) -> str:
     return pg_type + params
 
 
-def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
-    """
-    Calcule un hash MD5 de la structure d'une table (colonnes uniquement)
-
-    ⚠️ DEPRECATED: Utiliser compute_structure_hash_with_pk() à la place
-    Cette fonction est conservée pour compatibilité mais ne devrait plus être utilisée
-
-    Args:
-        columns: Liste de dicts avec clés 'name' et 'type_postgres'
-
-    Returns:
-        Hash MD5 hexadécimal (32 caractères)
-
-    Example:
-        >>> columns = [
-        ...     {'name': 'id', 'type_postgres': 'INTEGER'},
-        ...     {'name': 'name', 'type_postgres': 'VARCHAR(50)'}
-        ... ]
-        >>> compute_structure_hash(columns)
-        'a1b2c3d4e5f6...'
-    """
-    # Crée une chaîne normalisée : "col1 : type1, col2 : type2, ..."
-    structure_str = ','.join([
-        f"{col['name']}:{col['type_postgres']}"
-        for col in columns
-    ])
-
-    # Calcule le hash MD5
-    return hashlib.md5(structure_str.encode('utf-8')).hexdigest()
+# def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
+#     """
+#     Calcule un hash MD5 de la structure d'une table (colonnes uniquement)
+#
+#     ⚠️ DEPRECATED: Utiliser compute_structure_hash_with_pk() à la place
+#     Cette fonction est conservée pour compatibilité mais ne devrait plus être utilisée
+#
+#     Args:
+#         columns: Liste de dicts avec clés 'name' et 'type_postgres'
+#
+#     Returns:
+#         Hash MD5 hexadécimal (32 caractères)
+#
+#     Example:
+#         >>> columns = [
+#         ...     {'name': 'id', 'type_postgres': 'INTEGER'},
+#         ...     {'name': 'name', 'type_postgres': 'VARCHAR(50)'}
+#         ... ]
+#         >>> compute_structure_hash(columns)
+#         'a1b2c3d4e5f6...'
+#     """
+#     # Crée une chaîne normalisée : "col1 : type1, col2 : type2, ..."
+#     structure_str = ','.join([
+#         f"{col['name']}:{col['type_postgres']}"
+#         for col in columns
+#     ])
+#
+#     # Calcule le hash MD5
+#     return hashlib.md5(structure_str.encode('utf-8')).hexdigest()
 
 
 def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: str = '') -> str:

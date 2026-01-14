@@ -3,11 +3,12 @@ Filtrage et sélection des tables AMUE à importer
 Avec arrêt et notification si table absente du statut
 """
 import json
+import pprint
 from typing import Dict, List
 from datetime import datetime
-from airflow.sdk import Variable
 from airflow.exceptions import AirflowException
-from amue.notifications.notification_service import NotificationService, ErrorContext
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
 
 
 class TableNotFoundError(AirflowException):
@@ -119,8 +120,8 @@ class AMUETableFilter:
                 continue
 
             table_name = table_config['name'].upper()
-
-            if table_name not in current_status:
+            pprint.pp((table_name not in current_status) or (current_status[table_name]['status'] != 'OK'))
+            if (table_name not in current_status) or (current_status[table_name]['status'] != 'OK'):
                 print(f"[FILTER] ⚠️ ERREUR: Table '{table_name}' absente du statut API")
                 missing_tables.append(table_name)
             else:
@@ -241,7 +242,7 @@ class AMUETableFilter:
             "finger_print": ""
         }])
 
-        tables_var = Variable.get('amue_tables_to_import', default=default_config)
+        tables_var = VarMgr.get('amue_tables_to_import', default=default_config)
         tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
 
         return tables_config if isinstance(tables_config, list) else []

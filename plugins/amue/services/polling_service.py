@@ -7,8 +7,8 @@ import time
 from typing import Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from airflow.sdk import Variable
 from airflow.exceptions import AirflowException
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 
 @dataclass
@@ -57,10 +57,10 @@ class AMUEPollingService:
     def _load_default_config(self) -> PollingConfig:
         """Charge la configuration depuis les variables Airflow"""
         return PollingConfig(
-            interval_minutes=int(Variable.get('amue_polling_interval_minutes', default='10')),
-            max_wait_hours=int(Variable.get('amue_max_wait_hours', default='6')),
-            exponential_backoff=Variable.get('amue_polling_exponential_backoff', default='False').lower() == 'true',
-            max_backoff_minutes=int(Variable.get('amue_polling_max_backoff_minutes', default='60'))
+            interval_minutes=int(VarMgr.get('amue_polling_interval_minutes', default='10')),
+            max_wait_hours=int(VarMgr.get('amue_max_wait_hours', default='6')),
+            exponential_backoff=VarMgr.get('amue_polling_exponential_backoff', default='False').lower() == 'true',
+            max_backoff_minutes=int(VarMgr.get('amue_polling_max_backoff_minutes', default='60'))
         )
 
     def wait_for_ready(self) -> Dict:

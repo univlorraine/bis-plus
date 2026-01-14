@@ -6,8 +6,8 @@ import json
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from airflow.sdk import Variable
 from airflow.exceptions import AirflowException
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 
 @dataclass
@@ -114,7 +114,7 @@ class AMUEMetadataManager:
             AirflowException: Si chargement échoue
         """
         try:
-            tables_var = Variable.get(self.tables_var_name)
+            tables_var = VarMgr.get(self.tables_var_name)
 
             # Parse si c'est une chaîne JSON
             if isinstance(tables_var, str):
@@ -194,24 +194,8 @@ class AMUEMetadataManager:
         Raises:
             AirflowException: Si sauvegarde échoue
         """
-        try:
-            # Tente d'abord avec le SDK (Airflow 3.x)
-            try:
-                from airflow.sdk.definitions.variable import Variable as SdkVariable
-                SdkVariable.set(self.tables_var_name, json.dumps(tables_config))
-                print("[METADATA] Configuration sauvegardée (SDK)")
-                return
-            except ImportError:
-                pass
-
-            # Fallback sur l'API classique
-            Variable.set(self.tables_var_name, json.dumps(tables_config))
-            print("[METADATA] Configuration sauvegardée (API)")
-
-        except Exception as e:
-            error_msg = f"Échec sauvegarde configuration: {str(e)}"
-            print(f"[ERROR] {error_msg}")
-            raise AirflowException(error_msg) from e
+        VarMgr.set(self.tables_var_name, json.dumps(tables_config))
+        print("[METADATA] Configuration sauvegardée (API)")
 
     def _save_last_success(self) -> None:
         """
@@ -222,23 +206,9 @@ class AMUEMetadataManager:
         """
         success_date = datetime.now().isoformat()
 
-        try:
-            # Tente avec le SDK
-            try:
-                from airflow.sdk.definitions.variable import Variable as SdkVariable
-                SdkVariable.set(self.last_success_var_name, success_date)
-                print(f"[METADATA] Dernier succès: {success_date} (SDK)")
-                return
-            except ImportError:
-                pass
+        VarMgr.set(self.last_success_var_name, success_date)
+        print(f"[METADATA] Dernier succès: {success_date} (API)")
 
-            # Fallback
-            Variable.set(self.last_success_var_name, success_date)
-            print(f"[METADATA] Dernier succès: {success_date} (API)")
-
-        except Exception as e:
-            print(f"[WARN] Échec sauvegarde dernier succès: {str(e)}")
-            # On ne fait pas échouer le DAG pour ça
 
     def get_last_success_date(self) -> Optional[datetime]:
         """
@@ -248,7 +218,7 @@ class AMUEMetadataManager:
             Date du dernier succès ou None si jamais exécuté
         """
         try:
-            last_success_str = Variable.get(self.last_success_var_name, default='')
+            last_success_str = VarMgr.get(self.last_success_var_name, default='')
 
             if last_success_str:
                 return datetime.fromisoformat(last_success_str)

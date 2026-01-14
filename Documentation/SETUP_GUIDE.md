@@ -266,7 +266,7 @@ docker-compose exec airflow-apiserver airflow connections test postgres_data
 docker-compose exec airflow-apiserver airflow dags list
 
 # Déclencher un DAG
-docker-compose exec airflow-apiserver airflow dags trigger amue_multi_table_import_v2
+docker-compose exec airflow-apiserver airflow dags trigger amue_multi_table_import
 ```
 
 ## 🔄 Mise à Jour de la Configuration
