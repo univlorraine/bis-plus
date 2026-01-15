@@ -1,4 +1,7 @@
 # amue/utils/airflow_helpers.py
+import json
+
+
 class AirflowVariableManager:
     """Gestionnaire centralisé pour variables Airflow avec fallback SDK/API"""
 
@@ -14,20 +17,20 @@ class AirflowVariableManager:
         if not isinstance(value, str):
             value = json.dumps(value)
 
-        # Tente SDK d'abord (Airflow 3.x)
-        try:
-            from airflow.sdk.definitions.variable import Variable as SdkVariable
-            SdkVariable.set(key, value)
-            print(f"[VAR] Set '{key}' via SDK")
-            return True
-        except (ImportError, Exception) as e:
-            print(f"[VAR] SDK failed: {e}")
-
-        # Fallback API classique
+        # Utilise airflow.models.Variable pour la persistance en base
         try:
             from airflow.models import Variable
             Variable.set(key, value)
-            print(f"[VAR] Set '{key}' via API")
+            print(f"[VAR] Set '{key}' via models.Variable")
+            return True
+        except (ImportError, Exception) as e:
+            print(f"[VAR] models.Variable failed: {e}")
+
+        # Fallback SDK
+        try:
+            from airflow.sdk import Variable
+            Variable.set(key, value)
+            print(f"[VAR] Set '{key}' via SDK")
             return True
         except Exception as e:
             print(f"[ERROR] Cannot set variable '{key}': {e}")

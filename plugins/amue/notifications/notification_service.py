@@ -3,11 +3,13 @@ Utilitaires de notification pour les DAGs AMUE
 Gestion centralisée des notifications d'erreur et de succès
 """
 import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from airflow.utils.email import send_email
 
 
 @dataclass
@@ -28,18 +30,40 @@ class NotificationService:
     Responsabilités :
     - Construction des emails d'erreur
     - Construction des emails de succès
-    - Envoi via le système Airflow
+    - Envoi via SMTP direct
     - Sauvegarde des rapports d'erreur
     """
 
     def __init__(self):
         """Initialise le service de notification"""
+        print("[DEBUG] NotificationService.__init__ - VERSION SMTP DIRECT")
         self.recipients = self._load_recipients()
+        self.smtp_host = VarMgr.get('smtp_host', default='mailhog')
+        self.smtp_port = int(VarMgr.get('smtp_port', default='1025'))
+        self.smtp_from = VarMgr.get('smtp_mail_from', default='airflow@amue.local')
+        print(f"[DEBUG] SMTP config: host={self.smtp_host}, port={self.smtp_port}, from={self.smtp_from}")
+        print(f"[DEBUG] Recipients: {self.recipients}")
 
     def _load_recipients(self) -> List[str]:
         """Charge la liste des destinataires"""
         recipients_var = VarMgr.get('amue_report_recipients', default='admin@example.com')
         return [r.strip() for r in recipients_var.split(',') if r.strip()]
+
+    def _send_email(self, subject: str, html_content: str) -> None:
+        """Envoie un email via SMTP direct"""
+        print(f"[DEBUG] _send_email appelé - SMTP direct vers {self.smtp_host}:{self.smtp_port}")
+
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = self.smtp_from
+        msg['To'] = ', '.join(self.recipients)
+
+        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+
+        print(f"[DEBUG] Connexion SMTP à {self.smtp_host}:{self.smtp_port}...")
+        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            server.sendmail(self.smtp_from, self.recipients, msg.as_string())
+        print("[DEBUG] Email envoyé avec succès via SMTP direct")
 
     def send_error_notification(self, error_context: ErrorContext) -> None:
         """
@@ -54,11 +78,7 @@ class NotificationService:
         html = self._build_error_html(error_context)
 
         try:
-            send_email(
-                to=self.recipients,
-                subject=subject,
-                html_content=html
-            )
+            self._send_email(subject, html)
             print("[NOTIFICATION] Email d'erreur envoyé avec succès")
         except Exception as e:
             print(f"[WARN] Échec envoi email d'erreur: {str(e)}")
@@ -260,7 +280,7 @@ def send_failure_notification(context: Dict) -> None:
     Args:
         context: Contexte Airflow avec task_instance, exception, etc.
     """
-    print("[ERROR_CALLBACK] Déclenchement du callback d'erreur")
+    print("[ERROR_CALLBACK] Déclenchement du callback d'erreur - VERSION SMTP DIRECT v2")
 
     # Extraction du contexte
     task_instance = context.get('task_instance')

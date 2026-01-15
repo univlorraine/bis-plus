@@ -3,11 +3,15 @@ Gestionnaire des métadonnées d'import AMUE
 Responsable de la persistance des empreintes, dates et statuts
 """
 import json
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -28,8 +32,12 @@ class AMUEMetadataManager:
     - Mise à jour des fingerprints après import
     - Enregistrement des dates de dernier import
     - Sauvegarde de la date du dernier succès global
-    - Gestion thread-safe des variables Airflow
+    - Gestion avec retry pour éviter les pertes de données
     """
+
+    # Configuration retry
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
 
     def __init__(self):
         """Initialise le gestionnaire de métadonnées"""
@@ -40,48 +48,63 @@ class AMUEMetadataManager:
         """
         Met à jour les métadonnées après des imports réussis
 
+        IMPORTANT: Cette méthode fait échouer le DAG si les métadonnées
+        ne peuvent pas être sauvegardées, car cela compromettrait
+        les imports différentiels suivants.
+
         Args:
             import_results: Liste des résultats d'import
 
         Raises:
-            AirflowException: Si mise à jour échoue
+            AirflowException: Si mise à jour échoue après tous les retries
         """
-        print("[METADATA] Début mise à jour des métadonnées")
-        print(f"[METADATA] {len(import_results)} résultats à traiter")
+        logger.info("Début mise à jour des métadonnées")
+        logger.info(f"{len(import_results)} résultats à traiter")
 
         if not import_results:
-            print("[METADATA] Aucun résultat à traiter")
+            logger.info("Aucun résultat à traiter")
             return
 
-        try:
-            # Charge la configuration actuelle
-            tables_config = self._load_tables_config()
-            original_count = len(tables_config)
+        last_error = None
 
-            # Met à jour chaque table
-            updated_count = 0
-            for result in import_results:
-                if self._should_update_metadata(result):
-                    if self._update_table_metadata(tables_config, result):
-                        updated_count += 1
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # Charge la configuration actuelle
+                tables_config = self._load_tables_config()
 
-            # Sauvegarde la configuration
-            if updated_count > 0:
-                self._save_tables_config(tables_config)
-                print(f"[METADATA] {updated_count}/{len(import_results)} tables mises à jour")
-            else:
-                print("[METADATA] Aucune mise à jour nécessaire")
+                # Met à jour chaque table
+                updated_count = 0
+                for result in import_results:
+                    if self._should_update_metadata(result):
+                        if self._update_table_metadata(tables_config, result):
+                            updated_count += 1
 
-            # Enregistre la date du dernier succès global
-            self._save_last_success()
+                # Sauvegarde la configuration
+                if updated_count > 0:
+                    self._save_tables_config(tables_config)
+                    logger.info(f"{updated_count}/{len(import_results)} tables mises à jour")
+                else:
+                    logger.info("Aucune mise à jour nécessaire")
 
-            print("[METADATA] Mise à jour terminée avec succès")
+                # Enregistre la date du dernier succès global
+                self._save_last_success()
 
-        except Exception as e:
-            error_msg = f"Erreur lors de la mise à jour des métadonnées: {str(e)}"
-            print(f"[ERROR] {error_msg}")
-            # On log mais on ne fait pas échouer le DAG
-            print("[WARN] Métadonnées non mises à jour mais import réussi")
+                logger.info("Mise à jour terminée avec succès")
+                return
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
+
+                if attempt < self.MAX_RETRIES - 1:
+                    wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)  # Backoff exponentiel
+                    logger.info(f"Retry dans {wait_time}s...")
+                    time.sleep(wait_time)
+
+        # Échec après tous les retries - FAIL EXPLICITE
+        error_msg = f"Impossible de sauvegarder les métadonnées après {self.MAX_RETRIES} tentatives: {last_error}"
+        logger.error(error_msg)
+        raise AirflowException(error_msg)
 
     def _should_update_metadata(self, result: Dict) -> bool:
         """
@@ -94,11 +117,11 @@ class AMUEMetadataManager:
             True si mise à jour nécessaire
         """
         if result.get('status') != 'success':
-            print(f"[METADATA] Skip {result.get('table_name', 'unknown')}: statut {result.get('status')}")
+            logger.info(f"Skip {result.get('table_name', 'unknown')}: statut {result.get('status')}")
             return False
 
         if not result.get('table_name'):
-            print("[METADATA] Skip: pas de nom de table")
+            logger.info("Skip: pas de nom de table")
             return False
 
         return True
@@ -126,19 +149,17 @@ class AMUEMetadataManager:
             if not isinstance(tables_config, list):
                 raise ValueError("Configuration doit être une liste")
 
-            print(f"[METADATA] {len(tables_config)} tables chargées")
+            logger.info(f"{len(tables_config)} tables chargées")
             return tables_config
 
         except Exception as e:
             error_msg = f"Impossible de charger la configuration des tables: {str(e)}"
-            print(f"[ERROR] {error_msg}")
+            logger.error(error_msg)
             raise AirflowException(error_msg) from e
 
     def _update_table_metadata(self, tables_config: List[Dict], result: Dict) -> bool:
         """
         Met à jour les métadonnées d'une table spécifique
-
-        NOUVEAU: Met à jour aussi les clés primaires si elles ont été récupérées
 
         Args:
             tables_config: Configuration complète des tables
@@ -164,24 +185,26 @@ class AMUEMetadataManager:
                 table['finger_print'] = new_fingerprint
                 table['last_import'] = datetime.now().isoformat()
 
-                # NOUVEAU: Mise à jour des clés primaires si récupérées
+                # Mise à jour des clés primaires si récupérées
                 if result.get('primary_keys'):
                     old_pk = table.get('primary_key', 'none')
                     new_pk = result['primary_keys']
 
                     if old_pk != new_pk:
-                        print(f"[METADATA] {table_name}: Mise à jour clés primaires")
-                        print(f"  Ancien: {old_pk}")
-                        print(f"  Nouveau: {new_pk}")
+                        logger.info(f"{table_name}: Mise à jour clés primaires")
+                        logger.info(f"  Ancien: {old_pk}")
+                        logger.info(f"  Nouveau: {new_pk}")
                         table['primary_key'] = new_pk
 
-                print(f"[METADATA] {table_name}:")
-                print(f"  - Fingerprint: {old_fingerprint[:8]}... → {new_fingerprint[:8]}...")
-                print(f"  - Last import: {table['last_import']}")
+                fp_old_short = old_fingerprint[:8] if old_fingerprint else 'none'
+                fp_new_short = new_fingerprint[:8] if new_fingerprint else 'none'
+                logger.info(f"{table_name}:")
+                logger.info(f"  - Fingerprint: {fp_old_short}... -> {fp_new_short}...")
+                logger.info(f"  - Last import: {table['last_import']}")
 
                 return True
 
-        print(f"[WARN] Table {table_name} non trouvée dans la configuration")
+        logger.warning(f"Table {table_name} non trouvée dans la configuration")
         return False
 
     def _save_tables_config(self, tables_config: List[Dict]) -> None:
@@ -194,8 +217,10 @@ class AMUEMetadataManager:
         Raises:
             AirflowException: Si sauvegarde échoue
         """
-        VarMgr.set(self.tables_var_name, json.dumps(tables_config))
-        print("[METADATA] Configuration sauvegardée (API)")
+        success = VarMgr.set(self.tables_var_name, json.dumps(tables_config))
+        if not success:
+            raise AirflowException("Échec de la sauvegarde de la configuration")
+        logger.info("Configuration sauvegardée")
 
     def _save_last_success(self) -> None:
         """
@@ -206,9 +231,11 @@ class AMUEMetadataManager:
         """
         success_date = datetime.now().isoformat()
 
-        VarMgr.set(self.last_success_var_name, success_date)
-        print(f"[METADATA] Dernier succès: {success_date} (API)")
-
+        success = VarMgr.set(self.last_success_var_name, success_date)
+        if success:
+            logger.info(f"Dernier succès: {success_date}")
+        else:
+            logger.warning("Impossible de sauvegarder la date du dernier succès")
 
     def get_last_success_date(self) -> Optional[datetime]:
         """
@@ -224,7 +251,7 @@ class AMUEMetadataManager:
                 return datetime.fromisoformat(last_success_str)
 
         except Exception as e:
-            print(f"[WARN] Impossible de récupérer dernier succès: {str(e)}")
+            logger.warning(f"Impossible de récupérer dernier succès: {str(e)}")
 
         return None
 
@@ -253,7 +280,7 @@ class AMUEMetadataManager:
                     )
 
         except Exception as e:
-            print(f"[WARN] Erreur récupération métadonnées {table_name}: {str(e)}")
+            logger.warning(f"Erreur récupération métadonnées {table_name}: {str(e)}")
 
         return None
 
@@ -279,12 +306,12 @@ class AMUEMetadataManager:
                     table['last_import'] = ''
 
                     self._save_tables_config(tables_config)
-                    print(f"[METADATA] Table {table_name} réinitialisée")
+                    logger.info(f"Table {table_name} réinitialisée")
                     return True
 
-            print(f"[WARN] Table {table_name} non trouvée")
+            logger.warning(f"Table {table_name} non trouvée")
             return False
 
         except Exception as e:
-            print(f"[ERROR] Échec réinitialisation {table_name}: {str(e)}")
+            logger.error(f"Échec réinitialisation {table_name}: {str(e)}")
             return False

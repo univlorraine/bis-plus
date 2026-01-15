@@ -10,6 +10,11 @@ from amue.services.polling_service import AMUEPollingService
 from amue.services.status_checker import AMUEStatusChecker
 from amue.services.metadata_manager import AMUEMetadataManager
 from amue.operators.table_filter import AMUETableFilter
+from amue.utils.logger import get_logger
+from amue.utils.hooks import HookManager
+from amue.utils.settings import AMUEConfig, get_config, reload_config
+
+
 
 
 __all__ = [
@@ -31,4 +36,9 @@ __all__ = [
     "format_primary_keys",
     "compare_fingerprints",
     "AirflowVariableManager",
+    'get_logger',
+    'HookManager',
+    'AMUEConfig',
+    'get_config',
+    'reload_config',
 ]

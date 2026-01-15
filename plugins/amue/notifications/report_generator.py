@@ -8,6 +8,9 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import List, Dict
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AMUEReportGenerator:
@@ -16,7 +19,7 @@ class AMUEReportGenerator:
     def generate_report(self, insert_results: List[Dict],
                        history_result: Dict, polling_result: Dict) -> Dict:
         """Génère un rapport d'exécution"""
-        print("[REPORT] Génération")
+        logger.info("Génération du rapport")
 
         total_tables = len(insert_results)
         total_rows = sum(r.get('rows_inserted', 0) for r in insert_results)
@@ -39,7 +42,7 @@ class AMUEReportGenerator:
 
     def send_notification(self, report: Dict) -> None:
         """Envoie une notification par email"""
-        print("[EMAIL] Envoi notification")
+        logger.info("Envoi notification email")
 
         recipients = self._get_recipients()
         html = self._build_email_html(report)
@@ -51,9 +54,9 @@ class AMUEReportGenerator:
                 subject=subject,
                 html_content=html
             )
-            print("[EMAIL] Envoyé")
+            logger.info("Email envoyé avec succès")
         except Exception as e:
-            print(f"[WARN] Email: {e}")
+            logger.warning(f"Échec envoi email: {e}")
 
     def _send_email_smtp(self, to: List[str], subject: str, html_content: str) -> None:
         """Envoie un email via SMTP directement"""
@@ -62,7 +65,7 @@ class AMUEReportGenerator:
             smtp_host = VarMgr.get('smtp_host', default='mailhog')
             smtp_port = int(VarMgr.get('smtp_port', default='1025'))
             smtp_from = VarMgr.get('smtp_mail_from', default='airflow@amue-project.local')
-        except:
+        except Exception:
             # Valeurs par défaut si variables non configurées
             smtp_host = 'mailhog'
             smtp_port = 1025
@@ -85,7 +88,7 @@ class AMUEReportGenerator:
 
     def _print_report(self, report: Dict) -> None:
         """Affiche le rapport dans les logs"""
-        print(f"""
+        logger.info(f"""
 +================================================================+
 |                    RAPPORT IMPORT AMUE                         |
 +================================================================+
@@ -97,7 +100,7 @@ class AMUEReportGenerator:
         """)
 
         for r in report['tables_detail']:
-            print(f"[OK] {r['table_name']:15} | {r['rows_inserted']:>8} lignes | {r['import_type']}")
+            logger.info(f"[OK] {r['table_name']:15} | {r['rows_inserted']:>8} lignes | {r['import_type']}")
 
     def _save_report(self, report: Dict) -> None:
         """Sauvegarde le rapport dans les variables"""

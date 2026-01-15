@@ -3,12 +3,14 @@ Filtrage et sélection des tables AMUE à importer
 Avec arrêt et notification si table absente du statut
 """
 import json
-import pprint
 from typing import Dict, List
 from datetime import datetime
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
 from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
+
+logger = get_logger(__name__)
 
 
 class TableNotFoundError(AirflowException):
@@ -61,7 +63,7 @@ class AMUETableFilter:
         Raises:
             TableNotFoundError: Si des tables configurées sont absentes du statut
         """
-        print(f"[FILTER] Filtrage de {len(self.tables_config)} tables configurées")
+        logger.info(f" Filtrage de {len(self.tables_config)} tables configurées")
 
         # Vérification CRITIQUE: toutes les tables configurées doivent exister dans le statut
         missing_tables = self._check_tables_exist_in_status(current_status)
@@ -96,11 +98,11 @@ class AMUETableFilter:
             # Détermine si on traite cette table
             if self._should_process_table(enriched_config):
                 tables_to_process.append(enriched_config)
-                print(f"[FILTER] {table_name}: À traiter ({enriched_config['import_type']})")
+                logger.info(f" {table_name}: À traiter ({enriched_config['import_type']})")
             else:
-                print(f"[FILTER] {table_name}: Skip")
+                logger.info(f" {table_name}: Skip")
 
-        print(f"[FILTER] {len(tables_to_process)} tables à traiter")
+        logger.info(f" {len(tables_to_process)} tables à traiter")
         return tables_to_process
 
     def _check_tables_exist_in_status(self, current_status: Dict) -> List[str]:
@@ -120,12 +122,11 @@ class AMUETableFilter:
                 continue
 
             table_name = table_config['name'].upper()
-            pprint.pp((table_name not in current_status) or (current_status[table_name]['status'] != 'OK'))
             if (table_name not in current_status) or (current_status[table_name]['status'] != 'OK'):
-                print(f"[FILTER] ⚠️ ERREUR: Table '{table_name}' absente du statut API")
+                logger.warning(f"Table '{table_name}' absente du statut API ou status != OK")
                 missing_tables.append(table_name)
             else:
-                print(f"[FILTER] ✓ Table '{table_name}' trouvée dans le statut")
+                logger.info(f"Table '{table_name}' trouvée dans le statut")
 
         return missing_tables
 
@@ -137,15 +138,15 @@ class AMUETableFilter:
             missing_tables: Liste des tables absentes
             current_status: Statut actuel pour information
         """
-        print("[FILTER] Envoi notification pour tables manquantes")
+        logger.info("Envoi notification pour tables manquantes")
 
         # Construction du message d'erreur détaillé
         error_message = self._build_missing_tables_error_message(missing_tables, current_status)
 
         # Si NotificationService n'est pas disponible, utiliser le fallback
         if self.notification_service is None or ErrorContext is None:
-            print("[WARN] NotificationService non disponible, utilisation du fallback")
-            print(error_message)
+            logger.warning("NotificationService non disponible, utilisation du fallback")
+            logger.error(error_message)
 
             # Tenter d'utiliser send_failure_notification si disponible
             try:
@@ -163,7 +164,7 @@ class AMUETableFilter:
                 }
                 send_failure_notification(context)
             except Exception as e:
-                print(f"[WARN] Impossible d'envoyer la notification: {str(e)}")
+                logger.warning(f" Impossible d'envoyer la notification: {str(e)}")
             return
 
         # Contexte d'erreur
@@ -179,9 +180,9 @@ class AMUETableFilter:
         # Envoi de la notification
         try:
             self.notification_service.send_error_notification(error_context)
-            print("[FILTER] Notification envoyée avec succès")
+            logger.info("Notification envoyée avec succès")
         except Exception as e:
-            print(f"[WARN] Échec envoi notification: {str(e)}")
+            logger.warning(f" Échec envoi notification: {str(e)}")
 
     def _build_missing_tables_error_message(self, missing_tables: List[str], current_status: Dict) -> str:
         """
@@ -263,7 +264,7 @@ class AMUETableFilter:
 
         # NOUVEAU: Récupération automatique des clés primaires si absentes
         if not enriched.get('primary_key') or not enriched['primary_key'].strip():
-            print(f"[FILTER] Table {enriched['name']}: Clés primaires absentes, récupération via API")
+            logger.info(f" Table {enriched['name']}: Clés primaires absentes, récupération via API")
             enriched['needs_pk_update'] = True
         else:
             enriched['needs_pk_update'] = False

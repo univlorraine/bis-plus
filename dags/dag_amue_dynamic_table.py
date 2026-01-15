@@ -171,11 +171,31 @@ def amue_multi_table_import():
     @task(task_id='manage_structure')
     def manage_table_structure(table_ready: Dict) -> Dict:
         """Gère la structure d'une table"""
+        table_name = table_ready['structure_info'].get('table_name', 'unknown')
+        existing_fp = table_ready['original_info'].get('finger_print', '')
+        new_fp = table_ready['structure_info'].get('finger_print', '')
+
+        # Vérification du changement de structure
+        if existing_fp and new_fp and existing_fp != new_fp:
+            error_msg = (
+                f"CHANGEMENT DE STRUCTURE DÉTECTÉ pour {table_name}\n"
+                f"Fingerprint stocké: {existing_fp}\n"
+                f"Fingerprint API: {new_fp}\n"
+                f"Action requise: Vérifier les changements et mettre à jour manuellement le fingerprint."
+            )
+            print(f"[ERROR] {error_msg}")
+            raise AirflowException(error_msg)
+
         manager = AMUETableManager()
         result = manager.manage_table(table_ready['structure_info'])
 
         # Ajoute les infos originales pour l'import
         result['original_info'] = table_ready['original_info']
+
+        # Propage le nouveau finger_print uniquement si l'ancien est vide
+        if not existing_fp:
+            result['original_info']['finger_print'] = new_fp
+
         return result
 
     # ========================================================================
@@ -225,7 +245,7 @@ def amue_multi_table_import():
 
     # 1. Historique et polling
     history = check_historical_status()
-    polling = wait_fclor_update_ready(history)
+    polling = wait_for_update_ready(history)
 
     # 2. Filtrage
     tables_to_process = filter_tables_to_process(polling, history)
