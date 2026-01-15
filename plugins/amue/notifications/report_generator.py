@@ -1,33 +1,64 @@
+# amue/notifications/report_generator.py
 """
 Générateur de rapports et notifications
+Utilise le nouveau système de notifications
 """
 import json
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import List, Dict
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.logger import get_logger
+from amue.notifications.notifiers.success_notifier import SuccessNotifier
 
 logger = get_logger(__name__)
 
 
 class AMUEReportGenerator:
-    """Génère des rapports d'exécution et envoie des notifications"""
+    """
+    Génère des rapports d'exécution et envoie des notifications
+
+    Utilise SuccessNotifier pour l'envoi des emails.
+    """
+
+    def __init__(self):
+        """Initialise le générateur de rapports"""
+        self.notifier = SuccessNotifier()
 
     def generate_report(self, insert_results: List[Dict],
                        history_result: Dict, polling_result: Dict) -> Dict:
-        """Génère un rapport d'exécution"""
+        """
+        Génère un rapport d'exécution
+
+        Args:
+            insert_results: Résultats des imports
+            history_result: Résultat de la vérification historique
+            polling_result: Résultat du polling
+
+        Returns:
+            Rapport complet
+        """
         logger.info("Génération du rapport")
 
         total_tables = len(insert_results)
         total_rows = sum(r.get('rows_inserted', 0) for r in insert_results)
 
+        # Calcul de la durée
+        start_time = polling_result.get('start_time')
+        if start_time:
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                duration_seconds = (datetime.now() - start_dt).total_seconds()
+                duration = self._format_duration(duration_seconds)
+            except Exception:
+                duration = f"{polling_result.get('total_wait_minutes', 0)}min"
+        else:
+            duration = f"{polling_result.get('total_wait_minutes', 0)}min"
+
         report = {
             'execution_date': datetime.now().isoformat(),
             'polling_attempts': polling_result.get('attempts', 0),
             'polling_wait_minutes': polling_result.get('total_wait_minutes', 0),
+            'duration': duration,
             'total_tables': total_tables,
             'total_rows': total_rows,
             'tables_detail': list(insert_results),
@@ -41,50 +72,42 @@ class AMUEReportGenerator:
         return report
 
     def send_notification(self, report: Dict) -> None:
-        """Envoie une notification par email"""
+        """
+        Envoie une notification par email
+
+        Args:
+            report: Rapport à envoyer
+        """
         logger.info("Envoi notification email")
 
-        recipients = self._get_recipients()
-        html = self._build_email_html(report)
-        subject = f"[OK] Import AMUE - {datetime.now().strftime('%Y-%m-%d')}"
+        # Prépare les données pour le notifier
+        notification_data = {
+            'dag_id': 'amue_multi_table_import',
+            'execution_date': report.get('execution_date', datetime.now().isoformat()),
+            'duration': report.get('duration', 'N/A'),
+            'tables_imported': report.get('tables_detail', []),
+            'total_rows': report.get('total_rows', 0)
+        }
 
-        try:
-            self._send_email_smtp(
-                to=recipients,
-                subject=subject,
-                html_content=html
-            )
+        success = self.notifier.notify(notification_data)
+
+        if success:
             logger.info("Email envoyé avec succès")
-        except Exception as e:
-            logger.warning(f"Échec envoi email: {e}")
+        else:
+            logger.warning("Échec envoi email")
 
-    def _send_email_smtp(self, to: List[str], subject: str, html_content: str) -> None:
-        """Envoie un email via SMTP directement"""
-        # Récupère la configuration SMTP depuis Airflow
-        try:
-            smtp_host = VarMgr.get('smtp_host', default='mailhog')
-            smtp_port = int(VarMgr.get('smtp_port', default='1025'))
-            smtp_from = VarMgr.get('smtp_mail_from', default='airflow@amue-project.local')
-        except Exception:
-            # Valeurs par défaut si variables non configurées
-            smtp_host = 'mailhog'
-            smtp_port = 1025
-            smtp_from = 'airflow@amue-project.local'
-
-        # Création du message
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = smtp_from
-        msg['To'] = ', '.join(to)
-
-        # Attacher le HTML
-        part = MIMEText(html_content, 'html')
-        msg.attach(part)
-
-        # Envoi
-        server = smtplib.SMTP(smtp_host, smtp_port)
-        server.sendmail(smtp_from, to, msg.as_string())
-        server.quit()
+    def _format_duration(self, seconds: float) -> str:
+        """Formate une durée en secondes en format lisible"""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
 
     def _print_report(self, report: Dict) -> None:
         """Affiche le rapport dans les logs"""
@@ -93,60 +116,16 @@ class AMUEReportGenerator:
 |                    RAPPORT IMPORT AMUE                         |
 +================================================================+
 | Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}                                  |
-| Polling: {report['polling_wait_minutes']}min ({report['polling_attempts']} tentatives)              |
+| Durée: {report.get('duration', 'N/A')}                                              |
 | Tables: {report['total_tables']}                                                  |
 | Lignes: {report['total_rows']:,}                                              |
 +================================================================+
         """)
 
         for r in report['tables_detail']:
-            logger.info(f"[OK] {r['table_name']:15} | {r['rows_inserted']:>8} lignes | {r['import_type']}")
+            status_icon = "[OK]" if r.get('status') == 'success' else "[!!]"
+            logger.info(f"{status_icon} {r['table_name']:15} | {r.get('rows_inserted', 0):>8} lignes | {r.get('import_type', 'full')}")
 
     def _save_report(self, report: Dict) -> None:
         """Sauvegarde le rapport dans les variables"""
         VarMgr.set('last_import_report', json.dumps(report))
-
-    def _get_recipients(self) -> List[str]:
-        """Récupère la liste des destinataires"""
-        recipients_var = VarMgr.get('amue_report_recipients', default='admin@example.com')
-        return [r.strip() for r in recipients_var.split(',')]
-
-    def _build_email_html(self, report: Dict) -> str:
-        """Construit le contenu HTML de l'email"""
-        html = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; }}
-                .header {{ background-color: #4CAF50; color: white; padding: 20px; }}
-                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-                th, td {{ border: 1px solid #ddd; padding: 12px; }}
-                th {{ background-color: #4CAF50; color: white; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>Import AMUE Réussi</h1>
-                <p>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </div>
-            <h2>Résumé</h2>
-            <ul>
-                <li>Tables: {report['total_tables']}</li>
-                <li>Lignes: {report['total_rows']:,}</li>
-                <li>Polling: {report['polling_wait_minutes']}min</li>
-            </ul>
-            <h2>Détails</h2>
-            <table>
-                <tr><th>Table</th><th>Lignes</th><th>Type</th></tr>
-        """
-
-        for r in report['tables_detail']:
-            html += f"<tr><td>{r['table_name']}</td><td>{r['rows_inserted']:,}</td><td>{r['import_type']}</td></tr>"
-
-        html += """
-            </table>
-        </body>
-        </html>
-        """
-
-        return html

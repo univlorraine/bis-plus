@@ -17,15 +17,6 @@ class AirflowVariableManager:
         if not isinstance(value, str):
             value = json.dumps(value)
 
-        # Utilise airflow.models.Variable pour la persistance en base
-        try:
-            from airflow.models import Variable
-            Variable.set(key, value)
-            print(f"[VAR] Set '{key}' via models.Variable")
-            return True
-        except (ImportError, Exception) as e:
-            print(f"[VAR] models.Variable failed: {e}")
-
         # Fallback SDK
         try:
             from airflow.sdk import Variable

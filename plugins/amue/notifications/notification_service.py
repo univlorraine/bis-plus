@@ -286,13 +286,18 @@ def send_failure_notification(context: Dict) -> None:
     task_instance = context.get('task_instance')
     exception = context.get('exception')
 
+    # Vérifie qu'il y a bien une exception avant d'envoyer
+    if not exception:
+        print("[ERROR_CALLBACK] Pas d'exception dans le contexte - notification ignorée")
+        return
+
     # Construction du contexte d'erreur
     error_context = ErrorContext(
         execution_date=datetime.now().isoformat(),
         dag_id=task_instance.dag_id if task_instance else 'unknown',
         task_id=task_instance.task_id if task_instance else 'unknown',
-        error_message=str(exception) if exception else 'Erreur inconnue',
-        error_type=type(exception).__name__ if exception else 'UnknownError',
+        error_message=str(exception),
+        error_type=type(exception).__name__,
         status='failed'
     )
 

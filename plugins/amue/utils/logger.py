@@ -3,6 +3,7 @@
 Logger unifié pour AMUE
 Remplace les print() dispersés par un logging Python standard
 """
+import sys
 import logging
 from typing import Optional
 
@@ -21,7 +22,7 @@ def get_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     logger = logging.getLogger(f"amue.{name}")
 
     if not logger.handlers:
-        handler = logging.StreamHandler()
+        handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
             '[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'

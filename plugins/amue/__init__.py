@@ -1,5 +1,13 @@
 from amue.hooks.amue_api_hook import AMUEAPIHook
-from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
+# Nouveau système de notifications
+from amue.notifications import (
+    EmailService,
+    ErrorNotifier,
+    SuccessNotifier,
+    send_failure_notification,
+)
+# Rétro-compatibilité avec l'ancien système
+from amue.notifications.notification_service import NotificationService, ErrorContext
 from amue.notifications.report_generator import AMUEReportGenerator
 from amue.operators.data_importer import AMUEDataImporter
 from amue.operators.table_manager import AMUETableManager
@@ -18,27 +26,36 @@ from amue.utils.settings import AMUEConfig, get_config, reload_config
 
 
 __all__ = [
+    # Hooks
     "AMUEAPIHook",
+    # Services
     "AMUEStatusChecker",
     "AMUEPollingService",
     "AMUEMetadataManager",
+    # Operators
     "AMUETableFilter",
     "AMUETableVerifier",
     "AMUETableManager",
     "AMUEDataImporter",
+    # Notifications (nouveau)
+    "EmailService",
+    "ErrorNotifier",
+    "SuccessNotifier",
+    "send_failure_notification",
+    # Notifications (rétro-compatibilité)
     "NotificationService",
     "ErrorContext",
-    "send_failure_notification",
     "AMUEReportGenerator",
+    # Utils
     "parse_column_definition",
-    # "compute_structure_hash",
     "compute_structure_hash_with_pk",
     "format_primary_keys",
     "compare_fingerprints",
     "AirflowVariableManager",
-    'get_logger',
-    'HookManager',
-    'AMUEConfig',
-    'get_config',
-    'reload_config',
+    "get_logger",
+    "HookManager",
+    # Config
+    "AMUEConfig",
+    "get_config",
+    "reload_config",
 ]
