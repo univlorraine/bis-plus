@@ -82,7 +82,7 @@ services:
       POSTGRES_DB: business_data
     volumes:
       - postgres-data-volume:/var/lib/postgresql/data
-      - ${AIRFLOW_PROJ_DIR:-.}/scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ${AIRFLOW_PROJ_DIR:-.}/scripts/sql/init_db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "datauser"]
       interval: 10s

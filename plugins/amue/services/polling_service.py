@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -75,7 +78,7 @@ class AMUEPollingService:
         """
         self.start_time = datetime.now()
 
-        print("[POLLING] Démarrage du service de polling")
+        logger.info("[POLLING] Démarrage du service de polling")
         self._log_config()
 
         max_attempts = self._calculate_max_attempts()
@@ -94,21 +97,21 @@ class AMUEPollingService:
                 status_code = self.status_checker.check_status_code()
                 last_status_code = status_code
 
-                print(f"[POLLING] Code HTTP reçu: {status_code}")
+                logger.info(f"[POLLING] Code HTTP reçu: {status_code}")
 
                 # Si code 200, vérifier la variable 'finish'
                 if status_code == 200:
                     finish_value = self.status_checker.check_finish_status()
                     last_finish_value = finish_value
 
-                    print(f"[POLLING] Variable 'finish' : {finish_value}")
+                    logger.info(f"[POLLING] Variable 'finish' : {finish_value}")
 
                     if finish_value:
-                        print("[POLLING] ✓ API prête (finish renseigné)")
+                        logger.info("[POLLING] API prête (finish renseigné)")
                         return self._build_success_result(attempt, finish_value)
                     else:
-                        print("[POLLING] ⏳ Traitement en cours côté AMUE (finish non renseigné)")
-                        print("[POLLING] Attente de la fin du traitement...")
+                        logger.info("[POLLING] Traitement en cours côté AMUE (finish non renseigné)")
+                        logger.info("[POLLING] Attente de la fin du traitement...")
 
                 # Codes d'erreur critiques (pas besoin de retry)
                 elif self._is_critical_error(status_code):
@@ -119,7 +122,7 @@ class AMUEPollingService:
             except AirflowException:
                 raise
             except Exception as e:
-                print(f"[WARN] Erreur lors du polling: {str(e)}")
+                logger.warning(f"[WARN] Erreur lors du polling: {str(e)}")
                 last_status_code = None
 
             # Attente avant prochaine tentative
@@ -132,14 +135,14 @@ class AMUEPollingService:
 
     def _log_config(self) -> None:
         """Affiche la configuration du polling"""
-        print(f"[POLLING] Configuration:")
-        print(f"  - Intervalle: {self.config.interval_minutes} minutes")
-        print(f"[POLLING] Max wait: {self.config.max_wait_hours} heures")
+        logger.info(f"[POLLING] Configuration:")
+        logger.info(f"  - Intervalle: {self.config.interval_minutes} minutes")
+        logger.info(f"[POLLING] Max wait: {self.config.max_wait_hours} heures")
 
         if self.config.exponential_backoff:
-            print(f"  - Backoff exponentiel activé (max: {self.config.max_backoff_minutes}min)")
+            logger.info(f"  - Backoff exponentiel activé (max: {self.config.max_backoff_minutes}min)")
         else:
-            print(f"  - Intervalle fixe")
+            logger.info(f"  - Intervalle fixe")
 
     def _calculate_max_attempts(self) -> int:
         """
@@ -175,7 +178,7 @@ class AMUEPollingService:
         Args:
             wait_minutes: Temps d'attente en minutes
         """
-        print(f"[POLLING] Attente de {wait_minutes:.1f} minutes...")
+        logger.info(f"[POLLING] Attente de {wait_minutes:.1f} minutes...")
 
         # Pour les attentes longues, affiche une progression
         if wait_minutes > 5:
@@ -186,17 +189,17 @@ class AMUEPollingService:
                 time.sleep(interval_seconds)
                 progress = ((i + 1) / intervals) * 100
                 elapsed = self._get_elapsed_time()
-                print(f"[POLLING] Progression: {progress:.0f}% (écoulé: {elapsed})")
+                logger.info(f"[POLLING] Progression: {progress:.0f}% (écoulé: {elapsed})")
         else:
             time.sleep(wait_minutes * 60)
 
     def _log_attempt(self, attempt: int, max_attempts: int) -> None:
         """Log une tentative de polling"""
         elapsed = self._get_elapsed_time()
-        print(f"[POLLING] ======================================")
-        print(f"[POLLING] Tentative {attempt}/{max_attempts}")
-        print(f"[POLLING] Temps écoulé: {elapsed}")
-        print(f"[POLLING] ======================================")
+        logger.info(f"[POLLING] ======================================")
+        logger.info(f"[POLLING] Tentative {attempt}/{max_attempts}")
+        logger.info(f"[POLLING] Temps écoulé: {elapsed}")
+        logger.info(f"[POLLING] ======================================")
 
     def _get_elapsed_time(self) -> str:
         """
@@ -244,10 +247,10 @@ class AMUEPollingService:
             last_status_code=200
         )
 
-        print(f"[POLLING] ✓ API prête après {attempt} tentative(s)")
-        print(f"[POLLING] Temps total: {wait_minutes:.1f} minutes")
+        logger.info(f"[POLLING] API prête après {attempt} tentative(s)")
+        logger.info(f"[POLLING] Temps total: {wait_minutes:.1f} minutes")
         if finish_value:
-            print(f"[POLLING] Finish: {finish_value}")
+            logger.info(f"[POLLING] Finish: {finish_value}")
 
         result_dict = self._result_to_dict(result)
         result_dict['finish'] = finish_value
@@ -274,7 +277,7 @@ class AMUEPollingService:
             f"finish: {last_finish_value or 'non renseigné'})"
         )
 
-        print(f"[ERROR] {error_msg}")
+        logger.error(f"[ERROR] {error_msg}")
 
         result = PollingResult(
             ready=False,

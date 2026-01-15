@@ -7,6 +7,9 @@ from string import Template
 from typing import Dict, List, Optional
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AMUEStatusChecker:
@@ -29,13 +32,13 @@ class AMUEStatusChecker:
 
     def check_historical_status(self, max_days: int = 7) -> Dict:
         """Vérifie les statuts historiques sur N jours"""
-        print(f"[HISTORY] Vérification sur {max_days} jours")
+        logger.info(f"[HISTORY] Vérification sur {max_days} jours")
 
         last_success_date = self._get_last_success_date()
         days_to_check = self._compute_days_to_check(last_success_date, max_days)
 
-        print(f"[HISTORY] Dernière exécution réussie: {last_success_date}")
-        print(f"[HISTORY] Jours à vérifier: {[str(d) for d in days_to_check]}")
+        logger.info(f"[HISTORY] Dernière exécution réussie: {last_success_date}")
+        logger.info(f"[HISTORY] Jours à vérifier: {[str(d) for d in days_to_check]}")
 
         status_by_date = {}
 
@@ -45,7 +48,7 @@ class AMUEStatusChecker:
             status_by_date[date_str] = status_info
 
             if 'error' not in status_info:
-                print(f"[HISTORY] {date_str}: {len(status_info.get('tables_status', {}))} tables, "
+                logger.info(f"[HISTORY] {date_str}: {len(status_info.get('tables_status', {}))} tables, "
                       f"KO: {status_info.get('nbtables_ko', 0)}")
 
         return {
@@ -55,7 +58,7 @@ class AMUEStatusChecker:
 
     def get_current_status(self) -> Dict:
         """Récupère le statut actuel de l'API"""
-        print("[STATUS] Récupération statut actuel")
+        logger.info("[STATUS] Récupération statut actuel")
 
         params = {'status': ''}
         response = self.api_hook.call_api(self.endpoint, params)
@@ -64,7 +67,7 @@ class AMUEStatusChecker:
             raise ValueError("Format réponse invalide")
 
         tables_status = self._parse_tables_status(response.get('status', []))
-        print(f"[STATUS] {len(tables_status)} tables trouvées")
+        logger.info(f"[STATUS] {len(tables_status)} tables trouvées")
 
         return tables_status
 
@@ -86,27 +89,27 @@ class AMUEStatusChecker:
         Raises:
             AirflowException: Si erreur lors de la récupération
         """
-        print("[STATUS] Vérification variable 'finish'")
+        logger.info("[STATUS] Vérification variable 'finish'")
 
         try:
             params = {'status': ''}
             response = self.api_hook.call_api(self.endpoint, params)
 
             if not isinstance(response, dict):
-                print("[WARN] Réponse non-JSON lors de la vérification 'finish'")
+                logger.warning("[WARN] Réponse non-JSON lors de la vérification 'finish'")
                 return None
 
             finish_value = response.get('finish')
 
             if finish_value:
-                print(f"[STATUS] Variable 'finish' trouvée: {finish_value}")
+                logger.info(f"[STATUS] Variable 'finish' trouvée: {finish_value}")
                 return finish_value
             else:
-                print("[STATUS] Variable 'finish' non renseignée (traitement en cours)")
+                logger.info("[STATUS] Variable 'finish' non renseignée (traitement en cours)")
                 return None
 
         except Exception as e:
-            print(f"[ERROR] Erreur lors de la vérification 'finish': {str(e)}")
+            logger.error(f"[ERROR] Erreur lors de la vérification 'finish': {str(e)}")
             raise AirflowException(f"Impossible de vérifier 'finish': {str(e)}")
 
     def _get_last_success_date(self) -> datetime.date:
@@ -154,7 +157,7 @@ class AMUEStatusChecker:
             }
 
         except Exception as e:
-            print(f"[ERROR] Erreur vérification {date_str}: {e}")
+            logger.error(f"[ERROR] Erreur vérification {date_str}: {e}")
             return {
                 'date': datetime.strptime(date_str, '%Y%m%d').date(),
                 'tables_status': {},

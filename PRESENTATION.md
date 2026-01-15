@@ -35,7 +35,10 @@ Un système automatisé qui :
 ./manage.sh setup
 ```
 
-Installation complète en ~3 minutes avec configuration automatique.
+Installation complète en ~3 minutes avec :
+- Choix de l'environnement (dev/sandbox ou production)
+- Configuration interactive des credentials
+- URLs API automatiquement adaptées selon l'environnement
 
 ---
 
@@ -69,11 +72,17 @@ Exemple : Table EKET avec 100 000 lignes
 
 ## 4. Notifications Email Riches
 
+Architecture modulaire des notifications :
+- **EmailService** : Service SMTP générique et réutilisable
+- **Templates** : HTML responsive avec styles partagés
+- **Notifiers** : ErrorNotifier et SuccessNotifier spécialisés
+
 Emails HTML formatés avec :
-- Résumé visuel du statut
+- Résumé visuel du statut (couleurs différenciées erreur/succès)
 - Détail par table (lignes importées)
 - Temps d'exécution
 - Actions recommandées en cas d'erreur
+- Lien direct vers Airflow UI
 
 ---
 
@@ -96,6 +105,16 @@ Chaque exécution enregistre :
 
 Protection contre les modifications accidentelles en production.
 
+### Gestion Sécurisée des Credentials
+
+| Élément | Stockage | Commitable |
+|---------|----------|------------|
+| Credentials OAuth | `.env` uniquement | Non |
+| Passwords PostgreSQL | `.env` uniquement | Non |
+| Config connexions | `config/*.json` (sans secrets) | Oui |
+
+Les fichiers JSON ne contiennent que la structure (hosts, ports), jamais les credentials.
+
 ---
 
 ## 7. Architecture Modulaire
@@ -104,11 +123,14 @@ Code organisé par responsabilité :
 
 ```
 plugins/amue/
-├── hooks/       → Connexion API
-├── operators/   → Opérations métier
-├── services/    → Services transverses
-├── notifications/ → Alertes
-└── utils/       → Utilitaires partagés
+├── hooks/           → Connexion API
+├── operators/       → Opérations métier (import, filter, verifier)
+├── services/        → Services transverses (polling, metadata)
+├── notifications/   → Système d'alertes
+│   ├── email_service.py    → Service SMTP
+│   ├── templates/          → Templates HTML (base, error, success)
+│   └── notifiers/          → Notifiers (error, success)
+└── utils/           → Utilitaires partagés (logger, config)
 ```
 
 Facilite la maintenance et les évolutions.
@@ -182,13 +204,14 @@ Facilite la maintenance et les évolutions.
 
 ## 6. Gestion des Secrets
 
-**Actuellement** : Credentials dans fichiers JSON
+**Implémenté** : Credentials stockés uniquement dans `.env`
 
-**Risques** :
-- Commit accidentel possible
-- Pas de rotation automatique
+**Sécurité** :
+- Fichiers JSON ne contiennent plus de credentials
+- `.env` exclu du versioning (`.gitignore`)
+- Setup interactif demande les credentials sans les écrire dans les fichiers de config
 
-**Recommandation** : Utiliser un gestionnaire de secrets (Vault, AWS Secrets Manager)
+**Évolution possible** : Intégration avec Vault ou AWS Secrets Manager pour la rotation
 
 ---
 

@@ -4,6 +4,7 @@
   "universite": "ul",
   "api_endpoint_admin": "finances/cdv/v1/preprod/${univ}/admin",
   "api_endpoint_table": "finances/cdv/v1/preprod/${univ}/table",
+  "amue_import_batch_size": "5000",
   "amue_max_history_days": "7",
   "amue_polling_interval_minutes": "10",
   "amue_max_wait_hours": "6",

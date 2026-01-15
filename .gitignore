@@ -3,8 +3,10 @@
 # ============================================================================
 
 # Fichiers de configuration sensibles
+# .env contient TOUS les secrets (credentials, passwords)
 .env
-config/airflow_connections.json
+
+# Exports de configuration (peuvent contenir des credentials)
 config/exports/
 
 # Logs

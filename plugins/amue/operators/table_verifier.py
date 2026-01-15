@@ -9,6 +9,9 @@ from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _error_result(table_name: str, error: str, columns: List,
@@ -36,9 +39,9 @@ def _check_structure_change(table_name: str, new_fingerprint: str,
 
     changed = (old_fingerprint != new_fingerprint)
     if changed:
-        print(f"[STRUCTURE_CHECK] {table_name}: Changement détecté")
-        print(f"  Ancien fingerprint: {old_fingerprint[:16]}...")
-        print(f"  Nouveau fingerprint: {new_fingerprint[:16]}...")
+        logger.info(f"[STRUCTURE_CHECK] {table_name}: Changement détecté")
+        logger.info(f"  Ancien fingerprint: {old_fingerprint[:16]}...")
+        logger.info(f"  Nouveau fingerprint: {new_fingerprint[:16]}...")
 
     return changed
 
@@ -69,14 +72,14 @@ class AMUETableVerifier:
     def verify_status(self, table_info: Dict) -> Dict:
         """Vérifie le statut d'une table"""
         table_name = table_info.get('name', 'unknown')
-        print(f"[STATUS_CHECK] Vérification statut: {table_name}")
+        logger.info(f"[STATUS_CHECK] Vérification statut: {table_name}")
 
         current_status = table_info.get('current_status', {})
         status = current_status.get('status', 'UNKNOWN')
 
         if status != 'OK':
             error_msg = f"Table {table_name} status={status} (attendu: OK)"
-            print(f"[ERROR] {error_msg}")
+            logger.error(f"[ERROR] {error_msg}")
             return {
                 'table_name': table_name,
                 'status': 'error',
@@ -85,7 +88,7 @@ class AMUETableVerifier:
                 'details': current_status
             }
 
-        print(f"[STATUS_CHECK] {table_name}: OK")
+        logger.info(f"[STATUS_CHECK] {table_name}: OK")
         return {
             'table_name': table_name,
             'status': 'success',
@@ -103,7 +106,7 @@ class AMUETableVerifier:
         - Calcule le fingerprint avec les clés primaires
         """
         table_name = table_info.get('name', 'unknown')
-        print(f"[STRUCTURE_CHECK] Vérification structure: {table_name}")
+        logger.info(f"[STRUCTURE_CHECK] Vérification structure: {table_name}")
 
         try:
             # Récupère la structure depuis l'API
@@ -114,16 +117,16 @@ class AMUETableVerifier:
             needs_pk_update = table_info.get('needs_pk_update', False)
 
             if not primary_keys or needs_pk_update:
-                print(f"[STRUCTURE_CHECK] Clés primaires absentes ou à mettre à jour")
-                print(f"[STRUCTURE_CHECK] Récupération depuis API...")
+                logger.info(f"[STRUCTURE_CHECK] Clés primaires absentes ou à mettre à jour")
+                logger.info(f"[STRUCTURE_CHECK] Récupération depuis API...")
                 primary_keys = self._fetch_primary_keys(table_name)
 
                 if primary_keys:
-                    print(f"[STRUCTURE_CHECK] ✓ Clés primaires récupérées: {primary_keys}")
+                    logger.info(f"[STRUCTURE_CHECK] Clés primaires récupérées: {primary_keys}")
                 else:
-                    print(f"[WARN] Aucune clé primaire trouvée pour {table_name}")
+                    logger.warning(f"[WARN] Aucune clé primaire trouvée pour {table_name}")
             else:
-                print(f"[STRUCTURE_CHECK] Clés primaires existantes: {primary_keys}")
+                logger.info(f"[STRUCTURE_CHECK] Clés primaires existantes: {primary_keys}")
 
             # NOUVEAU: Calcul du fingerprint avec les clés primaires
             finger_print = compute_structure_hash_with_pk(columns, primary_keys)
@@ -141,15 +144,15 @@ class AMUETableVerifier:
 
             if structure_changed and self.environment == 'production':
                 error_msg = f"Changement structure détecté en production"
-                print(f"[ERROR] {error_msg}")
+                logger.error(f"[ERROR] {error_msg}")
                 return _error_result(table_name, error_msg, columns, finger_print, primary_keys, exists, True)
 
             if not exists and self.environment == 'production':
                 error_msg = f"Table {table_name} n'existe pas en production"
-                print(f"[ERROR] {error_msg}")
+                logger.error(f"[ERROR] {error_msg}")
                 return _error_result(table_name, error_msg, columns, finger_print, primary_keys, exists, False)
 
-            print(f"[STRUCTURE_CHECK] {table_name}: OK")
+            logger.info(f"[STRUCTURE_CHECK] {table_name}: OK")
             return {
                 'table_name': table_name,
                 'status': 'success',
@@ -165,7 +168,7 @@ class AMUETableVerifier:
 
         except Exception as e:
             error_msg = f"Erreur vérification structure {table_name}: {e}"
-            print(f"[ERROR] {error_msg}")
+            logger.error(f"[ERROR] {error_msg}")
             return _error_result(table_name, error_msg, [], '', '', False, False)
 
     def _fetch_structure(self, table_name: str) -> List[Dict]:
@@ -209,7 +212,7 @@ class AMUETableVerifier:
 
         NOUVEAU: Logs plus détaillés pour traçabilité
         """
-        print(f"[STRUCTURE_CHECK] Appel API pour clés primaires de {table_name}")
+        logger.info(f"[STRUCTURE_CHECK] Appel API pour clés primaires de {table_name}")
 
         params = {'get': f'{table_name}.keys', 'f': 'json'}
 
@@ -224,27 +227,106 @@ class AMUETableVerifier:
             elif isinstance(keys_response, dict):
                 result = ','.join(str(k) for k in keys_response.get('keys', []) if k)
             else:
-                print(f"[WARN] Format de réponse inattendu pour les clés: {type(keys_response)}")
+                logger.warning(f"[WARN] Format de réponse inattendu pour les clés: {type(keys_response)}")
                 result = ''
 
             if result:
-                print(f"[STRUCTURE_CHECK] Clés trouvées: {result}")
+                logger.info(f"[STRUCTURE_CHECK] Clés trouvées: {result}")
             else:
-                print(f"[WARN] Aucune clé primaire retournée par l'API")
+                logger.warning(f"[WARN] Aucune clé primaire retournée par l'API")
 
             return result
 
         except Exception as e:
-            print(f"[ERROR] Erreur lors de la récupération des clés: {str(e)}")
+            logger.error(f"[ERROR] Erreur lors de la récupération des clés: {str(e)}")
             return ''
 
     def _table_exists(self, table_name: str) -> bool:
         """Vérifie si une table existe en base"""
         check_sql = """
                     SELECT EXISTS (SELECT 1
-                                   FROM information_schema.tables 
-                                   WHERE table_schema = 'splus' 
+                                   FROM information_schema.tables
+                                   WHERE table_schema = 'splus'
                                      AND table_name = %s)
                     """
         result = self.postgres_hook.get_first(check_sql, parameters=(table_name.lower(),))
         return result[0] if result else False
+
+    def verify_table(self, table_info: Dict) -> Dict:
+        """
+        Vérifie une table : statut + structure + fingerprint
+
+        Combine verify_status et verify_structure en une seule opération.
+        Inclut la vérification du fingerprint pour détecter les changements.
+
+        Args:
+            table_info: Informations de la table
+
+        Returns:
+            Résultat complet de la vérification
+        """
+        table_name = table_info.get('name', 'unknown')
+        logger.info(f"[VERIFY] === Vérification complète: {table_name} ===")
+
+        # 1. Vérification du statut
+        status_result = self.verify_status(table_info)
+        if status_result.get('status') == 'error':
+            return {
+                'table_name': table_name,
+                'status': 'error',
+                'phase': 'status',
+                'error': status_result.get('error'),
+                'original_info': table_info
+            }
+
+        # 2. Vérification de la structure
+        structure_result = self.verify_structure(table_info)
+        if structure_result.get('status') == 'error':
+            return {
+                'table_name': table_name,
+                'status': 'error',
+                'phase': 'structure',
+                'error': structure_result.get('error'),
+                'original_info': table_info
+            }
+
+        # 3. Vérification du fingerprint
+        existing_fp = table_info.get('finger_print', '')
+        new_fp = structure_result.get('finger_print', '')
+
+        if existing_fp and new_fp and existing_fp != new_fp:
+            error_msg = (
+                f"CHANGEMENT DE STRUCTURE DÉTECTÉ pour {table_name}\n"
+                f"Fingerprint stocké: {existing_fp}\n"
+                f"Fingerprint API: {new_fp}\n"
+                f"Action requise: Vérifier les changements et mettre à jour manuellement."
+            )
+            logger.error(f"[ERROR] {error_msg}")
+            return {
+                'table_name': table_name,
+                'status': 'error',
+                'phase': 'fingerprint',
+                'error': error_msg,
+                'original_info': table_info
+            }
+
+        # 4. Succès - prépare les données pour l'import
+        logger.info(f"[VERIFY] {table_name}: Toutes les vérifications OK")
+
+        # Met à jour le fingerprint si vide
+        updated_info = dict(table_info)
+        if not existing_fp and new_fp:
+            updated_info['finger_print'] = new_fp
+            logger.info(f"[VERIFY] Fingerprint initialisé: {new_fp[:16]}...")
+
+        return {
+            'table_name': table_name,
+            'status': 'success',
+            'phase': 'complete',
+            'error': None,
+            'columns': structure_result.get('columns', []),
+            'primary_keys': structure_result.get('primary_keys', ''),
+            'finger_print': new_fp,
+            'exists': structure_result.get('exists', False),
+            'original_info': updated_info
+        }

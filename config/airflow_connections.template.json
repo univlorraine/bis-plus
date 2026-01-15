@@ -1,0 +1,19 @@
+{
+  "oauth_api": {
+    "conn_type": "http",
+    "host": "${AMUE_API_HOST}",
+    "extra": {
+      "token_url": "${AMUE_TOKEN_URL}",
+      "api_base_url": "${AMUE_API_HOST}"
+    }
+  },
+  "postgres_data": {
+    "conn_type": "postgres",
+    "host": "${POSTGRES_DATA_HOST}",
+    "schema": "${POSTGRES_DATA_DB}",
+    "port": "${POSTGRES_DATA_PORT}",
+    "extra": {
+      "options": "-c search_path=${POSTGRES_DATA_SCHEMA}"
+    }
+  }
+}

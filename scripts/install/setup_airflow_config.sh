@@ -3,6 +3,7 @@
 ###############################################################################
 # Script de configuration Airflow
 # Configure les variables et connexions depuis des fichiers JSON
+# Les credentials sont lus depuis .env (jamais stockés dans les fichiers JSON)
 # Utilisation: ./setup_airflow_config.sh [--internal|--external]
 ###############################################################################
 
@@ -17,10 +18,11 @@ NC='\033[0m' # No Color
 
 # Configuration par défaut
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 CONFIG_DIR="${PROJECT_DIR}/config"
 VARIABLES_FILE="${CONFIG_DIR}/airflow_variables.json"
 CONNECTIONS_FILE="${CONFIG_DIR}/airflow_connections.json"
+ENV_FILE="${PROJECT_DIR}/.env"
 MODE="${1:-internal}"
 
 ###############################################################################
@@ -58,6 +60,18 @@ check_jq() {
     fi
 }
 
+# Charge les variables d'environnement depuis .env
+load_env() {
+    if [[ -f "$ENV_FILE" ]]; then
+        log_info "Chargement des credentials depuis .env"
+        set -a
+        source "$ENV_FILE"
+        set +a
+    else
+        log_warning "Fichier .env non trouvé. Les credentials devront être définis manuellement."
+    fi
+}
+
 ###############################################################################
 # Configuration en mode interne (dans le container)
 ###############################################################################
@@ -68,6 +82,7 @@ setup_internal() {
     check_file "$VARIABLES_FILE"
     check_file "$CONNECTIONS_FILE"
     check_jq
+    load_env
 
     log_info "Configuration des variables Airflow..."
     setup_variables_internal
@@ -114,11 +129,21 @@ setup_connections_internal() {
     for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
         local conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
         local host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-        local login=$(jq -r ".[\"$conn_id\"].login // empty" "$CONNECTIONS_FILE")
-        local password=$(jq -r ".[\"$conn_id\"].password // empty" "$CONNECTIONS_FILE")
         local port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
         local schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
         local extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+
+        # Récupération des credentials depuis les variables d'environnement
+        local login=""
+        local password=""
+
+        if [[ "$conn_id" == "oauth_api" ]]; then
+            login="${OAUTH_CLIENT_ID:-}"
+            password="${OAUTH_CLIENT_SECRET:-}"
+        elif [[ "$conn_id" == "postgres_data" ]]; then
+            login="${POSTGRES_DATA_LOGIN:-}"
+            password="${POSTGRES_DATA_PASSWORD:-}"
+        fi
 
         # Construction de la commande
         local cmd="airflow connections add '$conn_id' --conn-type '$conn_type'"
@@ -155,6 +180,7 @@ setup_external() {
     check_file "$VARIABLES_FILE"
     check_file "$CONNECTIONS_FILE"
     check_jq
+    load_env
 
     # Vérifie que docker-compose est disponible
     if ! command -v docker-compose &> /dev/null && ! command -v docker &> /dev/null; then
@@ -211,6 +237,7 @@ setup_variables_external() {
         fi
     done
 
+    rm -f /tmp/airflow_var_output.log
     log_info "Total: $count variables créées"
 }
 
@@ -221,11 +248,27 @@ setup_connections_external() {
     for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
         local conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
         local host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-        local login=$(jq -r ".[\"$conn_id\"].login // empty" "$CONNECTIONS_FILE")
-        local password=$(jq -r ".[\"$conn_id\"].password // empty" "$CONNECTIONS_FILE")
         local port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
         local schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
         local extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+
+        # Récupération des credentials depuis les variables d'environnement
+        local login=""
+        local password=""
+
+        if [[ "$conn_id" == "oauth_api" ]]; then
+            login="${OAUTH_CLIENT_ID:-}"
+            password="${OAUTH_CLIENT_SECRET:-}"
+            if [[ -z "$login" || -z "$password" ]]; then
+                log_warning "Credentials OAuth non trouvés dans .env (OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET)"
+            fi
+        elif [[ "$conn_id" == "postgres_data" ]]; then
+            login="${POSTGRES_DATA_LOGIN:-}"
+            password="${POSTGRES_DATA_PASSWORD:-}"
+            if [[ -z "$login" || -z "$password" ]]; then
+                log_warning "Credentials PostgreSQL non trouvés dans .env (POSTGRES_DATA_LOGIN, POSTGRES_DATA_PASSWORD)"
+            fi
+        fi
 
         # Supprime la connexion existante
         $docker_cmd exec -T airflow-apiserver airflow connections delete "$conn_id" 2>/dev/null || true
@@ -303,6 +346,7 @@ export_configuration() {
     }
 
     log_success "Export terminé dans: $export_dir"
+    log_warning "ATTENTION: L'export des connexions peut contenir des credentials!"
 }
 
 ###############################################################################
@@ -314,6 +358,7 @@ show_usage() {
 Usage: $0 [OPTION]
 
 Configure les variables et connexions Airflow depuis des fichiers JSON.
+Les credentials (login/password) sont lus depuis le fichier .env.
 
 Options:
   --internal, -i     Configuration depuis l'intérieur du container (défaut)
@@ -329,8 +374,15 @@ Exemples:
   $0 --export                # Exporte la config
 
 Fichiers requis:
-  - config/airflow_variables.json
-  - config/airflow_connections.json
+  - config/airflow_variables.json (sans secrets)
+  - config/airflow_connections.json (sans credentials)
+  - .env (contient les credentials)
+
+Variables d'environnement attendues dans .env:
+  - OAUTH_CLIENT_ID         : Client ID pour l'API AMUE
+  - OAUTH_CLIENT_SECRET     : Client Secret pour l'API AMUE
+  - POSTGRES_DATA_LOGIN     : Login PostgreSQL
+  - POSTGRES_DATA_PASSWORD  : Password PostgreSQL
 
 EOF
 }

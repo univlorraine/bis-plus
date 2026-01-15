@@ -129,3 +129,24 @@ class AMUEReportGenerator:
     def _save_report(self, report: Dict) -> None:
         """Sauvegarde le rapport dans les variables"""
         VarMgr.set('last_import_report', json.dumps(report))
+
+    def generate_and_send(self, insert_results: List[Dict],
+                          history_result: Dict, polling_result: Dict) -> Dict:
+        """
+        Génère le rapport et envoie la notification en une seule opération
+
+        Args:
+            insert_results: Résultats des imports
+            history_result: Résultat de la vérification historique
+            polling_result: Résultat du polling
+
+        Returns:
+            Rapport généré avec statut d'envoi
+        """
+        # Génère le rapport
+        report = self.generate_report(insert_results, history_result, polling_result)
+
+        # Envoie la notification
+        self.send_notification(report)
+
+        return report

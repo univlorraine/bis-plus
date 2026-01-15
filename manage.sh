@@ -111,8 +111,8 @@ cmd_start() {
     $DOCKER_CMD up -d
 
     # S'assurer que MailHog est démarré
-    chmod +x scripts/ensure_mailhog.sh
-    ./scripts/ensure_mailhog.sh 2>/dev/null || true
+    chmod +x scripts/install/ensure_mailhog.sh
+    ./scripts/install/ensure_mailhog.sh 2>/dev/null || true
 
     log_success "Services démarrés"
     sleep 5
@@ -154,44 +154,44 @@ cmd_logs() {
 
 cmd_setup() {
     log_info "Lancement du setup complet..."
-    chmod +x scripts/quick_setup.sh
-    ./scripts/quick_setup.sh
+    chmod +x scripts/install/quick_setup.sh
+    ./scripts/install/quick_setup.sh
 }
 
 cmd_config() {
     log_info "Reconfiguration d'Airflow..."
-    chmod +x scripts/setup_airflow_config.sh
-    ./scripts/setup_airflow_config.sh --external
+    chmod +x scripts/install/setup_airflow_config.sh
+    ./scripts/install/setup_airflow_config.sh --external
 }
 
 cmd_fix() {
     log_info "Correction de la configuration (avec attente API)..."
-    chmod +x scripts/fix_config.sh
-    ./scripts/fix_config.sh
+    chmod +x scripts/manage/fix_config.sh
+    ./scripts/manage/fix_config.sh
 }
 
 cmd_auto_fix() {
     log_info "Correction automatique complète..."
-    chmod +x scripts/auto_fix.sh
-    ./scripts/auto_fix.sh
+    chmod +x scripts/manage/auto_fix.sh
+    ./scripts/manage/auto_fix.sh
 }
 
 cmd_verify() {
     log_info "Vérification de la configuration..."
-    chmod +x scripts/setup_airflow_config.sh
-    ./scripts/setup_airflow_config.sh --verify
+    chmod +x scripts/install/setup_airflow_config.sh
+    ./scripts/install/setup_airflow_config.sh --verify
 }
 
 cmd_verify_email() {
     log_info "Vérification du correctif email Airflow 3.x..."
-    chmod +x scripts/verify_email_fix.sh
-    ./scripts/verify_email_fix.sh
+    chmod +x scripts/dev/verify_email_fix.sh
+    ./scripts/dev/verify_email_fix.sh
 }
 
 cmd_diagnose() {
     log_info "Diagnostic complet du système..."
-    chmod +x scripts/diagnose.sh
-    ./scripts/diagnose.sh
+    chmod +x scripts/manage/diagnose.sh
+    ./scripts/manage/diagnose.sh
 }
 
 cmd_test_config() {
@@ -202,8 +202,8 @@ cmd_test_config() {
 
 cmd_export() {
     log_info "Export de la configuration..."
-    chmod +x scripts/setup_airflow_config.sh
-    ./scripts/setup_airflow_config.sh --export
+    chmod +x scripts/install/setup_airflow_config.sh
+    ./scripts/install/setup_airflow_config.sh --export
 }
 
 cmd_dags() {
@@ -310,8 +310,8 @@ cmd_test() {
 
 cmd_test_email() {
     log_info "Test de la configuration email..."
-    chmod +x scripts/test_email.sh
-    ./scripts/test_email.sh
+    chmod +x scripts/dev/test_email.sh
+    ./scripts/dev/test_email.sh
 }
 
 cmd_shell() {

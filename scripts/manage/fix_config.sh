@@ -265,7 +265,7 @@ if [ $VARS_FAILED -gt 0 ] || [ $CONNS_FAILED -gt 0 ]; then
     log_warning "Certaines configurations ont échoué"
     log_info "Pour diagnostiquer:"
     echo "  - Vérifiez les logs: ./manage.sh logs airflow-apiserver"
-    echo "  - Lancez le diagnostic: ./scripts/diagnose.sh"
+    echo "  - Lancez le diagnostic: ./scripts/manage/diagnose.sh"
     echo "  - Vérifiez les fichiers JSON"
 else
     echo ""

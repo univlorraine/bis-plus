@@ -2,8 +2,6 @@
   "oauth_api": {
     "conn_type": "http",
     "host": "https://sandbox.api.amue.fr",
-    "login": "Clp56BdhEtanYQfe6aXYzJYV4V58GJKMQgIjDP2MEC0",
-    "password": "hZeV1AvpV6dHr9TKTrnV8iNweNubABZwwG4dgcWXmoo",
     "extra": {
       "token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token",
       "api_base_url": "https://sandbox.api.amue.fr"
@@ -11,13 +9,11 @@
   },
   "postgres_data": {
     "conn_type": "postgres",
-    "host": "sifacplus-db-pg-test.dc.univ-lorraine.fr",
-    "schema": "sifacplus",
-    "login": "sifacplus",
-    "password": "dj#E)Y3X!7gw5+",
+    "host": "postgres-data",
+    "schema": "business_data",
     "port": 5432,
     "extra": {
-      "options": "-c search_path=splus"
+      "options": "-c search_path=public"
     }
   }
 }

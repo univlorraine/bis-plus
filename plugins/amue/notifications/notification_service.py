@@ -10,6 +10,9 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -36,13 +39,13 @@ class NotificationService:
 
     def __init__(self):
         """Initialise le service de notification"""
-        print("[DEBUG] NotificationService.__init__ - VERSION SMTP DIRECT")
+        logger.debug("[DEBUG] NotificationService.__init__ - VERSION SMTP DIRECT")
         self.recipients = self._load_recipients()
         self.smtp_host = VarMgr.get('smtp_host', default='mailhog')
         self.smtp_port = int(VarMgr.get('smtp_port', default='1025'))
         self.smtp_from = VarMgr.get('smtp_mail_from', default='airflow@amue.local')
-        print(f"[DEBUG] SMTP config: host={self.smtp_host}, port={self.smtp_port}, from={self.smtp_from}")
-        print(f"[DEBUG] Recipients: {self.recipients}")
+        logger.debug(f"[DEBUG] SMTP config: host={self.smtp_host}, port={self.smtp_port}, from={self.smtp_from}")
+        logger.debug(f"[DEBUG] Recipients: {self.recipients}")
 
     def _load_recipients(self) -> List[str]:
         """Charge la liste des destinataires"""
@@ -51,7 +54,7 @@ class NotificationService:
 
     def _send_email(self, subject: str, html_content: str) -> None:
         """Envoie un email via SMTP direct"""
-        print(f"[DEBUG] _send_email appelé - SMTP direct vers {self.smtp_host}:{self.smtp_port}")
+        logger.debug(f"[DEBUG] _send_email appelé - SMTP direct vers {self.smtp_host}:{self.smtp_port}")
 
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
@@ -60,10 +63,10 @@ class NotificationService:
 
         msg.attach(MIMEText(html_content, 'html', 'utf-8'))
 
-        print(f"[DEBUG] Connexion SMTP à {self.smtp_host}:{self.smtp_port}...")
+        logger.debug(f"[DEBUG] Connexion SMTP à {self.smtp_host}:{self.smtp_port}...")
         with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
             server.sendmail(self.smtp_from, self.recipients, msg.as_string())
-        print("[DEBUG] Email envoyé avec succès via SMTP direct")
+        logger.debug("[DEBUG] Email envoyé avec succès via SMTP direct")
 
     def send_error_notification(self, error_context: ErrorContext) -> None:
         """
@@ -72,16 +75,16 @@ class NotificationService:
         Args:
             error_context: Contexte de l'erreur
         """
-        print("[NOTIFICATION] Envoi notification d'erreur")
+        logger.info("[NOTIFICATION] Envoi notification d'erreur")
 
         subject = self._build_error_subject(error_context)
         html = self._build_error_html(error_context)
 
         try:
             self._send_email(subject, html)
-            print("[NOTIFICATION] Email d'erreur envoyé avec succès")
+            logger.info("[NOTIFICATION] Email d'erreur envoyé avec succès")
         except Exception as e:
-            print(f"[WARN] Échec envoi email d'erreur: {str(e)}")
+            logger.warning(f"[WARN] Échec envoi email d'erreur: {str(e)}")
 
         # Sauvegarde pour traçabilité
         self._save_error_report(error_context)
@@ -260,9 +263,9 @@ class NotificationService:
 
         try:
             VarMgr.set('last_import_report', json.dumps(report))
-            print("[NOTIFICATION] Rapport d'erreur sauvegardé")
+            logger.info("[NOTIFICATION] Rapport d'erreur sauvegardé")
         except Exception as e:
-            print(f"[WARN] Échec sauvegarde rapport: {str(e)}")
+            logger.warning(f"[WARN] Échec sauvegarde rapport: {str(e)}")
 
 
 # ============================================================================
@@ -280,7 +283,7 @@ def send_failure_notification(context: Dict) -> None:
     Args:
         context: Contexte Airflow avec task_instance, exception, etc.
     """
-    print("[ERROR_CALLBACK] Déclenchement du callback d'erreur - VERSION SMTP DIRECT v2")
+    logger.info("[ERROR_CALLBACK] Déclenchement du callback d'erreur - VERSION SMTP DIRECT v2")
 
     # Extraction du contexte
     task_instance = context.get('task_instance')
@@ -288,7 +291,7 @@ def send_failure_notification(context: Dict) -> None:
 
     # Vérifie qu'il y a bien une exception avant d'envoyer
     if not exception:
-        print("[ERROR_CALLBACK] Pas d'exception dans le contexte - notification ignorée")
+        logger.info("[ERROR_CALLBACK] Pas d'exception dans le contexte - notification ignorée")
         return
 
     # Construction du contexte d'erreur
@@ -305,4 +308,4 @@ def send_failure_notification(context: Dict) -> None:
     service = NotificationService()
     service.send_error_notification(error_context)
 
-    print("[ERROR_CALLBACK] Callback d'erreur terminé")
+    logger.info("[ERROR_CALLBACK] Callback d'erreur terminé")

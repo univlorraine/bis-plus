@@ -5,6 +5,9 @@ Mise à jour avec fingerprint incluant les clés primaires
 import re
 import hashlib
 from typing import List, Dict
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def parse_column_definition(definition: str) -> str:
@@ -51,7 +54,7 @@ def parse_column_definition(definition: str) -> str:
     match = re.match(r'(\w+)(\(.*?\))?', definition, re.IGNORECASE)
 
     if not match:
-        print(f"[WARN] Type invalide '{definition}', utilisation de TEXT par defaut")
+        logger.warning(f"[WARN] Type invalide '{definition}', utilisation de TEXT par defaut")
         return 'TEXT'
 
     base_type = match.group(1).upper()
@@ -167,8 +170,8 @@ def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: 
     # Calcule le hash MD5
     fingerprint = hashlib.md5(full_structure.encode('utf-8')).hexdigest()
 
-    print(f"[FINGERPRINT] Colonnes: {len(columns)}, PK: {pk_str}")
-    print(f"[FINGERPRINT] Hash: {fingerprint}")
+    logger.info(f"[FINGERPRINT] Colonnes: {len(columns)}, PK: {pk_str}")
+    logger.info(f"[FINGERPRINT] Hash: {fingerprint}")
 
     return fingerprint
 
@@ -228,8 +231,8 @@ def compare_fingerprints(old_fingerprint: str, new_fingerprint: str,
     }
 
     if changed and table_name:
-        print(f"[FINGERPRINT] {table_name}: Structure changée")
-        print(f"  Ancien: {old_fingerprint[:16]}...")
-        print(f"  Nouveau: {new_fingerprint[:16]}...")
+        logger.info(f"[FINGERPRINT] {table_name}: Structure changée")
+        logger.info(f"  Ancien: {old_fingerprint[:16]}...")
+        logger.info(f"  Nouveau: {new_fingerprint[:16]}...")
 
     return result

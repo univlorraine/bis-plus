@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.exceptions import AirflowException
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -63,9 +66,9 @@ class AMUETableManager:
         table_name = structure_info['table_name']
         exists = structure_info['exists']
 
-        print(f"[TABLE_MGT] Table: {table_name}")
-        print(f"[TABLE_MGT] Environment: {self.environment}")
-        print(f"[TABLE_MGT] Exists: {exists}")
+        logger.info(f"[TABLE_MGT] Table: {table_name}")
+        logger.info(f"[TABLE_MGT] Environment: {self.environment}")
+        logger.info(f"[TABLE_MGT] Exists: {exists}")
 
         # Validation de la structure
         self._validate_structure_info(structure_info)
@@ -109,16 +112,16 @@ class AMUETableManager:
                 "Création interdite en production. Créez la table manuellement."
             )
 
-        print(f"[PRODUCTION] Utilisation table existante")
+        logger.info(f"[PRODUCTION] Utilisation table existante")
         return self._build_existing_table_result(structure_info)
 
     def _handle_dev_table(self, structure_info: Dict, exists: bool) -> Dict:
         """Gère une table en environnement de développement"""
         if exists:
-            print(f"[DEV] Utilisation table existante")
+            logger.info(f"[DEV] Utilisation table existante")
             return self._build_existing_table_result(structure_info)
 
-        print(f"[DEV] Création de la table")
+        logger.info(f"[DEV] Création de la table")
         return self._create_table(structure_info)
 
     def _build_existing_table_result(self, structure_info: Dict) -> Dict:
@@ -164,9 +167,9 @@ class AMUETableManager:
             )
 
             # Exécute la création
-            print(f"[DEV] Exécution CREATE TABLE {table_name}")
+            logger.info(f"[DEV] Exécution CREATE TABLE {table_name}")
             self.postgres_hook.run(create_sql)
-            print(f"[DEV] Table {table_name} créée avec succès")
+            logger.info(f"[DEV] Table {table_name} créée avec succès")
 
             # Construit le résultat
             result = TableManagementResult(
@@ -181,7 +184,7 @@ class AMUETableManager:
 
         except Exception as e:
             error_msg = f"Échec création table {table_name}: {str(e)}"
-            print(f"[ERROR] {error_msg}")
+            logger.error(f"[ERROR] {error_msg}")
 
             result = TableManagementResult(
                 table_name=table_name,
@@ -244,7 +247,7 @@ class AMUETableManager:
             Clause SQL ou chaîne vide si pas de PK
         """
         if not primary_keys_str or not primary_keys_str.strip():
-            print("[WARN] Aucune clé primaire définie")
+            logger.warning("[WARN] Aucune clé primaire définie")
             return ''
 
         pk_list = [
@@ -257,7 +260,7 @@ class AMUETableManager:
             return ''
 
         pk_cols = ', '.join(pk_list)
-        print(f"[TABLE_MGT] Clés primaires: {pk_cols}")
+        logger.info(f"[TABLE_MGT] Clés primaires: {pk_cols}")
 
         return f",\n    PRIMARY KEY ({pk_cols})"
 

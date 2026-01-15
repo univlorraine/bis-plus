@@ -5,6 +5,9 @@ from airflow.sdk import Connection
 import json
 import requests
 from typing import Dict, Optional
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class AMUEAPIHook:
     """
@@ -53,8 +56,8 @@ class AMUEAPIHook:
                 '{"token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token"}'
             )
 
-        print(f"[AUTH] Authentification OAuth: {token_url}")
-        print(f"[AUTH] Client ID: {client_id[:10]}***")
+        logger.info(f"[AUTH] Authentification OAuth: {token_url}")
+        logger.info(f"[AUTH] Client ID: {client_id[:10]}***")
 
         # Prépare la requête OAuth2
         auth = (client_id, client_secret)
@@ -77,20 +80,20 @@ class AMUEAPIHook:
             expires_in = token_data.get('expires_in', 'N/A')
             token_type = token_data.get('token_type', 'Bearer')
 
-            print(f"[AUTH] Token obtenu - Type: {token_type}, Expire: {expires_in}s")
+            logger.info(f"[AUTH] Token obtenu - Type: {token_type}, Expire: {expires_in}s")
 
             return self.access_token
 
         except requests.exceptions.HTTPError as e:
             error_detail = e.response.text if e.response else 'N/A'
-            print(f"[ERROR] Erreur HTTP {e.response.status_code if e.response else 'N/A'}")
-            print(f"[ERROR] Detail: {error_detail}")
+            logger.error(f"[ERROR] Erreur HTTP {e.response.status_code if e.response else 'N/A'}")
+            logger.error(f"[ERROR] Detail: {error_detail}")
             raise
         except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Erreur de connexion: {e}")
+            logger.error(f"[ERROR] Erreur de connexion: {e}")
             raise
         except KeyError as e:
-            print(f"[ERROR] Format de reponse OAuth invalide: champ manquant {e}")
+            logger.error(f"[ERROR] Format de reponse OAuth invalide: champ manquant {e}")
             raise ValueError(f"Reponse OAuth invalide: {e}")
 
     def call_api(
@@ -136,9 +139,9 @@ class AMUEAPIHook:
             'Accept': 'application/json',
         }
 
-        print(f"[API] Appel: {url}")
+        logger.info(f"[API] Appel: {url}")
         if params:
-            print(f"[API] Params: {params}")
+            logger.info(f"[API] Params: {params}")
 
         try:
             response = requests.get(
@@ -158,7 +161,7 @@ class AMUEAPIHook:
             try:
                 return response.json()
             except json.JSONDecodeError:
-                print("[API] Reponse en texte brut (non JSON)")
+                logger.info("[API] Reponse en texte brut (non JSON)")
                 return response.text
 
         except requests.exceptions.HTTPError as e:
@@ -168,7 +171,7 @@ class AMUEAPIHook:
 
             # Gestion du token expiré (401)
             if e.response and e.response.status_code == 401:
-                print("[API] Token expire, renouvellement...")
+                logger.info("[API] Token expire, renouvellement...")
                 self.access_token = None
                 self.get_oauth_token()
                 # Retry avec le nouveau token
@@ -189,5 +192,5 @@ class AMUEAPIHook:
         try:
             return json.loads(self.connection.extra)
         except json.JSONDecodeError:
-            print("[WARN] Impossible de parser connection.extra en JSON")
+            logger.warning("[WARN] Impossible de parser connection.extra en JSON")
             return {}

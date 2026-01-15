@@ -1,5 +1,8 @@
 # amue/utils/airflow_helpers.py
 import json
+from amue.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AirflowVariableManager:
@@ -21,10 +24,10 @@ class AirflowVariableManager:
         try:
             from airflow.sdk import Variable
             Variable.set(key, value)
-            print(f"[VAR] Set '{key}' via SDK")
+            logger.info(f"[VAR] Set '{key}' via SDK")
             return True
         except Exception as e:
-            print(f"[ERROR] Cannot set variable '{key}': {e}")
+            logger.error(f"[ERROR] Cannot set variable '{key}': {e}")
             return False
 
     @staticmethod

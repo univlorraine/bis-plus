@@ -27,7 +27,10 @@ Système complet d'import automatisé de données depuis l'API AMUE vers Postgre
 - **Messages d'Erreur Explicites** : Diagnostics détaillés en cas de problème
 - **SQL Formaté** : Génération de DDL lisible et maintenable
 
-#### 3. Service de Notification Moderne (`NotificationService`)
+#### 3. Système de Notifications Modulaire
+- **Architecture en couches** : EmailService, Templates, Notifiers
+- **Templates HTML réutilisables** : Base commune avec styles partagés
+- **Notifiers spécialisés** : ErrorNotifier, SuccessNotifier
 - **Emails HTML Responsive** : Design moderne avec CSS Grid
 - **Contexte d'Erreur Enrichi** : Type d'erreur, stack trace, actions recommandées
 - **Échappement HTML Sécurisé** : Protection contre l'injection
@@ -38,6 +41,51 @@ Système complet d'import automatisé de données depuis l'API AMUE vers Postgre
 - **Gestion SDK/API** : Support Airflow 2.x et 3.x avec fallback automatique
 - **Validation Robuste** : Vérification des types et structures
 - **Logs Détaillés** : Suivi précis des changements de fingerprint
+
+## Prérequis
+
+- **Docker** et **Docker Compose** installés
+- **jq** installé (pour le parsing JSON)
+- Au moins **4GB de RAM** disponible
+- Ports disponibles : **8080** (Airflow), **5432/5433** (PostgreSQL), **8025** (MailHog)
+
+## Installation Rapide
+
+```bash
+# 1. Cloner le projet
+git clone <votre-repo>
+cd airflow-amue
+
+# 2. Rendre les scripts exécutables
+chmod +x manage.sh scripts/**/*.sh
+
+# 3. Lancer l'installation interactive
+./manage.sh setup
+```
+
+Le script d'installation vous demandera :
+1. **Environnement** : `dev` (sandbox) ou `prod` (production)
+2. **Credentials AMUE** : Client ID et Secret (stockés dans `.env` uniquement)
+3. **Credentials PostgreSQL** : Login et password (stockés dans `.env` uniquement)
+4. **Tables à importer** : Liste des tables AMUE
+
+**Accès à l'interface** : http://localhost:8080
+- Username: `airflow`
+- Password: `airflow`
+
+**Interface emails (dev)** : http://localhost:8025
+
+### Sécurité des Credentials
+
+Les credentials ne sont **jamais** stockés dans les fichiers de configuration JSON.
+Ils sont uniquement dans le fichier `.env` qui est exclu du versioning.
+
+| Fichier | Contenu | Commitable |
+|---------|---------|------------|
+| `.env` | Credentials (login, password, secrets) | **Non** |
+| `.env.example` | Template avec placeholders | Oui |
+| `config/airflow_connections.json` | Structure des connexions (hosts, ports) | Oui |
+| `config/airflow_variables.json` | Configuration métier | Oui |
 
 ## Caractéristiques Principales
 
@@ -81,36 +129,55 @@ Le projet suit les **principes SOLID** avec une séparation claire des responsab
 
 ```
 dags/
-├── amue_multi_table_import_refactored.py  # DAG principal (orchestration)
-└── utils/                                 # Packages métier
-    ├── __init__.py
-    ├── amue_api_hook.py                   # Communication OAuth API
-    ├── amue_status_checker.py             # Vérification statuts
-    ├── amue_table_filter.py               # Filtrage tables
-    ├── amue_table_verifier.py             # Vérification structure
-    ├── amue_table_manager.py              # Gestion DDL PostgreSQL
-    ├── amue_data_importer.py              # Import données
-    ├── amue_polling_service.py            # Service de polling
-    ├── amue_metadata_manager.py           # Gestion métadonnées
-    ├── amue_report_generator.py           # Rapports et notifications
-    ├── amue_notification_utils.py         # Service de notification
-    └── amue_utils.py                      # Fonctions utilitaires
+└── dag_amue_dynamic_table.py              # DAG principal (orchestration)
+
+plugins/amue/
+├── __init__.py                            # Exports centralisés
+├── hooks/
+│   └── amue_api_hook.py                   # Communication OAuth API
+├── operators/
+│   ├── data_importer.py                   # Import données
+│   ├── table_filter.py                    # Filtrage tables
+│   ├── table_manager.py                   # Gestion DDL PostgreSQL
+│   └── table_verifier.py                  # Vérification structure
+├── services/
+│   ├── metadata_manager.py                # Gestion métadonnées
+│   ├── polling_service.py                 # Service de polling
+│   └── status_checker.py                  # Vérification statuts
+├── notifications/
+│   ├── email_service.py                   # Service SMTP générique
+│   ├── report_generator.py                # Rapports d'exécution
+│   ├── templates/
+│   │   ├── base.py                        # Template de base (styles)
+│   │   ├── error.py                       # Template erreur
+│   │   └── success.py                     # Template succès
+│   └── notifiers/
+│       ├── base.py                        # Classe abstraite
+│       ├── error_notifier.py              # Notifications d'erreur
+│       └── success_notifier.py            # Notifications de succès
+└── utils/
+    ├── airflow_helpers.py                 # Gestion variables Airflow
+    ├── logger.py                          # Logger unifié
+    ├── settings.py                        # Configuration centralisée
+    └── transformers.py                    # Fonctions utilitaires
 ```
 
 ### Classes Principales
 
-| Classe | Responsabilité | Nouveautés |
-|--------|---------------|------------|
-| `AMUEAPIHook` | Communication OAuth avec l'API AMUE | - |
-| `AMUEStatusChecker` | Vérification des statuts historiques et actuels | - |
-| `AMUETableFilter` | Filtrage et sélection des tables à traiter | - |
-| `AMUETableVerifier` | Vérification structure et statut des tables | - |
-| **`AMUETableManager`** | Création et gestion des structures PostgreSQL | ✨ Validation stricte, logs enrichis |
-| `AMUEDataImporter` | Import avec pagination, retry et UPSERT | - |
-| **`AMUEPollingService`** | Attente de disponibilité de l'API | ✨ Backoff exponentiel, progression |
-| **`AMUEMetadataManager`** | Gestion des empreintes et dates d'import | ✨ API flexible, support SDK 3.x |
-| `AMUEReportGenerator` | Génération rapports et envoi emails | - |
-| **`NotificationService`** | Notifications d'erreur enrichies | ✨ HTML moderne, contexte détaillé |
+| Classe | Responsabilité |
+|--------|---------------|
+| `AMUEAPIHook` | Communication OAuth avec l'API AMUE |
+| `AMUEStatusChecker` | Vérification des statuts historiques et actuels |
+| `AMUETableFilter` | Filtrage et sélection des tables à traiter |
+| `AMUETableVerifier` | Vérification structure et statut des tables |
+| `AMUETableManager` | Création et gestion des structures PostgreSQL |
+| `AMUEDataImporter` | Import avec pagination, retry et UPSERT |
+| `AMUEPollingService` | Attente de disponibilité de l'API avec backoff |
+| `AMUEMetadataManager` | Gestion des empreintes et dates d'import |
+| `AMUEReportGenerator` | Génération rapports et envoi emails |
+| `EmailService` | Service SMTP générique |
+| `ErrorNotifier` | Notifications d'erreur |
+| `SuccessNotifier` | Notifications de succès |
 
 ### Workflow du DAG
 
@@ -259,22 +326,48 @@ if metadata:
 manager.reset_table_metadata('CSKS')
 ```
 
-#### 3. Envoi de Notification d'Erreur Personnalisée
+#### 3. Envoi de Notification d'Erreur
 
 ```python
-from utils.amue_notification_utils import NotificationService, ErrorContext
+from amue import ErrorNotifier
 
-service = NotificationService()
+notifier = ErrorNotifier()
+notifier.notify({
+    'dag_id': 'mon_dag',
+    'task_id': 'ma_tache',
+    'error_message': 'Erreur de connexion',
+    'error_type': 'ConnectionError'
+})
+```
 
-error_ctx = ErrorContext(
-    execution_date=datetime.now().isoformat(),
-    dag_id='mon_dag',
-    task_id='ma_tache',
-    error_message='Erreur de connexion',
-    error_type='ConnectionError'
+#### 4. Envoi de Notification de Succès
+
+```python
+from amue import SuccessNotifier
+
+notifier = SuccessNotifier()
+notifier.notify({
+    'dag_id': 'mon_dag',
+    'tables_imported': [
+        {'table_name': 'CSKS', 'rows_inserted': 1000, 'status': 'success'},
+        {'table_name': 'CEPC', 'rows_inserted': 500, 'status': 'success'}
+    ],
+    'duration': '5m 30s'
+})
+```
+
+#### 5. Envoi d'Email Générique
+
+```python
+from amue.notifications import EmailService, Email
+
+service = EmailService()
+email = Email(
+    to=['user@example.com'],
+    subject='Test',
+    html_content='<h1>Hello</h1>'
 )
-
-service.send_error_notification(error_ctx)
+service.send(email)
 ```
 
 ### Tests
