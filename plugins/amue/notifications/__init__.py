@@ -10,13 +10,11 @@ Architecture:
 
 # Service email
 from amue.notifications.email_service import EmailService, EmailConfig, Email
-
-# Templates
-from amue.notifications.templates import BaseTemplate, ErrorTemplate, SuccessTemplate
-
 # Notifiers
 from amue.notifications.notifiers import BaseNotifier, ErrorNotifier, SuccessNotifier
 from amue.notifications.notifiers.error_notifier import send_failure_notification
+# Templates
+from amue.notifications.templates import BaseTemplate, ErrorTemplate, SuccessTemplate
 
 __all__ = [
     # Service

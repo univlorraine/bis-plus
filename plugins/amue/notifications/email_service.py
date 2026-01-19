@@ -3,15 +3,16 @@
 Service d'envoi d'emails via SMTP
 Gère la connexion et l'envoi de manière générique
 """
+import logging
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import List, Optional
 from dataclasses import dataclass
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import List, Optional
 
-logger = get_logger(__name__)
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,6 +24,7 @@ class EmailConfig:
     use_tls: bool = False
     username: Optional[str] = None
     password: Optional[str] = None
+    timeout: int = 30  # Timeout en secondes
 
     @classmethod
     def from_airflow_variables(cls) -> 'EmailConfig':
@@ -33,7 +35,8 @@ class EmailConfig:
             from_email=VarMgr.get('smtp_mail_from', default='airflow@amue.local'),
             use_tls=VarMgr.get('smtp_use_tls', default='false').lower() == 'true',
             username=VarMgr.get('smtp_username', default=None),
-            password=VarMgr.get('smtp_password', default=None)
+            password=VarMgr.get('smtp_password', default=None),
+            timeout=int(VarMgr.get('smtp_timeout', default='30'))
         )
 
 
@@ -106,8 +109,12 @@ class EmailService:
         return msg
 
     def _send_smtp(self, msg: MIMEMultipart, recipients: List[str]) -> None:
-        """Envoie via SMTP"""
-        with smtplib.SMTP(self.config.host, self.config.port) as server:
+        """Envoie via SMTP avec timeout"""
+        with smtplib.SMTP(
+            self.config.host,
+            self.config.port,
+            timeout=self.config.timeout
+        ) as server:
             if self.config.use_tls:
                 server.starttls()
 

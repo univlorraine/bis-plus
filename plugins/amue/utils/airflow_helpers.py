@@ -1,15 +1,16 @@
 # amue/utils/airflow_helpers.py
 import json
-from amue.utils.logger import get_logger
+import logging
+from typing import Any, Optional
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AirflowVariableManager:
     """Gestionnaire centralisé pour variables Airflow avec fallback SDK/API"""
 
     @staticmethod
-    def set(key: str, value: any) -> bool:
+    def set(key: str, value: Any, description: Optional[str] = None) -> bool:
         """
         Définit une variable Airflow avec fallback automatique
 
@@ -20,25 +21,24 @@ class AirflowVariableManager:
         if not isinstance(value, str):
             value = json.dumps(value)
 
-        # Fallback SDK
         try:
             from airflow.sdk import Variable
-            Variable.set(key, value)
-            logger.info(f"[VAR] Set '{key}' via SDK")
+            Variable.set(key, value, description)
+            logger.info(f"[VAR] Set '{key}'")
             return True
-        except Exception as e:
+        except (ImportError, AttributeError, Exception) as e:
             logger.error(f"[ERROR] Cannot set variable '{key}': {e}")
             return False
 
     @staticmethod
-    def get(key: str, default: any = None) -> any:
+    def get(key: str, default: Any = None) -> Any:
         """Récupère une variable avec fallback"""
         try:
             from airflow.sdk import Variable
             return Variable.get(key, default=default)
-        except:
+        except (ImportError, AttributeError, KeyError):
             try:
                 from airflow.models import Variable
                 return Variable.get(key, default_var=default)
-            except:
+            except (ImportError, AttributeError, KeyError):
                 return default

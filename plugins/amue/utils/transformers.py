@@ -2,12 +2,113 @@
 Fonctions de transformation pour les données AMUE
 Mise à jour avec fingerprint incluant les clés primaires
 """
-import re
 import hashlib
-from typing import List, Dict
-from amue.utils.logger import get_logger
+import logging
+import re
+from typing import Any, List, Dict
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# VALIDATION DES ENTRÉES (Protection injection)
+# ============================================================================
+
+def validate_table_name(table_name: str) -> str:
+    """
+    Valide et normalise un nom de table
+
+    Args:
+        table_name: Nom de table à valider
+
+    Returns:
+        Nom de table normalisé en majuscules
+
+    Raises:
+        ValueError: Si le nom de table est invalide
+
+    Example:
+        >>> validate_table_name('csks')
+        'CSKS'
+        >>> validate_table_name('DROP TABLE users--')
+        ValueError: Nom de table invalide
+    """
+    if not table_name:
+        raise ValueError("Le nom de table ne peut pas être vide")
+
+    table_name = table_name.strip()
+
+    if not re.match(r'^[A-Za-z0-9_]{1,63}$', table_name):
+        raise ValueError(
+            f"Nom de table invalide: '{table_name}'. "
+            "Seuls les caractères alphanumériques et underscores sont autorisés (max 63 caractères)."
+        )
+
+    return table_name.upper()
+
+
+def validate_column_name(column_name: str) -> str:
+    """
+    Valide et normalise un nom de colonne
+
+    Args:
+        column_name: Nom de colonne à valider
+
+    Returns:
+        Nom de colonne normalisé en minuscules
+
+    Raises:
+        ValueError: Si le nom de colonne est invalide
+
+    Example:
+        >>> validate_column_name('MY_COLUMN')
+        'my_column'
+    """
+    if not column_name:
+        raise ValueError("Le nom de colonne ne peut pas être vide")
+
+    column_name = column_name.strip()
+
+    if not re.match(r'^[A-Za-z0-9_]{1,63}$', column_name):
+        raise ValueError(
+            f"Nom de colonne invalide: '{column_name}'. "
+            "Seuls les caractères alphanumériques et underscores sont autorisés (max 63 caractères)."
+        )
+
+    return column_name.lower()
+
+
+def validate_identifier(identifier: str, identifier_type: str = "identifier") -> str:
+    """
+    Valide un identifiant SQL générique (table, colonne, schéma)
+
+    Args:
+        identifier: Identifiant à valider
+        identifier_type: Type d'identifiant pour le message d'erreur
+
+    Returns:
+        Identifiant normalisé
+
+    Raises:
+        ValueError: Si l'identifiant est invalide
+    """
+    if not identifier:
+        raise ValueError(f"Le {identifier_type} ne peut pas être vide")
+
+    identifier = identifier.strip()
+
+    if not re.match(r'^[A-Za-z0-9_]{1,63}$', identifier):
+        raise ValueError(
+            f"{identifier_type.capitalize()} invalide: '{identifier}'. "
+            "Seuls les caractères alphanumériques et underscores sont autorisés."
+        )
+
+    return identifier
+
+
+# ============================================================================
+# TRANSFORMATION DE TYPES
+# ============================================================================
 
 
 def parse_column_definition(definition: str) -> str:
@@ -90,36 +191,9 @@ def parse_column_definition(definition: str) -> str:
     return pg_type + params
 
 
-# def compute_structure_hash(columns: List[Dict[str, str]]) -> str:
-#     """
-#     Calcule un hash MD5 de la structure d'une table (colonnes uniquement)
-#
-#     ⚠️ DEPRECATED: Utiliser compute_structure_hash_with_pk() à la place
-#     Cette fonction est conservée pour compatibilité mais ne devrait plus être utilisée
-#
-#     Args:
-#         columns: Liste de dicts avec clés 'name' et 'type_postgres'
-#
-#     Returns:
-#         Hash MD5 hexadécimal (32 caractères)
-#
-#     Example:
-#         >>> columns = [
-#         ...     {'name': 'id', 'type_postgres': 'INTEGER'},
-#         ...     {'name': 'name', 'type_postgres': 'VARCHAR(50)'}
-#         ... ]
-#         >>> compute_structure_hash(columns)
-#         'a1b2c3d4e5f6...'
-#     """
-#     # Crée une chaîne normalisée : "col1 : type1, col2 : type2, ..."
-#     structure_str = ','.join([
-#         f"{col['name']}:{col['type_postgres']}"
-#         for col in columns
-#     ])
-#
-#     # Calcule le hash MD5
-#     return hashlib.md5(structure_str.encode('utf-8')).hexdigest()
-
+# ============================================================================
+# FINGERPRINT / HASH
+# ============================================================================
 
 def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: str = '') -> str:
     """
@@ -203,7 +277,7 @@ def format_primary_keys(primary_keys: str) -> List[str]:
 
 
 def compare_fingerprints(old_fingerprint: str, new_fingerprint: str,
-                        table_name: str = None) -> Dict[str, any]:
+                         table_name: str = None) -> Dict[str, Any]:
     """
     Compare deux fingerprints et retourne des informations détaillées
 

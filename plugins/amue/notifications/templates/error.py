@@ -1,6 +1,7 @@
 # amue/notifications/templates/error.py
 """Template pour les notifications d'erreur"""
 from typing import Dict, Any
+
 from amue.notifications.templates.base import BaseTemplate
 
 

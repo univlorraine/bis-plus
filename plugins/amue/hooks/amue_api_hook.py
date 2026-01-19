@@ -1,13 +1,16 @@
 """
 Hook personnalisé pour interagir avec l'API AMUE
 """
-from airflow.sdk import Connection
 import json
-import requests
-from typing import Dict, Optional
-from amue.utils.logger import get_logger
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
-logger = get_logger(__name__)
+import requests
+from airflow.sdk import Connection
+
+logger = logging.getLogger(__name__)
+
 
 class AMUEAPIHook:
     """
@@ -30,6 +33,18 @@ class AMUEAPIHook:
         """
         self.connection = Connection.get('oauth_api')
         self.access_token: Optional[str] = None
+        self.token_expires_at: Optional[datetime] = None
+
+    def _is_token_expired(self) -> bool:
+        """
+        Vérifie si le token est expiré ou proche de l'expiration
+
+        Returns:
+            True si le token est expiré ou absent
+        """
+        if not self.access_token or not self.token_expires_at:
+            return True
+        return datetime.now() >= self.token_expires_at
 
     def get_oauth_token(self) -> str:
         """
@@ -77,10 +92,17 @@ class AMUEAPIHook:
             token_data = response.json()
             self.access_token = token_data['access_token']
 
-            expires_in = token_data.get('expires_in', 'N/A')
+            expires_in = token_data.get('expires_in', 3600)
             token_type = token_data.get('token_type', 'Bearer')
 
+            # Enregistre l'expiration avec marge de sécurité (90% du temps)
+            if isinstance(expires_in, int):
+                self.token_expires_at = datetime.now() + timedelta(seconds=int(expires_in * 0.9))
+            else:
+                self.token_expires_at = datetime.now() + timedelta(seconds=3240)  # 90% de 3600
+
             logger.info(f"[AUTH] Token obtenu - Type: {token_type}, Expire: {expires_in}s")
+            logger.debug(f"[AUTH] Token valide jusqu'à: {self.token_expires_at}")
 
             return self.access_token
 
@@ -100,8 +122,9 @@ class AMUEAPIHook:
             self,
             endpoint: str,
             params: Optional[Dict] = None,
-            check_status_only: bool = False
-    ) -> any:
+            check_status_only: bool = False,
+            timeout: int = 60
+    ) -> Any:
         """
         Effectue un appel GET à l'API AMUE avec authentification OAuth
 
@@ -109,6 +132,7 @@ class AMUEAPIHook:
             endpoint: Chemin de l'endpoint (ex: 'finances/cdv/v1/preprod/ul/table')
             params: Paramètres query string optionnels
             check_status_only: Si True, retourne seulement le code HTTP
+            timeout: Timeout en secondes pour l'appel API (défaut: 60)
 
         Returns:
             - Si check_status_only=True: code HTTP (int)
@@ -118,8 +142,9 @@ class AMUEAPIHook:
         Raises:
             requests.exceptions.RequestException: En cas d'erreur réseau
         """
-        # Obtient le token si nécessaire
-        if not self.access_token:
+        # Obtient le token si nécessaire ou si expiré
+        if self._is_token_expired():
+            logger.debug("[API] Token absent ou expiré, renouvellement...")
             self.get_oauth_token()
 
         # Construit l'URL complète
@@ -148,7 +173,7 @@ class AMUEAPIHook:
                 url,
                 headers=headers,
                 params=params,
-                timeout=60
+                timeout=timeout
             )
 
             # Mode vérification status uniquement

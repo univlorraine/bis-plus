@@ -1,68 +1,81 @@
 # amue/notifications/report_generator.py
 """
 Générateur de rapports et notifications
-Utilise le nouveau système de notifications
 """
 import json
+import logging
 from datetime import datetime
 from typing import List, Dict
+
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
 from amue.notifications.notifiers.success_notifier import SuccessNotifier
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AMUEReportGenerator:
     """
     Génère des rapports d'exécution et envoie des notifications
-
-    Utilise SuccessNotifier pour l'envoi des emails.
     """
 
     def __init__(self):
         """Initialise le générateur de rapports"""
         self.notifier = SuccessNotifier()
 
-    def generate_report(self, insert_results: List[Dict],
-                       history_result: Dict, polling_result: Dict) -> Dict:
+    def generate_report(self, import_results: List[Dict], polling_result: Dict) -> Dict:
         """
         Génère un rapport d'exécution
 
         Args:
-            insert_results: Résultats des imports
-            history_result: Résultat de la vérification historique
-            polling_result: Résultat du polling
+            import_results: Résultats des imports
+            polling_result: Résultat du polling (avec start_time)
 
         Returns:
             Rapport complet
         """
-        logger.info("Génération du rapport")
+        logger.info("[REPORT] Génération du rapport")
 
-        total_tables = len(insert_results)
-        total_rows = sum(r.get('rows_inserted', 0) for r in insert_results)
+        # Filtre les tables avec 0 lignes
+        tables_with_data = [
+            r for r in import_results
+            if r.get('rows_inserted', 0) > 0 or r.get('rows_fetched', 0) > 0
+        ]
 
-        # Calcul de la durée
-        start_time = polling_result.get('start_time')
-        if start_time:
-            try:
-                start_dt = datetime.fromisoformat(start_time)
-                duration_seconds = (datetime.now() - start_dt).total_seconds()
-                duration = self._format_duration(duration_seconds)
-            except Exception:
-                duration = f"{polling_result.get('total_wait_minutes', 0)}min"
-        else:
-            duration = f"{polling_result.get('total_wait_minutes', 0)}min"
+        tables_skipped = len(import_results) - len(tables_with_data)
+        if tables_skipped > 0:
+            logger.info(f"[REPORT] {tables_skipped} table(s) ignorée(s) (0 lignes)")
+
+        # Statistiques
+        total_tables = len(tables_with_data)
+        total_inserted = sum(r.get('rows_inserted', 0) for r in tables_with_data)
+        total_fetched = sum(r.get('rows_fetched', 0) for r in tables_with_data)
+
+        # Calcul de la durée depuis le début du DAG
+        duration = self._calculate_duration(polling_result)
+
+        # Enrichit les détails des tables
+        tables_detail = []
+        for r in tables_with_data:
+            tables_detail.append({
+                'table_name': r.get('table_name', 'unknown'),
+                'rows_fetched': r.get('rows_fetched', 0),
+                'rows_inserted': r.get('rows_inserted', 0),
+                'import_type': r.get('import_type', 'full'),
+                'status': r.get('status', 'success'),
+                'finger_print': r.get('finger_print', '')[:16] + '...' if r.get('finger_print') else ''
+            })
 
         report = {
             'execution_date': datetime.now().isoformat(),
-            'polling_attempts': polling_result.get('attempts', 0),
-            'polling_wait_minutes': polling_result.get('total_wait_minutes', 0),
+            'start_time': polling_result.get('start_time', ''),
             'duration': duration,
+            'polling_attempts': polling_result.get('attempts', 0),
+            'polling_wait_minutes': round(polling_result.get('total_wait_minutes', 0), 1),
             'total_tables': total_tables,
-            'total_rows': total_rows,
-            'tables_detail': list(insert_results),
-            'history_dates': history_result.get('dates_checked', []),
+            'tables_skipped': tables_skipped,
+            'total_fetched': total_fetched,
+            'total_inserted': total_inserted,
+            'tables_detail': tables_detail,
             'status': 'success'
         }
 
@@ -71,6 +84,25 @@ class AMUEReportGenerator:
 
         return report
 
+    def _calculate_duration(self, polling_result: Dict) -> str:
+        """Calcule la durée totale depuis le début"""
+        start_time_str = polling_result.get('start_time')
+
+        if start_time_str:
+            try:
+                start_dt = datetime.fromisoformat(start_time_str)
+                duration_seconds = (datetime.now() - start_dt).total_seconds()
+                return self._format_duration(duration_seconds)
+            except Exception as e:
+                logger.warning(f"[REPORT] Erreur calcul durée: {e}")
+
+        # Fallback sur le temps de polling
+        wait_minutes = polling_result.get('total_wait_minutes', 0)
+        if wait_minutes > 0:
+            return f"{wait_minutes:.1f}min (polling uniquement)"
+
+        return "N/A"
+
     def send_notification(self, report: Dict) -> None:
         """
         Envoie une notification par email
@@ -78,7 +110,7 @@ class AMUEReportGenerator:
         Args:
             report: Rapport à envoyer
         """
-        logger.info("Envoi notification email")
+        logger.info("[REPORT] Envoi notification email")
 
         # Prépare les données pour le notifier
         notification_data = {
@@ -86,15 +118,16 @@ class AMUEReportGenerator:
             'execution_date': report.get('execution_date', datetime.now().isoformat()),
             'duration': report.get('duration', 'N/A'),
             'tables_imported': report.get('tables_detail', []),
-            'total_rows': report.get('total_rows', 0)
+            'total_rows': report.get('total_inserted', 0),
+            'total_fetched': report.get('total_fetched', 0)
         }
 
         success = self.notifier.notify(notification_data)
 
         if success:
-            logger.info("Email envoyé avec succès")
+            logger.info("[REPORT] Email envoyé avec succès")
         else:
-            logger.warning("Échec envoi email")
+            logger.warning("[REPORT] Échec envoi email")
 
     def _format_duration(self, seconds: float) -> str:
         """Formate une durée en secondes en format lisible"""
@@ -111,40 +144,62 @@ class AMUEReportGenerator:
 
     def _print_report(self, report: Dict) -> None:
         """Affiche le rapport dans les logs"""
-        logger.info(f"""
-+================================================================+
-|                    RAPPORT IMPORT AMUE                         |
-+================================================================+
-| Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}                                  |
-| Durée: {report.get('duration', 'N/A')}                                              |
-| Tables: {report['total_tables']}                                                  |
-| Lignes: {report['total_rows']:,}                                              |
-+================================================================+
-        """)
+        logger.info("=" * 70)
+        logger.info("                    RAPPORT IMPORT AMUE")
+        logger.info("=" * 70)
+        logger.info(f"  Date d'exécution : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"  Durée totale     : {report.get('duration', 'N/A')}")
+        logger.info(f"  Polling          : {report.get('polling_attempts', 0)} tentative(s), "
+                    f"{report.get('polling_wait_minutes', 0)}min d'attente")
+        logger.info("-" * 70)
+        logger.info(f"  Tables traitées  : {report['total_tables']}")
+        if report.get('tables_skipped', 0) > 0:
+            logger.info(f"  Tables ignorées  : {report['tables_skipped']} (0 lignes)")
+        logger.info(f"  Lignes récupérées: {report['total_fetched']:,}")
+        logger.info(f"  Lignes insérées  : {report['total_inserted']:,}")
+        logger.info("=" * 70)
 
-        for r in report['tables_detail']:
-            status_icon = "[OK]" if r.get('status') == 'success' else "[!!]"
-            logger.info(f"{status_icon} {r['table_name']:15} | {r.get('rows_inserted', 0):>8} lignes | {r.get('import_type', 'full')}")
+        if report['tables_detail']:
+            logger.info("")
+            logger.info("  DÉTAIL PAR TABLE:")
+            logger.info("-" * 70)
+            logger.info(f"  {'Table':<15} | {'Récup.':>10} | {'Inséré':>10} | {'Type':<12} | Statut")
+            logger.info("-" * 70)
+
+            for t in report['tables_detail']:
+                status_icon = "OK" if t.get('status') == 'success' else "!!"
+                logger.info(
+                    f"  {t['table_name']:<15} | "
+                    f"{t.get('rows_fetched', 0):>10,} | "
+                    f"{t.get('rows_inserted', 0):>10,} | "
+                    f"{t.get('import_type', 'full'):<12} | "
+                    f"[{status_icon}]"
+                )
+
+            logger.info("-" * 70)
+        logger.info("")
 
     def _save_report(self, report: Dict) -> None:
         """Sauvegarde le rapport dans les variables"""
-        VarMgr.set('last_import_report', json.dumps(report))
+        try:
+            VarMgr.set('last_import_report', json.dumps(report, default=str))
+            logger.info("[REPORT] Rapport sauvegardé dans les variables Airflow")
+        except Exception as e:
+            logger.warning(f"[REPORT] Impossible de sauvegarder le rapport: {e}")
 
-    def generate_and_send(self, insert_results: List[Dict],
-                          history_result: Dict, polling_result: Dict) -> Dict:
+    def generate_and_send(self, import_results: List[Dict], polling_result: Dict) -> Dict:
         """
         Génère le rapport et envoie la notification en une seule opération
 
         Args:
-            insert_results: Résultats des imports
-            history_result: Résultat de la vérification historique
+            import_results: Résultats des imports
             polling_result: Résultat du polling
 
         Returns:
             Rapport généré avec statut d'envoi
         """
         # Génère le rapport
-        report = self.generate_report(insert_results, history_result, polling_result)
+        report = self.generate_report(import_results, polling_result)
 
         # Envoie la notification
         self.send_notification(report)

@@ -2,6 +2,7 @@
 """Notifier pour les erreurs"""
 from datetime import datetime
 from typing import Dict, Any
+
 from amue.notifications.notifiers.base import BaseNotifier
 from amue.notifications.templates.base import BaseTemplate
 from amue.notifications.templates.error import ErrorTemplate
@@ -88,8 +89,8 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     Args:
         context: Contexte Airflow avec task_instance, exception, etc.
     """
-    from amue.utils.logger import get_logger
-    logger = get_logger(__name__)
+    import logging
+    logger = logging.getLogger(__name__)
 
     logger.info("Déclenchement du callback d'erreur")
 

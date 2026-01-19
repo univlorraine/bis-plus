@@ -3,14 +3,15 @@ Filtrage et sélection des tables AMUE à importer
 Avec arrêt et notification si table absente du statut
 """
 import json
-from typing import Dict, List
+import logging
 from datetime import datetime
-from airflow.exceptions import AirflowException
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
-from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
+from typing import Dict, List
 
-logger = get_logger(__name__)
+from airflow.exceptions import AirflowException
+from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+
+logger = logging.getLogger(__name__)
 
 
 class TableNotFoundError(AirflowException):
@@ -46,16 +47,15 @@ class AMUETableFilter:
         else:
             self.notification_service = None
 
-    def filter_tables(self, current_status: Dict, history: Dict) -> List[Dict]:
+    def filter_tables(self, current_status: Dict) -> List[Dict]:
         """
-        Filtre les tables selon statut actuel et historique
+        Filtre les tables selon statut actuel
 
-        NOUVEAU: Vérifie que toutes les tables configurées existent dans le statut.
+        Vérifie que toutes les tables configurées existent dans le statut.
         Si des tables sont manquantes, envoie une notification et arrête le traitement.
 
         Args:
             current_status: Statut actuel de l'API (dict avec noms de tables en clés)
-            history: Historique des statuts
 
         Returns:
             Liste des tables à traiter
@@ -63,7 +63,7 @@ class AMUETableFilter:
         Raises:
             TableNotFoundError: Si des tables configurées sont absentes du statut
         """
-        logger.info(f" Filtrage de {len(self.tables_config)} tables configurées")
+        logger.info(f"[FILTER] Filtrage de {len(self.tables_config)} tables configurées")
 
         # Vérification CRITIQUE: toutes les tables configurées doivent exister dans le statut
         missing_tables = self._check_tables_exist_in_status(current_status)
@@ -91,18 +91,17 @@ class AMUETableFilter:
             # Enrichit la config
             enriched_config = self._enrich_table_config(
                 table_config,
-                current_status[table_name],
-                history
+                current_status[table_name]
             )
 
             # Détermine si on traite cette table
             if self._should_process_table(enriched_config):
                 tables_to_process.append(enriched_config)
-                logger.info(f" {table_name}: À traiter ({enriched_config['import_type']})")
+                logger.info(f"[FILTER] {table_name}: À traiter ({enriched_config['import_type']})")
             else:
-                logger.info(f" {table_name}: Skip")
+                logger.info(f"[FILTER] {table_name}: Skip")
 
-        logger.info(f" {len(tables_to_process)} tables à traiter")
+        logger.info(f"[FILTER] {len(tables_to_process)} tables à traiter")
         return tables_to_process
 
     def _check_tables_exist_in_status(self, current_status: Dict) -> List[str]:
@@ -164,7 +163,7 @@ class AMUETableFilter:
                 }
                 send_failure_notification(context)
             except Exception as e:
-                logger.warning(f" Impossible d'envoyer la notification: {str(e)}")
+                logger.warning(f"[{type(e).__name__}] Impossible d'envoyer la notification: {str(e)}")
             return
 
         # Contexte d'erreur
@@ -180,9 +179,9 @@ class AMUETableFilter:
         # Envoi de la notification
         try:
             self.notification_service.send_error_notification(error_context)
-            logger.info("Notification envoyée avec succès")
+            logger.info("[FILTER] Notification envoyée avec succès")
         except Exception as e:
-            logger.warning(f" Échec envoi notification: {str(e)}")
+            logger.warning(f"[{type(e).__name__}] Échec envoi notification: {str(e)}")
 
     def _build_missing_tables_error_message(self, missing_tables: List[str], current_status: Dict) -> str:
         """
@@ -248,11 +247,11 @@ class AMUETableFilter:
 
         return tables_config if isinstance(tables_config, list) else []
 
-    def _enrich_table_config(self, table_config: Dict, current_status: Dict, history: Dict) -> Dict:
+    def _enrich_table_config(self, table_config: Dict, current_status: Dict) -> Dict:
         """
-        Enrichit la config d'une table avec statut et historique
+        Enrichit la config d'une table avec le statut actuel
 
-        NOUVEAU: Récupère automatiquement les clés primaires si absentes
+        Récupère automatiquement les clés primaires si absentes
         """
         enriched = table_config.copy()
 
@@ -262,9 +261,9 @@ class AMUETableFilter:
         enriched.setdefault('last_import', '')
         enriched.setdefault('finger_print', '')
 
-        # NOUVEAU: Récupération automatique des clés primaires si absentes
+        # Récupération automatique des clés primaires si absentes
         if not enriched.get('primary_key') or not enriched['primary_key'].strip():
-            logger.info(f" Table {enriched['name']}: Clés primaires absentes, récupération via API")
+            logger.info(f"[FILTER] Table {enriched['name']}: Clés primaires absentes, récupération via API")
             enriched['needs_pk_update'] = True
         else:
             enriched['needs_pk_update'] = False
@@ -272,39 +271,13 @@ class AMUETableFilter:
         # Ajoute le statut actuel
         enriched['current_status'] = current_status
 
-        # Vérifie l'historique
-        history_ok, last_ok_date = self._check_history(
-            enriched['name'].upper(),
-            history
-        )
-
-        enriched['history_ok'] = history_ok
-        enriched['last_ok_date'] = last_ok_date
-
         return enriched
-
-    def _check_history(self, table_name: str, history: Dict) -> tuple:
-        """Vérifie l'historique d'une table"""
-        status_by_date = history.get('status_by_date', {})
-
-        for date_str in sorted(status_by_date.keys(), reverse=True):
-            date_info = status_by_date[date_str]
-            tables_in_date = date_info.get('tables_status', {})
-
-            if table_name in tables_in_date:
-                table_status = tables_in_date[table_name]
-                if table_status['status'] != 'OK':
-                    return False, None
-                return True, date_str
-
-        return True, None
 
     def _should_process_table(self, table_config: Dict) -> bool:
         """Détermine si une table doit être traitée"""
         current_status = table_config['current_status']['status']
-        history_ok = table_config.get('history_ok', False)
 
-        if current_status != 'OK' or not history_ok:
+        if current_status != 'OK':
             return False
 
         # Détermine le type d'import

@@ -42,6 +42,28 @@ Système complet d'import automatisé de données depuis l'API AMUE vers Postgre
 - **Validation Robuste** : Vérification des types et structures
 - **Logs Détaillés** : Suivi précis des changements de fingerprint
 
+#### 5. Configuration Centralisée (`AMUEConfig`)
+- **Dataclass Typée** : Configuration validée avec types stricts
+- **Chargement Automatique** : Depuis les variables Airflow avec `get_config()`
+- **Singleton Pattern** : Instance unique réutilisable
+- **Rechargement à Chaud** : Via `reload_config()` pour rafraîchir les paramètres
+- **Validation des Variables Requises** : Erreurs explicites si variables manquantes
+
+#### 6. Gestionnaire de Hooks (`HookManager`)
+- **Singleton Pattern** : Réutilisation des connexions
+- **Lazy Loading** : Création des hooks à la demande
+- **Hooks Intégrés** : API AMUE et PostgreSQL préconfigurés
+
+#### 7. Callback Airflow (`send_failure_notification`)
+- **Intégration Native** : Callback compatible `on_failure_callback`
+- **Extraction Automatique** : Récupération du contexte d'erreur depuis Airflow
+- **Notifications Immédiates** : Envoi d'email dès qu'une tâche échoue
+
+#### 8. Configuration Logging Personnalisée
+- **Réduction du Bruit** : Filtrage des logs verbeux (dagbag, dag_processing)
+- **Configuration Externe** : Via `config/log_config.py`
+- **Compatible Airflow 3.x** : Utilise `deep_update` pour merger la configuration
+
 ## Prérequis
 
 - **Docker** et **Docker Compose** installés
@@ -90,36 +112,36 @@ Ils sont uniquement dans le fichier `.env` qui est exclu du versioning.
 ## Caractéristiques Principales
 
 ### Fonctionnalités d'Import
-- ✅ **Import Complet** : Import initial de toutes les données d'une table
-- ✅ **Import Différentiel** : Mise à jour incrémentale basée sur une colonne delta
-- ✅ **Multi-tables** : Import de plusieurs tables en parallèle
-- ✅ **Vérification Historique** : Contrôle du statut des N derniers jours
-- ✅ **Retry Automatique** : Gestion intelligente des erreurs avec retry
-- ✅ **Pagination Automatique** : Gestion transparente des grands volumes de données
+- **Import Complet** : Import initial de toutes les données d'une table
+- **Import Différentiel** : Mise à jour incrémentale basée sur une colonne delta
+- **Multi-tables** : Import de plusieurs tables en parallèle
+- **Vérification Historique** : Contrôle du statut des N derniers jours
+- **Retry Automatique** : Gestion intelligente des erreurs avec retry
+- **Pagination Automatique** : Gestion transparente des grands volumes de données
 
 ### Contrôles de Production
-- 🔒 **Vérification du statut de l'API** avant import
-- 🔍 **Détection automatique** des changements de structure
-- 🔑 **Validation des clés primaires**
-- 🛡️ **Contrôles différenciés** selon l'environnement (dev/prod)
-- ↩️ **Rollback automatique** en cas d'erreur
-- 🔐 **Empreinte digitale** (fingerprint) des structures de tables
+- **Vérification du statut de l'API** avant import
+- **Détection automatique** des changements de structure
+- **Validation des clés primaires**
+- **Contrôles différenciés** selon l'environnement (dev/prod)
+- **Rollback automatique** en cas d'erreur
+- **Empreinte digitale** (fingerprint) des structures de tables
 
 ### Notifications et Reporting
-- 📧 **Emails de succès** avec rapport détaillé (HTML moderne)
-- ⚠️ **Emails d'erreur** avec diagnostic et actions recommandées
-- 🔧 **Serveur SMTP de test** intégré (MailHog) pour développement
-- 📊 **Rapports HTML formatés** avec tableaux de bord
-- 📈 **Métriques d'exécution** : temps, tentatives, lignes importées
+- **Emails de succès** avec rapport détaillé (HTML moderne)
+- **Emails d'erreur** avec diagnostic et actions recommandées
+- **Serveur SMTP de test** intégré (MailHog) pour développement
+- **Rapports HTML formatés** avec tableaux de bord
+- **Métriques d'exécution** : temps, tentatives, lignes importées
 
 ### Automatisation et Monitoring
-- 🎯 **Installation en une commande**
-- ⚙️ **Configuration depuis fichiers JSON**
-- 🩺 **Scripts de diagnostic automatique**
-- ✅ **Tests automatisés**
-- 🔧 **Correction automatique des problèmes**
-- 📊 **Interface web de monitoring** (Airflow UI)
-- 📬 **Interface de visualisation des emails** (MailHog)
+- **Installation en une commande**
+- **Configuration depuis fichiers JSON**
+- **Scripts de diagnostic automatique**
+- **Tests automatisés**
+- **Correction automatique des problèmes**
+- **Interface web de monitoring** (Airflow UI)
+- **Interface de visualisation des emails** (MailHog)
 
 ## Architecture
 
@@ -128,6 +150,9 @@ Ils sont uniquement dans le fichier `.env` qui est exclu du versioning.
 Le projet suit les **principes SOLID** avec une séparation claire des responsabilités :
 
 ```
+config/
+└── log_config.py                          # Configuration logging Airflow
+
 dags/
 └── dag_amue_dynamic_table.py              # DAG principal (orchestration)
 
@@ -146,6 +171,7 @@ plugins/amue/
 │   └── status_checker.py                  # Vérification statuts
 ├── notifications/
 │   ├── email_service.py                   # Service SMTP générique
+│   ├── notification_service.py            # Service de notification centralisé
 │   ├── report_generator.py                # Rapports d'exécution
 │   ├── templates/
 │   │   ├── base.py                        # Template de base (styles)
@@ -157,8 +183,8 @@ plugins/amue/
 │       └── success_notifier.py            # Notifications de succès
 └── utils/
     ├── airflow_helpers.py                 # Gestion variables Airflow
-    ├── logger.py                          # Logger unifié
-    ├── settings.py                        # Configuration centralisée
+    ├── hooks.py                           # Gestionnaire de hooks (singleton)
+    ├── settings.py                        # Configuration centralisée (AMUEConfig)
     └── transformers.py                    # Fonctions utilitaires
 ```
 
@@ -175,9 +201,13 @@ plugins/amue/
 | `AMUEPollingService` | Attente de disponibilité de l'API avec backoff |
 | `AMUEMetadataManager` | Gestion des empreintes et dates d'import |
 | `AMUEReportGenerator` | Génération rapports et envoi emails |
+| `AMUEConfig` | Configuration centralisée (dataclass singleton) |
+| `HookManager` | Gestionnaire centralisé de hooks (singleton) |
 | `EmailService` | Service SMTP générique |
+| `NotificationService` | Service de notification centralisé |
 | `ErrorNotifier` | Notifications d'erreur |
 | `SuccessNotifier` | Notifications de succès |
+| `ErrorContext` | Dataclass pour le contexte d'erreur |
 
 ### Workflow du DAG
 
@@ -370,6 +400,63 @@ email = Email(
 service.send(email)
 ```
 
+#### 6. Utilisation de la Configuration Centralisée
+
+```python
+from amue import get_config, reload_config, AMUEConfig
+
+# Récupérer la configuration (singleton)
+config = get_config()
+
+print(f"Environnement: {config.environment}")
+print(f"Université: {config.universite}")
+print(f"Production: {config.is_production()}")
+print(f"Max retries: {config.api_max_retries}")
+
+# Forcer le rechargement après modification des variables
+config = reload_config()
+```
+
+#### 7. Utilisation du Gestionnaire de Hooks
+
+```python
+from amue import HookManager
+
+# Singleton - réutilise les connexions
+hooks = HookManager()
+
+# Hook API AMUE (lazy loading)
+api_hook = hooks.api_hook
+response = api_hook.get_table_status('CSKS')
+
+# Hook PostgreSQL (lazy loading)
+pg_hook = hooks.postgres_hook
+records = pg_hook.get_records("SELECT * FROM splus.csks LIMIT 10")
+```
+
+#### 8. Callback d'Erreur Airflow
+
+```python
+from amue import send_failure_notification
+
+# Dans la définition du DAG
+with DAG(
+    'mon_dag',
+    default_args={
+        'on_failure_callback': send_failure_notification
+    }
+) as dag:
+    # Les tâches enverront automatiquement un email en cas d'échec
+    ...
+
+# Ou au niveau d'une tâche spécifique
+task = PythonOperator(
+    task_id='ma_tache',
+    python_callable=ma_fonction,
+    on_failure_callback=send_failure_notification
+)
+```
+
 ### Tests
 
 ```bash
@@ -469,15 +556,13 @@ CREATE TABLE ma_table (
 
 | Métrique | Valeur |
 |----------|--------|
-| Lignes de code Python | ~5000 |
+| Lignes de code Python | ~5500 |
 | Lignes de scripts Bash | ~2000 |
-| Lignes de documentation | ~8000 |
-| Nombre de classes | 10 |
+| Lignes de documentation | ~9000 |
+| Nombre de classes | 16 |
 | Nombre de scripts | 12 |
-| Temps d'installation | 5 minutes |
-| Temps de configuration | 2 minutes |
-| **Nouveaux dataclasses** | **4** |
-| **Nouvelles API publiques** | **6** |
+| **Dataclasses** | **5** |
+| **API publiques** | **12** |
 
 ## Améliorations Futures
 

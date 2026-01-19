@@ -1,15 +1,16 @@
 # amue/notifications/notifiers/base.py
 """Classe de base pour les notifiers"""
 import json
+import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+
 from amue.notifications.email_service import EmailService, Email
 from amue.notifications.templates.base import BaseTemplate
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BaseNotifier(ABC):
@@ -121,7 +122,7 @@ class BaseNotifier(ABC):
         }
 
         try:
-            VarMgr.set('last_import_report', json.dumps(report))
+            VarMgr.set('last_import_report', json.dumps(report), context['status'])
             logger.info("Rapport sauvegardé")
         except Exception as e:
             logger.warning(f"Échec sauvegarde rapport: {e}")

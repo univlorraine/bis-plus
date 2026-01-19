@@ -1,12 +1,11 @@
 """
 DAG d'import AMUE - Architecture simplifiée
 
-Structure en 5 phases :
-  1. PRÉPARATION   : Vérification historique
-  2. ATTENTE API   : Polling jusqu'à disponibilité
-  3. VÉRIFICATION  : Sélection et validation des tables
-  4. IMPORT        : Préparation structure + import données
-  5. FINALISATION  : Métadonnées et rapport
+Structure en 4 phases :
+  1. INITIALISATION : Attente API + sélection des tables
+  2. VÉRIFICATION   : Validation structure des tables
+  3. IMPORT         : Préparation structure + import données
+  4. FINALISATION   : Métadonnées et rapport
 """
 from datetime import datetime, timedelta
 from airflow.sdk import dag, task
@@ -23,11 +22,12 @@ from amue import (
     AMUEMetadataManager,
     AMUEReportGenerator,
     send_failure_notification,
-    AirflowVariableManager as VarMngr,
+    AirflowVariableManager as VarMgr,
 )
-from amue.utils.logger import get_logger
+import json
+import logging
 
-logger = get_logger('dag')
+logger = logging.getLogger(__name__)
 
 
 @dag(
@@ -49,120 +49,59 @@ logger = get_logger('dag')
 def amue_multi_table_import():
     """
     DAG principal d'import AMUE
-
-    Workflow :
-    ┌─────────────────┐
-    │  check_history  │ ─────────────────────────────┐
-    └────────┬────────┘                              │
-             │                                       │
-             ▼                                       ▼
-    ┌─────────────────┐                     ┌───────────────┐
-    │  wait_for_api   │ ───────────────────▶│ select_tables │
-    └─────────────────┘                     └───────┬───────┘
-                                                    │
-             ┌──────────────────────────────────────┘
-             ▼
-    ┌─────────────────┐
-    │ verify_table ×N │
-    └────────┬────────┘
-             ▼
-    ┌─────────────────┐
-    │ validate_tables │
-    └────────┬────────┘
-             ▼
-    ┌─────────────────┐
-    │ prepare_table ×N│
-    └────────┬────────┘
-             ▼
-    ┌─────────────────┐
-    │ import_data ×N  │
-    └────────┬────────┘
-             │
-      ┌──────┴──────┐
-      ▼             ▼
-    ┌─────────┐  ┌─────────────┐
-    │ save_   │  │ send_report │
-    │ metadata│──│             │
-    └─────────┘  └─────────────┘
     """
 
     # =========================================================================
-    # PHASE 1 : PRÉPARATION
+    # PHASE 1 : INITIALISATION
     # =========================================================================
 
-    @task(task_id='check_history')
-    def check_history() -> Dict:
+    @task(task_id='wait_for_api_and_select')
+    def wait_for_api_and_select() -> List[Dict]:
         """
-        Vérifie les statuts des N derniers jours
+        Attend que l'API soit prête et sélectionne les tables à importer
 
-        Retourne l'historique des statuts pour déterminer
-        quelles tables nécessitent un import.
-        """
-        api_hook = AMUEAPIHook()
-        status_checker = AMUEStatusChecker(api_hook)
-        max_days = int(VarMngr.get('amue_max_history_days', default='7'))
-
-        logger.info(f"[HISTORY] Vérification des {max_days} derniers jours")
-        return status_checker.check_historical_status(max_days)
-
-    # =========================================================================
-    # PHASE 2 : ATTENTE API
-    # =========================================================================
-
-    @task(task_id='wait_for_api')
-    def wait_for_api() -> Dict:
-        """
-        Attend que l'API soit prête
-
-        Utilise un polling intelligent avec backoff optionnel.
-        Timeout configurable via amue_max_wait_hours.
+        1. Polling jusqu'à disponibilité de l'API
+        2. Récupération du statut actuel
+        3. Filtrage des tables configurées
+        4. Stocke les infos de polling dans une variable
+        5. Retourne la liste des tables (pour le mapping dynamique)
         """
         api_hook = AMUEAPIHook()
         status_checker = AMUEStatusChecker(api_hook)
         polling_service = AMUEPollingService(status_checker)
 
-        logger.info("[POLLING] Attente disponibilité API...")
-        return polling_service.wait_for_ready()
+        # Phase 1: Attente API
+        logger.info("[INIT] Attente disponibilité API...")
+        polling_result = polling_service.wait_for_ready()
 
-    # =========================================================================
-    # PHASE 3 : SÉLECTION & VÉRIFICATION
-    # =========================================================================
+        # Stocke les infos de polling pour le rapport final
+        VarMgr.set('_current_run_polling', json.dumps(polling_result, default=str))
 
-    @task(task_id='select_tables')
-    def select_tables(history_result: Dict) -> List[Dict]:
-        """
-        Sélectionne les tables à importer
-
-        Filtre selon :
-        - Tables configurées dans amue_tables_to_import
-        - Statut actuel de l'API
-        - Historique des imports
-        """
-        api_hook = AMUEAPIHook()
-        status_checker = AMUEStatusChecker(api_hook)
+        # Phase 2: Sélection des tables
+        logger.info("[INIT] API prête, sélection des tables...")
         current_status = status_checker.get_current_status()
 
         table_filter = AMUETableFilter()
-        tables = table_filter.filter_tables(current_status, history_result)
+        tables = table_filter.filter_tables(current_status)
 
         if not tables:
-            logger.info("[SELECT] Aucune table à importer")
+            logger.info("[INIT] Aucune table à importer")
         else:
-            logger.info(f"[SELECT] {len(tables)} table(s) à importer")
+            logger.info(f"[INIT] {len(tables)} table(s) à importer")
             for t in tables:
                 logger.info(f"  - {t.get('name')}")
 
+        # Retourne uniquement la liste des tables (pour .expand())
         return tables
+
+    # =========================================================================
+    # PHASE 2 : VÉRIFICATION
+    # =========================================================================
 
     @task(task_id='verify_table')
     def verify_table(table_info: Dict) -> Dict:
         """
         Vérifie une table : statut + structure + fingerprint
-
-        Vérifications effectuées :
-        - Statut de la table dans l'API (doit être OK)
-        - Structure de la table (colonnes, types)
-        - Fingerprint (détection des changements)
         """
         api_hook = AMUEAPIHook()
         verifier = AMUETableVerifier(api_hook)
@@ -174,7 +113,6 @@ def amue_multi_table_import():
         Valide les résultats des vérifications
 
         Arrête le DAG si une table a échoué la vérification.
-        Retourne la liste des tables validées.
         """
         errors = []
         validated = []
@@ -191,7 +129,6 @@ def amue_multi_table_import():
             else:
                 validated.append(result)
 
-        # Si erreurs, on arrête
         if errors:
             logger.error(f"[VALIDATE] {len(errors)} erreur(s) détectée(s)")
             for err in errors:
@@ -202,21 +139,16 @@ def amue_multi_table_import():
         return validated
 
     # =========================================================================
-    # PHASE 4 : IMPORT
+    # PHASE 3 : IMPORT
     # =========================================================================
 
     @task(task_id='prepare_table')
     def prepare_table(verified_table: Dict) -> Dict:
         """
         Prépare la structure PostgreSQL
-
-        En dev : crée la table si elle n'existe pas
-        En prod : vérifie que la table existe
         """
         manager = AMUETableManager()
         result = manager.manage_table(verified_table)
-
-        # Propage les infos pour l'import
         result['original_info'] = verified_table.get('original_info', {})
         return result
 
@@ -224,9 +156,6 @@ def amue_multi_table_import():
     def import_data(prepared_table: Dict) -> Dict:
         """
         Importe les données d'une table
-
-        Utilise INSERT (première fois) ou UPSERT (mises à jour).
-        Pagination automatique pour les grands volumes.
         """
         api_hook = AMUEAPIHook()
         importer = AMUEDataImporter(api_hook)
@@ -239,61 +168,51 @@ def amue_multi_table_import():
         )
 
     # =========================================================================
-    # PHASE 5 : FINALISATION
+    # PHASE 4 : FINALISATION
     # =========================================================================
 
     @task(task_id='save_metadata')
     def save_metadata(import_results: List[Dict]) -> None:
         """
         Met à jour les métadonnées
-
-        Sauvegarde :
-        - Date du dernier import par table
-        - Fingerprint de la structure
         """
         manager = AMUEMetadataManager()
         manager.update_metadata(import_results)
         logger.info(f"[METADATA] Métadonnées mises à jour pour {len(import_results)} table(s)")
 
     @task(task_id='send_report')
-    def send_report(import_results: List[Dict], history_result: Dict,
-                    polling_result: Dict) -> Dict:
+    def send_report(import_results: List[Dict]) -> Dict:
         """
         Génère et envoie le rapport final
-
-        Inclut :
-        - Résumé de l'exécution
-        - Détail par table
-        - Envoi email aux destinataires
         """
+        # Récupère les infos de polling depuis la variable
+        polling_json = VarMgr.get('_current_run_polling', default='{}')
+        try:
+            polling_result = json.loads(polling_json)
+        except Exception:
+            polling_result = {}
+
         generator = AMUEReportGenerator()
-        return generator.generate_and_send(import_results, history_result, polling_result)
+        return generator.generate_and_send(import_results, polling_result)
 
     # =========================================================================
     # DÉFINITION DU WORKFLOW
     # =========================================================================
 
-    # Phase 1 : Préparation
-    history = check_history()
+    # Phase 1 : Initialisation (retourne la liste des tables)
+    tables = wait_for_api_and_select()
 
-    # Phase 2 : Attente API (dépend de history via >>)
-    polling = wait_for_api()
-    history >> polling  # Dépendance explicite
-
-    # Phase 3 : Sélection et vérification
-    tables = select_tables(history)  # Utilise history pour le filtrage
-    polling >> tables  # Dépendance explicite : attend que l'API soit prête
-
+    # Phase 2 : Vérification (mapping dynamique sur les tables)
     verifications = verify_table.expand(table_info=tables)
     validated = validate_tables(verifications)
 
-    # Phase 4 : Import
+    # Phase 3 : Import
     prepared = prepare_table.expand(verified_table=validated)
     imported = import_data.expand(prepared_table=prepared)
 
-    # Phase 5 : Finalisation
+    # Phase 4 : Finalisation
     metadata = save_metadata(imported)
-    report = send_report(imported, history, polling)
+    report = send_report(imported)
 
     # Dépendances finales
     metadata >> report

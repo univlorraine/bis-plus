@@ -9,11 +9,11 @@
   },
   "postgres_data": {
     "conn_type": "postgres",
-    "host": "postgres-data",
-    "schema": "business_data",
+    "host": "sifacplus-db-pg-test.dc.univ-lorraine.fr",
+    "schema": "sifacplus",
     "port": 5432,
     "extra": {
-      "options": "-c search_path=public"
+      "options": "-c search_path=splus"
     }
   }
 }

@@ -3,14 +3,19 @@
 Configuration centralisée AMUE
 Charge les paramètres depuis les variables Airflow avec validation
 """
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
+
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class AMUEConfig:
-    """Configuration centralisée AMUE"""
+    """Configuration centralisée AMUE avec validation"""
 
     # API
     universite: str
@@ -39,6 +44,65 @@ class AMUEConfig:
 
     # Environnement
     environment: str = 'production'
+
+    def __post_init__(self):
+        """Valide la configuration après création"""
+        self._validate_universite()
+        self._validate_retries()
+        self._validate_polling()
+        self._validate_batch_size()
+        self._validate_email()
+        logger.debug("[CONFIG] Configuration validée avec succès")
+
+    def _validate_universite(self) -> None:
+        """Valide le code université"""
+        if not self.universite:
+            raise ValueError("universite ne peut pas être vide")
+        if not re.match(r'^[a-z0-9-]{2,50}$', self.universite.lower()):
+            raise ValueError(
+                f"universite invalide: '{self.universite}'. "
+                "Format attendu: 2-50 caractères alphanumériques ou tirets."
+            )
+
+    def _validate_retries(self) -> None:
+        """Valide les paramètres de retry"""
+        if not 1 <= self.api_max_retries <= 10:
+            raise ValueError(
+                f"api_max_retries doit être entre 1 et 10 (reçu: {self.api_max_retries})"
+            )
+        if not 1 <= self.api_retry_delay_seconds <= 300:
+            raise ValueError(
+                f"api_retry_delay_seconds doit être entre 1 et 300 (reçu: {self.api_retry_delay_seconds})"
+            )
+
+    def _validate_polling(self) -> None:
+        """Valide les paramètres de polling"""
+        if not 1 <= self.polling_interval_minutes <= 120:
+            raise ValueError(
+                f"polling_interval_minutes doit être entre 1 et 120 (reçu: {self.polling_interval_minutes})"
+            )
+        if not 1 <= self.polling_max_wait_hours <= 24:
+            raise ValueError(
+                f"polling_max_wait_hours doit être entre 1 et 24 (reçu: {self.polling_max_wait_hours})"
+            )
+
+    def _validate_batch_size(self) -> None:
+        """Valide la taille de batch"""
+        if not 100 <= self.import_batch_size <= 50000:
+            raise ValueError(
+                f"import_batch_size doit être entre 100 et 50000 (reçu: {self.import_batch_size})"
+            )
+
+    def _validate_email(self) -> None:
+        """Valide la configuration email"""
+        if not 1 <= self.smtp_port <= 65535:
+            raise ValueError(
+                f"smtp_port doit être entre 1 et 65535 (reçu: {self.smtp_port})"
+            )
+        if not self.smtp_from or '@' not in self.smtp_from:
+            raise ValueError(
+                f"smtp_from invalide: '{self.smtp_from}'. Format attendu: email@domain.com"
+            )
 
     @classmethod
     def from_airflow_variables(cls) -> 'AMUEConfig':

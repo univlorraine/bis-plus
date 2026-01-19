@@ -3,15 +3,16 @@ Service de polling intelligent pour l'API AMUE
 Attend que l'API soit disponible avec retry exponentiel et timeout configurable
 Vérifie à la fois le code HTTP 200 ET la variable 'finish' du JSON
 """
+import logging
 import time
-from typing import Dict, Optional
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import Dict, Optional
+
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -118,6 +119,10 @@ class AMUEPollingService:
                     raise AirflowException(
                         f"Code HTTP critique {status_code}. Arrêt du polling."
                     )
+
+                # Erreurs serveur (5xx) - on continue mais on log l'erreur
+                elif self._is_server_error(status_code):
+                    logger.warning(f"[POLLING] Erreur serveur {status_code}. Retry en cours...")
 
             except AirflowException:
                 raise
@@ -234,6 +239,18 @@ class AMUEPollingService:
 
         return False
 
+    def _is_server_error(self, status_code: int) -> bool:
+        """
+        Détermine si un code HTTP est une erreur serveur
+
+        Args:
+            status_code: Code HTTP reçu
+
+        Returns:
+            True si erreur serveur (5xx)
+        """
+        return 500 <= status_code < 600
+
     def _build_success_result(self, attempt: int, finish_value: str = None) -> Dict:
         """Construit le résultat en cas de succès"""
         elapsed = datetime.now() - self.start_time
@@ -254,13 +271,14 @@ class AMUEPollingService:
 
         result_dict = self._result_to_dict(result)
         result_dict['finish'] = finish_value
+        result_dict['start_time'] = self.start_time.isoformat()
         return result_dict
 
     def _build_timeout_result(
-        self,
-        attempt: int,
-        last_status_code: Optional[int],
-        last_finish_value: Optional[str] = None
+            self,
+            attempt: int,
+            last_status_code: Optional[int],
+            last_finish_value: Optional[str] = None
     ) -> Dict:
         """
         Construit le résultat en cas de timeout

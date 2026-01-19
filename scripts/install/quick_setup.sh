@@ -44,10 +44,12 @@ ask() {
     local result
 
     if [[ -n "$default" ]]; then
-        read -rp "$prompt [$default] : " result
+        echo -n "$prompt [$default] : " >&2
+        read -r result </dev/tty
         echo "${result:-$default}"
     else
-        read -rp "$prompt : " result
+        echo -n "$prompt : " >&2
+        read -r result </dev/tty
         echo "$result"
     fi
 }
@@ -55,20 +57,23 @@ ask() {
 ask_secret() {
     local prompt="$1"
     local result
-    read -rsp "$prompt : " result
-    echo ""
+    echo -n "$prompt : " >&2
+    read -rs result </dev/tty
+    echo "" >&2
     echo "$result"
 }
 
 ask_choice() {
     local prompt="$1"
-    local options="$2"
-    local default="$3"
+    local default="$2"
     local result
 
-    echo -e "${CYAN}$prompt${NC}"
-    echo "$options"
-    read -rp "Votre choix [$default] : " result
+    # Affiche sur stderr pour que ce soit visible même dans une substitution de commande
+    echo -e "${CYAN}$prompt${NC}" >&2
+    echo "  1) dev (sandbox - pour les tests)" >&2
+    echo "  2) prod (production)" >&2
+    echo -n "Votre choix [$default] : " >&2
+    read -r result </dev/tty
     echo "${result:-$default}"
 }
 
@@ -116,8 +121,7 @@ log_success "Prérequis OK"
 log_info "Étape 2/7: Choix de l'environnement"
 
 echo ""
-ENV_CHOICE=$(ask_choice "Quel environnement voulez-vous configurer ?" "  1) dev (sandbox - pour les tests)
-  2) prod (production)" "1")
+ENV_CHOICE=$(ask_choice "Quel environnement voulez-vous configurer ?" "1")
 
 case "$ENV_CHOICE" in
     1|dev)
@@ -125,6 +129,7 @@ case "$ENV_CHOICE" in
         AMUE_API_HOST="https://sandbox.api.amue.fr"
         AMUE_AUTH_HOST="https://sandbox.auth.amue.fr"
         AMUE_TOKEN_URL="https://sandbox.auth.amue.fr/auth/fer/oauth/token"
+        AMUE_API_ENV_PATH="preprod"
         SMTP_HOST="mailhog"
         SMTP_PORT="1025"
         log_info "Environnement: DEV (sandbox)"
@@ -134,6 +139,7 @@ case "$ENV_CHOICE" in
         AMUE_API_HOST="https://api.amue.fr"
         AMUE_AUTH_HOST="https://auth.amue.fr"
         AMUE_TOKEN_URL="https://auth.amue.fr/auth/fer/oauth/token"
+        AMUE_API_ENV_PATH="prod"
         SMTP_HOST=$(ask "Serveur SMTP" "smtp.example.com")
         SMTP_PORT=$(ask "Port SMTP" "587")
         log_info "Environnement: PRODUCTION"
@@ -248,7 +254,7 @@ AIRFLOW_IMAGE_NAME=apache/airflow:3.1.3
 AIRFLOW__CORE__FERNET_KEY=$(generate_fernet_key)
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
-_PIP_ADDITIONAL_REQUIREMENTS=requests oauthlib requests-oauthlib
+_PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib"
 
 # Environnement
 AMUE_ENVIRONMENT=$ENVIRONMENT
@@ -265,7 +271,7 @@ POSTGRES_DATA_DB=$PG_DATABASE
 POSTGRES_DATA_SCHEMA=$PG_SCHEMA
 POSTGRES_DATA_PORT=$PG_PORT
 POSTGRES_DATA_LOGIN=$PG_LOGIN
-POSTGRES_DATA_PASSWORD=$PG_PASSWORD
+POSTGRES_DATA_PASSWORD="$PG_PASSWORD"
 
 # SMTP
 SMTP_HOST=$SMTP_HOST
@@ -280,8 +286,8 @@ cat > "config/airflow_variables.json" << EOFVARS
   "environment": "$ENVIRONMENT",
   "oauth_api_connection_id": "oauth_api",
   "universite": "$UNIVERSITE",
-  "api_endpoint_admin": "finances/cdv/v1/preprod/\${univ}/admin",
-  "api_endpoint_table": "finances/cdv/v1/preprod/\${univ}/table",
+  "api_endpoint_admin": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/admin",
+  "api_endpoint_table": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/table",
   "amue_import_batch_size": "5000",
   "amue_max_history_days": "7",
   "amue_polling_interval_minutes": "10",
@@ -426,8 +432,12 @@ EOF
 
 if [[ "$ENVIRONMENT" == "dev" ]]; then
     echo -e "${GREEN}Environnement: DEV (sandbox)${NC}"
+    echo -e "   API Host: $AMUE_API_HOST"
+    echo -e "   Endpoints: finances/cdv/v1/preprod/..."
 else
     echo -e "${YELLOW}Environnement: PRODUCTION${NC}"
+    echo -e "   API Host: $AMUE_API_HOST"
+    echo -e "   Endpoints: finances/cdv/v1/prod/..."
 fi
 
 cat << EOF

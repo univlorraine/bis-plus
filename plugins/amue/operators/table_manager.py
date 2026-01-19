@@ -2,14 +2,17 @@
 Gestionnaire de création et mise à jour des tables PostgreSQL
 Responsable de la gestion du schéma DDL des tables AMUE
 """
-from typing import Dict, List, Optional
+import logging
 from dataclasses import dataclass
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.exceptions import AirflowException
-from amue.utils.logger import get_logger
+from typing import Dict, List, Optional
 
-logger = get_logger(__name__)
+from airflow.exceptions import AirflowException
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.hooks import create_postgres_hook
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,11 +47,8 @@ class AMUETableManager:
         self.environment = VarMgr.get('environment', default='production')
 
     def _create_default_hook(self) -> PostgresHook:
-        """Crée le hook PostgreSQL par défaut"""
-        return PostgresHook(
-            postgres_conn_id='postgres_data',
-            options='-c search_path=splus'
-        )
+        """Crée le hook PostgreSQL par défaut via factory"""
+        return create_postgres_hook()
 
     def manage_table(self, structure_info: Dict) -> Dict:
         """
@@ -182,26 +182,20 @@ class AMUETableManager:
 
             return self._result_to_dict(result)
 
-        except Exception as e:
-            error_msg = f"Échec création table {table_name}: {str(e)}"
+        except (DatabaseError, IntegrityError, ProgrammingError) as e:
+            error_msg = f"Échec création table {table_name} (erreur SQL): {str(e)}"
             logger.error(f"[ERROR] {error_msg}")
-
-            result = TableManagementResult(
-                table_name=table_name,
-                columns=[],
-                primary_keys='',
-                created=False,
-                status='error',
-                error=error_msg
-            )
-
+            raise AirflowException(error_msg) from e
+        except ValueError as e:
+            error_msg = f"Échec création table {table_name} (paramètres invalides): {str(e)}"
+            logger.error(f"[ERROR] {error_msg}")
             raise AirflowException(error_msg) from e
 
     def _build_create_table_sql(
-        self,
-        table_name: str,
-        columns: List[Dict],
-        primary_keys_str: str
+            self,
+            table_name: str,
+            columns: List[Dict],
+            primary_keys_str: str
     ) -> str:
         """
         Construit le SQL de création de table

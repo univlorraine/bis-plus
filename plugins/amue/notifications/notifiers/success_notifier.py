@@ -1,7 +1,8 @@
 # amue/notifications/notifiers/success_notifier.py
 """Notifier pour les succès"""
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
+
 from amue.notifications.notifiers.base import BaseNotifier
 from amue.notifications.templates.base import BaseTemplate
 from amue.notifications.templates.success import SuccessTemplate
@@ -42,9 +43,13 @@ class SuccessNotifier(BaseNotifier):
         duration = data.get('duration', 'N/A')
         tables_imported = data.get('tables_imported', [])
 
-        # Calcule le total de lignes
+        # Calcule les totaux
         total_rows = sum(
             t.get('rows_inserted', t.get('rows', 0))
+            for t in tables_imported
+        )
+        total_fetched = sum(
+            t.get('rows_fetched', t.get('rows_inserted', 0))
             for t in tables_imported
         )
 
@@ -56,6 +61,7 @@ class SuccessNotifier(BaseNotifier):
             'duration': duration,
             'tables_imported': tables_imported,
             'total_rows': total_rows,
+            'total_fetched': total_fetched,
             'status': 'success'
         }
 

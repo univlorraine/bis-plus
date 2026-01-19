@@ -3,15 +3,16 @@ Gestionnaire des métadonnées d'import AMUE
 Responsable de la persistance des empreintes, dates et statuts
 """
 import json
+import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Optional
-from dataclasses import dataclass
+
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,9 +93,9 @@ class AMUEMetadataManager:
                 logger.info("Mise à jour terminée avec succès")
                 return
 
-            except Exception as e:
+            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
                 last_error = e
-                logger.warning(f"Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
+                logger.warning(f"[{type(e).__name__}] Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
 
                 if attempt < self.MAX_RETRIES - 1:
                     wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)  # Backoff exponentiel
@@ -152,9 +153,9 @@ class AMUEMetadataManager:
             logger.info(f"{len(tables_config)} tables chargées")
             return tables_config
 
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
             error_msg = f"Impossible de charger la configuration des tables: {str(e)}"
-            logger.error(error_msg)
+            logger.error(f"[{type(e).__name__}] {error_msg}")
             raise AirflowException(error_msg) from e
 
     def _update_table_metadata(self, tables_config: List[Dict], result: Dict) -> bool:
@@ -250,8 +251,8 @@ class AMUEMetadataManager:
             if last_success_str:
                 return datetime.fromisoformat(last_success_str)
 
-        except Exception as e:
-            logger.warning(f"Impossible de récupérer dernier succès: {str(e)}")
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"[{type(e).__name__}] Impossible de récupérer dernier succès: {str(e)}")
 
         return None
 
@@ -279,8 +280,8 @@ class AMUEMetadataManager:
                         delta=table.get('delta', '')
                     )
 
-        except Exception as e:
-            logger.warning(f"Erreur récupération métadonnées {table_name}: {str(e)}")
+        except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+            logger.warning(f"[{type(e).__name__}] Erreur récupération métadonnées {table_name}: {str(e)}")
 
         return None
 
@@ -312,6 +313,6 @@ class AMUEMetadataManager:
             logger.warning(f"Table {table_name} non trouvée")
             return False
 
-        except Exception as e:
-            logger.error(f"Échec réinitialisation {table_name}: {str(e)}")
+        except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+            logger.error(f"[{type(e).__name__}] Échec réinitialisation {table_name}: {str(e)}")
             return False

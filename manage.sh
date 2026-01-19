@@ -75,6 +75,9 @@ Commandes disponibles:
     unpause [dag_id]    Réactive un DAG
     variables           Liste les variables Airflow
     connections         Liste les connexions Airflow
+    add-table           Ajoute une table à importer
+    list-tables         Liste les tables configurées
+    remove-table [name] Supprime une table de la configuration
 
   BASE DE DONNÉES
     db-shell            Connexion au shell PostgreSQL
@@ -259,6 +262,119 @@ cmd_connections() {
     $DOCKER_CMD exec -T airflow-apiserver airflow connections list
 }
 
+cmd_add_table() {
+    log_info "Ajout d'une table à importer"
+    echo ""
+
+    # Demande le nom de la table
+    echo -n "Nom de la table : " >&2
+    read -r TABLE_NAME </dev/tty
+
+    if [[ -z "$TABLE_NAME" ]]; then
+        log_error "Le nom de la table est obligatoire"
+        exit 1
+    fi
+
+    # Convertit en majuscules
+    TABLE_NAME=$(echo "$TABLE_NAME" | tr '[:lower:]' '[:upper:]')
+
+    # Demande la colonne delta (optionnelle)
+    echo -n "Colonne delta pour import différentiel (optionnel) : " >&2
+    read -r DELTA_COLUMN </dev/tty
+
+    # Vérifie que jq est disponible
+    if ! command -v jq &> /dev/null; then
+        log_error "jq est requis pour cette opération"
+        log_info "Installation: sudo apt-get install jq"
+        exit 1
+    fi
+
+    log_info "Ajout de la table $TABLE_NAME..."
+
+    # Récupère la configuration actuelle
+    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
+
+    # Vérifie si la table existe déjà avec jq
+    TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$TABLE_NAME\")] | length")
+
+    if [[ "$TABLE_EXISTS" != "0" ]]; then
+        log_warning "La table $TABLE_NAME existe déjà dans la configuration"
+        exit 1
+    fi
+
+    # Ajoute la table à la configuration avec jq
+    NEW_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c \
+        --arg name "$TABLE_NAME" \
+        --arg delta "$DELTA_COLUMN" \
+        '. + [{name: $name, primary_key: "", delta: $delta, last_import: "", finger_print: ""}]')
+
+    # Met à jour la variable
+    $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$NEW_CONFIG"
+
+    log_success "Table $TABLE_NAME ajoutée avec succès"
+    echo ""
+    cmd_list_tables
+}
+
+cmd_list_tables() {
+    log_info "Tables configurées pour l'import:"
+    echo ""
+
+    TABLES_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
+
+    if command -v jq &> /dev/null; then
+        echo "$TABLES_CONFIG" | jq -r '.[] | "  - \(.name)\(if .delta != "" then " (delta: \(.delta))" else "" end)\(if .last_import != "" then " [dernier import: \(.last_import)]" else "" end)"'
+    else
+        echo "$TABLES_CONFIG"
+    fi
+    echo ""
+}
+
+cmd_remove_table() {
+    local table_name=${1:-}
+
+    if [[ -z "$table_name" ]]; then
+        log_error "Usage: ./manage.sh remove-table <nom_table>"
+        echo ""
+        cmd_list_tables
+        exit 1
+    fi
+
+    # Vérifie que jq est disponible
+    if ! command -v jq &> /dev/null; then
+        log_error "jq est requis pour cette opération"
+        log_info "Installation: sudo apt-get install jq"
+        exit 1
+    fi
+
+    # Convertit en majuscules
+    table_name=$(echo "$table_name" | tr '[:lower:]' '[:upper:]')
+
+    log_info "Suppression de la table $table_name..."
+
+    # Récupère la configuration actuelle
+    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
+
+    # Vérifie si la table existe avec jq
+    TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$table_name\")] | length")
+
+    if [[ "$TABLE_EXISTS" == "0" ]]; then
+        log_warning "La table $table_name n'existe pas dans la configuration"
+        echo ""
+        log_info "Tables disponibles:"
+        cmd_list_tables
+        exit 1
+    fi
+
+    # Supprime la table
+    NEW_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c "[.[] | select(.name != \"$table_name\")]")
+    $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$NEW_CONFIG"
+
+    log_success "Table $table_name supprimée"
+    echo ""
+    cmd_list_tables
+}
+
 cmd_db_shell() {
     log_info "Connexion au shell PostgreSQL (base métier)..."
     $DOCKER_CMD exec -it postgres-data psql -U datauser -d business_data
@@ -389,6 +505,9 @@ main() {
         unpause)        cmd_unpause "$@" ;;
         variables)      cmd_variables "$@" ;;
         connections)    cmd_connections "$@" ;;
+        add-table)      cmd_add_table "$@" ;;
+        list-tables)    cmd_list_tables "$@" ;;
+        remove-table)   cmd_remove_table "$@" ;;
 
         db-shell)       cmd_db_shell "$@" ;;
         db-backup)      cmd_db_backup "$@" ;;

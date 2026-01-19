@@ -2,16 +2,17 @@
 Vérificateur de structure et statut des tables AMUE
 Mise à jour avec fingerprint incluant les clés primaires
 """
+import logging
 from string import Template
 from typing import Dict, List
 
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.hooks import create_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
-from amue.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _error_result(table_name: str, error: str, columns: List,
@@ -50,11 +51,12 @@ class AMUETableVerifier:
     """Vérifie le statut et la structure des tables"""
 
     def __init__(self, api_hook, postgres_hook: PostgresHook = None):
+        # Validation des paramètres requis
+        if api_hook is None:
+            raise ValueError("api_hook est requis pour AMUETableVerifier")
+
         self.api_hook = api_hook
-        self.postgres_hook = postgres_hook or PostgresHook(
-            postgres_conn_id='postgres_data',
-            options='-c search_path=splus'
-        )
+        self.postgres_hook = postgres_hook or create_postgres_hook()
         self.environment = VarMgr.get('environment', default='production')
         try:
             univ = VarMgr.get('universite')
@@ -63,7 +65,8 @@ class AMUETableVerifier:
         try:
             endpointadm = VarMgr.get('api_endpoint_admin')
         except KeyError:
-            raise AirflowException("La variable 'api_endpoint_admin' doit être définie pour initialiser AMUETableVerifier")
+            raise AirflowException(
+                "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUETableVerifier")
         try:
             self.endpoint = Template(endpointadm).substitute(univ=univ)
         except KeyError as e:

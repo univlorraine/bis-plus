@@ -2,14 +2,15 @@
 Gestionnaire de vérification des statuts AMUE
 Mise à jour avec vérification de la variable 'finish'
 """
+import logging
 from datetime import datetime, timedelta
 from string import Template
 from typing import Dict, List, Optional
+
 from airflow.exceptions import AirflowException
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class AMUEStatusChecker:
@@ -24,7 +25,8 @@ class AMUEStatusChecker:
         try:
             endpointadm = VarMgr.get('api_endpoint_admin')
         except KeyError:
-            raise AirflowException("La variable 'api_endpoint_admin' doit être définie pour initialiser AMUEStatusChecker")
+            raise AirflowException(
+                "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUEStatusChecker")
         try:
             self.endpoint = Template(endpointadm).substitute(univ=univ)
         except KeyError as e:
@@ -49,7 +51,7 @@ class AMUEStatusChecker:
 
             if 'error' not in status_info:
                 logger.info(f"[HISTORY] {date_str}: {len(status_info.get('tables_status', {}))} tables, "
-                      f"KO: {status_info.get('nbtables_ko', 0)}")
+                            f"KO: {status_info.get('nbtables_ko', 0)}")
 
         return {
             'status_by_date': self._serialize_dates(status_by_date),
@@ -118,8 +120,8 @@ class AMUEStatusChecker:
             last_success_str = VarMgr.get('amue_last_successful_run', default='')
             if last_success_str:
                 return datetime.fromisoformat(last_success_str).date()
-        except:
-            pass
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"[WARN] Impossible de parser la date du dernier succès: {e}")
 
         return (datetime.now() - timedelta(days=1)).date()
 

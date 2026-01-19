@@ -3,16 +3,17 @@ Utilitaires de notification pour les DAGs AMUE
 Gestion centralisée des notifications d'erreur et de succès
 """
 import json
+import logging
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-from typing import Dict, List, Optional
 from dataclasses import dataclass
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.logger import get_logger
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Dict, List
 
-logger = get_logger(__name__)
+from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
