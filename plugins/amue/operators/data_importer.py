@@ -4,7 +4,6 @@ Avec streaming et insertion par batch pour optimiser la mémoire
 """
 import logging
 import re
-import time
 from datetime import datetime
 from string import Template
 from typing import Dict, List, Generator, Optional, Tuple
@@ -12,6 +11,7 @@ from typing import Dict, List, Generator, Optional, Tuple
 import requests
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from amue.services.retry_service import get_retry_service, ErrorCategory
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from psycopg2 import sql
 from psycopg2.errors import UniqueViolation
@@ -774,60 +774,92 @@ class AMUEDataImporter:
             logger.warning(f"Format de date invalide '{date_str}': {e}")
             return date_str.replace('-', '')[:8]
 
-    def _calculate_backoff(self, attempt: int) -> int:
-        """
-        Calcule le délai de retry avec backoff exponentiel
-
-        Args:
-            attempt: Numéro de tentative (0-indexed)
-
-        Returns:
-            Délai en secondes (plafonné à 5 minutes)
-        """
-        max_delay = 300  # 5 minutes max
-        delay = min(self.retry_delay * (2 ** attempt), max_delay)
-        return delay
-
     def _fetch_page(self, params: Dict, page: int) -> tuple:
-        """Récupère une page de données avec retry"""
-        for attempt in range(self.max_retries):
-            try:
-                logger.info(f"Page {page} (skip={params['skip']}, attempt {attempt + 1}/{self.max_retries})")
+        """
+        Récupère une page de données avec retry intelligent
 
-                response = self.api_hook.call_api(self.endpoint, params)
+        Utilise le RetryService pour appliquer des stratégies différenciées
+        selon le type d'erreur (4xx, 429, 5xx, timeout, etc.)
+        """
+        retry_service = get_retry_service()
 
-                if not isinstance(response, dict) or 'data' not in response:
-                    raise ValueError("Format réponse invalide")
+        def fetch_operation():
+            logger.info(f"Page {page} (skip={params['skip']})")
 
-                data_obj = response['data']
-                rows = data_obj.get('row', [])
+            response = self.api_hook.call_api(self.endpoint, params)
 
-                if not isinstance(rows, list):
-                    rows = [rows] if rows else []
+            if not isinstance(response, dict) or 'data' not in response:
+                raise ValueError("Format réponse invalide")
 
-                if rows:
-                    logger.info(f"{len(rows)} lignes récupérées")
+            return response
 
-                # Vérifie s'il y a plus de données
-                count = data_obj.get('count', 0)
-                top = data_obj.get('top', 99)
-                has_more = len(rows) >= top and (params['skip'] + len(rows)) < count
+        def on_retry(attempt: int, error: Exception, delay: float):
+            category = retry_service.categorize_error(error)
+            logger.warning(
+                f"[RETRY] Page {page} - Tentative {attempt + 1} échouée - "
+                f"Type: {category.value} - Retry dans {delay:.1f}s"
+            )
 
-                return rows, has_more
+        result = retry_service.execute_with_retry(fetch_operation, on_retry)
 
-            except (requests.exceptions.RequestException, ValueError, KeyError) as e:
-                logger.error(f"Attempt {attempt + 1} failed: {e}")
+        if not result.success:
+            # Log détaillé selon la catégorie d'erreur
+            category = result.error_category
+            retry_info = retry_service.get_retry_info(result.error)
 
-                if attempt < self.max_retries - 1:
-                    backoff_delay = self._calculate_backoff(attempt)
-                    logger.info(f"Retry dans {backoff_delay}s (backoff exponentiel)...")
-                    time.sleep(backoff_delay)
-                else:
-                    error_msg = f"Impossible récupérer données après {self.max_retries} tentatives"
-                    logger.error(error_msg)
-                    raise AirflowException(error_msg)
+            if category == ErrorCategory.CLIENT_ERROR:
+                error_msg = (
+                    f"Erreur client (4xx) - Pas de retry automatique. "
+                    f"Vérifiez les paramètres: {result.error}"
+                )
+            elif category == ErrorCategory.RATE_LIMITED:
+                error_msg = (
+                    f"Rate limit (429) atteint après {result.attempts} tentatives. "
+                    f"Temps total d'attente: {result.total_delay:.1f}s"
+                )
+            elif category == ErrorCategory.SERVER_ERROR:
+                error_msg = (
+                    f"Erreur serveur (5xx) persistante après {result.attempts} tentatives. "
+                    f"L'API AMUE est peut-être indisponible."
+                )
+            elif category == ErrorCategory.TIMEOUT:
+                error_msg = (
+                    f"Timeout réseau après {result.attempts} tentatives. "
+                    f"Vérifiez la connectivité."
+                )
+            else:
+                error_msg = (
+                    f"Impossible de récupérer les données après {result.attempts} tentatives: "
+                    f"{result.error}"
+                )
 
-        return [], False
+            logger.error(f"[FETCH] {error_msg}")
+            logger.info(f"[FETCH] Recommandation: {retry_info['recommendation']}")
+            raise AirflowException(error_msg)
+
+        # Succès - traite la réponse
+        response = result.result
+        data_obj = response['data']
+        rows = data_obj.get('row', [])
+
+        if not isinstance(rows, list):
+            rows = [rows] if rows else []
+
+        if rows:
+            logger.info(f"{len(rows)} lignes récupérées")
+
+        if result.attempts > 1:
+            logger.info(
+                f"[FETCH] Succès après {result.attempts} tentatives "
+                f"(délai total: {result.total_delay:.1f}s)"
+            )
+
+        # Vérifie s'il y a plus de données
+        count = data_obj.get('count', 0)
+        top = data_obj.get('top', 99)
+        has_more = len(rows) >= top and (params['skip'] + len(rows)) < count
+
+        return rows, has_more
 
     def _build_insert_sql(self, table_name: str, columns: List[str],
                           primary_keys: List[str], use_upsert: bool) -> str:

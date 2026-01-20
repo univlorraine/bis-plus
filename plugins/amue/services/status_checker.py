@@ -14,10 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 class AMUEStatusChecker:
-    """Gère la vérification des statuts historiques et actuels de l'API AMUE"""
+    """
+    Gère la vérification des statuts historiques et actuels de l'API AMUE
+    """
 
     def __init__(self, api_hook):
+        """
+        Initialise le vérificateur de statuts
+
+        Args:
+            api_hook: Hook API AMUE
+        """
         self.api_hook = api_hook
+
         try:
             univ = VarMgr.get('universite')
         except KeyError:
@@ -59,8 +68,13 @@ class AMUEStatusChecker:
         }
 
     def get_current_status(self) -> Dict:
-        """Récupère le statut actuel de l'API"""
-        logger.info("[STATUS] Récupération statut actuel")
+        """
+        Récupère le statut actuel de l'API
+
+        Returns:
+            Dictionnaire des statuts par table
+        """
+        logger.info("[STATUS] Récupération statut actuel (API)")
 
         params = {'status': ''}
         response = self.api_hook.call_api(self.endpoint, params)
@@ -69,6 +83,7 @@ class AMUEStatusChecker:
             raise ValueError("Format réponse invalide")
 
         tables_status = self._parse_tables_status(response.get('status', []))
+
         logger.info(f"[STATUS] {len(tables_status)} tables trouvées")
 
         return tables_status
@@ -139,7 +154,15 @@ class AMUEStatusChecker:
         return days_to_check
 
     def _fetch_status_for_date(self, date_str: str) -> Dict:
-        """Récupère le statut pour une date donnée"""
+        """
+        Récupère le statut pour une date donnée
+
+        Args:
+            date_str: Date au format YYYYMMDD
+
+        Returns:
+            Dictionnaire avec les statuts de la date
+        """
         params = {'status': '', 'date': date_str}
 
         try:

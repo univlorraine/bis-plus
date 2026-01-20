@@ -221,6 +221,7 @@ class AMUEMetadataManager:
         success = VarMgr.set(self.tables_var_name, json.dumps(tables_config))
         if not success:
             raise AirflowException("Échec de la sauvegarde de la configuration")
+
         logger.info("Configuration sauvegardée")
 
     def _save_last_success(self) -> None:
@@ -266,9 +267,10 @@ class AMUEMetadataManager:
         Returns:
             Métadonnées de la table ou None si non trouvée
         """
+        table_name_upper = table_name.upper()
+
         try:
             tables_config = self._load_tables_config()
-            table_name_upper = table_name.upper()
 
             for table in tables_config:
                 if table.get('name', '').upper() == table_name_upper:
@@ -289,7 +291,7 @@ class AMUEMetadataManager:
         """
         Réinitialise les métadonnées d'une table
 
-        Utile en cas de changement de structure ou de réimport complet
+        Utile en cas de changement de structure ou de réimport complet.
 
         Args:
             table_name: Nom de la table à réinitialiser
@@ -307,6 +309,7 @@ class AMUEMetadataManager:
                     table['last_import'] = ''
 
                     self._save_tables_config(tables_config)
+
                     logger.info(f"Table {table_name} réinitialisée")
                     return True
 

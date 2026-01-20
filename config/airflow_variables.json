@@ -15,14 +15,119 @@
   "smtp_port": "1025",
   "smtp_mail_from": "airflow@amue-project.local",
   "amue_tables_to_import": [
-  {
+        {
     "name": "CSKS",
     "primary_key": "",
     "delta": "",
     "last_import": "",
     "finger_print": ""
+  },
+  {
+    "name": "COBK",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "COVP",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "CEPC",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBDT",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBH",
+    "primary_key": "",
+    "delta": "crtdate",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMMEASURE",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FM01H",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "KNA1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "KBLK",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "LFA1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "LFB1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PRPS",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PRPS_RH",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "SRGBTBREL",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "TFKB",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
   }
-],
+    ],
   "amue_last_successful_run": "",
   "last_import_report": "",
   "TYPE_MAPPING_SQLITE_TO_POSTGRES": {

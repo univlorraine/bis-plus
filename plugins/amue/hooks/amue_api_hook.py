@@ -1,5 +1,8 @@
 """
 Hook personnalisé pour interagir avec l'API AMUE
+
+Utilise le RetryService pour appliquer des stratégies de retry
+intelligentes selon le type d'erreur HTTP.
 """
 import json
 import logging
@@ -8,6 +11,8 @@ from typing import Any, Dict, Optional
 
 import requests
 from airflow.sdk import Connection
+
+from amue.services.retry_service import get_retry_service, ErrorCategory
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +128,25 @@ class AMUEAPIHook:
             endpoint: str,
             params: Optional[Dict] = None,
             check_status_only: bool = False,
-            timeout: int = 60
+            timeout: int = 60,
+            use_retry: bool = True
     ) -> Any:
         """
         Effectue un appel GET à l'API AMUE avec authentification OAuth
+
+        Utilise le RetryService pour appliquer des stratégies de retry
+        intelligentes selon le type d'erreur:
+        - 4xx (sauf 429): Pas de retry (erreur client)
+        - 429: Retry agressif (rate limit)
+        - 5xx: Backoff exponentiel (erreur serveur)
+        - Timeout: Retry court
 
         Args:
             endpoint: Chemin de l'endpoint (ex: 'finances/cdv/v1/preprod/ul/table')
             params: Paramètres query string optionnels
             check_status_only: Si True, retourne seulement le code HTTP
             timeout: Timeout en secondes pour l'appel API (défaut: 60)
+            use_retry: Si True, utilise le retry intelligent (défaut: True)
 
         Returns:
             - Si check_status_only=True: code HTTP (int)
@@ -140,7 +154,7 @@ class AMUEAPIHook:
             - Sinon: texte brut (str)
 
         Raises:
-            requests.exceptions.RequestException: En cas d'erreur réseau
+            requests.exceptions.RequestException: En cas d'erreur réseau persistante
         """
         # Obtient le token si nécessaire ou si expiré
         if self._is_token_expired():
@@ -168,6 +182,21 @@ class AMUEAPIHook:
         if params:
             logger.info(f"[API] Params: {params}")
 
+        if use_retry and not check_status_only:
+            return self._call_api_with_retry(url, headers, params, timeout)
+        else:
+            return self._call_api_simple(url, headers, params, timeout, check_status_only, endpoint)
+
+    def _call_api_simple(
+            self,
+            url: str,
+            headers: Dict,
+            params: Optional[Dict],
+            timeout: int,
+            check_status_only: bool,
+            endpoint: str
+    ) -> Any:
+        """Appel API simple sans retry intelligent (pour check_status_only)"""
         try:
             response = requests.get(
                 url,
@@ -176,33 +205,113 @@ class AMUEAPIHook:
                 timeout=timeout
             )
 
-            # Mode vérification status uniquement
             if check_status_only:
                 return response.status_code
 
             response.raise_for_status()
 
-            # Tente de parser en JSON
             try:
                 return response.json()
             except json.JSONDecodeError:
-                logger.info("[API] Reponse en texte brut (non JSON)")
+                logger.info("[API] Réponse en texte brut (non JSON)")
                 return response.text
 
         except requests.exceptions.HTTPError as e:
-            # Mode vérification status
             if check_status_only:
                 return e.response.status_code if e.response else 500
 
             # Gestion du token expiré (401)
             if e.response and e.response.status_code == 401:
-                logger.info("[API] Token expire, renouvellement...")
+                logger.info("[API] Token expiré, renouvellement...")
                 self.access_token = None
                 self.get_oauth_token()
-                # Retry avec le nouveau token
                 return self.call_api(endpoint, params, check_status_only)
 
             raise
+
+    def _call_api_with_retry(
+            self,
+            url: str,
+            headers: Dict,
+            params: Optional[Dict],
+            timeout: int
+    ) -> Any:
+        """
+        Appel API avec retry intelligent selon le type d'erreur
+
+        Returns:
+            Réponse JSON ou texte brut
+        """
+        retry_service = get_retry_service()
+        token_refreshed = False
+
+        def api_operation():
+            nonlocal token_refreshed
+
+            # Renouvelle le token si nécessaire (après une erreur 401)
+            if token_refreshed:
+                headers['Authorization'] = f'Bearer {self.access_token}'
+
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=timeout
+            )
+
+            # Gestion spéciale du 401 (token expiré)
+            if response.status_code == 401 and not token_refreshed:
+                logger.info("[API] Token expiré (401), renouvellement...")
+                self.access_token = None
+                self.get_oauth_token()
+                token_refreshed = True
+                # Relance pour retry avec nouveau token
+                raise requests.exceptions.HTTPError(response=response)
+
+            response.raise_for_status()
+
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                logger.info("[API] Réponse en texte brut (non JSON)")
+                return response.text
+
+        def on_retry(attempt: int, error: Exception, delay: float):
+            category = retry_service.categorize_error(error)
+            logger.warning(
+                f"[API RETRY] Tentative {attempt + 1} échouée - "
+                f"Type: {category.value} - Délai: {delay:.1f}s"
+            )
+
+            # Log spécifique selon le type d'erreur
+            if category == ErrorCategory.RATE_LIMITED:
+                logger.warning("[API RETRY] Rate limit (429) - L'API limite les requêtes")
+            elif category == ErrorCategory.SERVER_ERROR:
+                logger.warning("[API RETRY] Erreur serveur (5xx) - L'API AMUE rencontre des problèmes")
+            elif category == ErrorCategory.TIMEOUT:
+                logger.warning(f"[API RETRY] Timeout après {timeout}s")
+
+        result = retry_service.execute_with_retry(api_operation, on_retry)
+
+        if result.success:
+            if result.attempts > 1:
+                logger.info(
+                    f"[API] Succès après {result.attempts} tentatives "
+                    f"(délai total: {result.total_delay:.1f}s)"
+                )
+            return result.result
+
+        # Échec - log détaillé
+        category = result.error_category
+        retry_info = retry_service.get_retry_info(result.error)
+
+        logger.error(
+            f"[API] Échec après {result.attempts} tentative(s) - "
+            f"Type: {category.value if category else 'unknown'}"
+        )
+        logger.info(f"[API] Recommandation: {retry_info['recommendation']}")
+
+        raise result.error
 
     def _parse_connection_extra(self) -> Dict:
         """

@@ -81,7 +81,7 @@ ask_choice() {
 # Étape 1: Vérification des prérequis
 ###############################################################################
 
-log_info "Étape 1/7: Vérification des prérequis"
+log_info "Étape 1/8: Vérification des prérequis"
 
 if ! command -v docker &> /dev/null; then
     log_error "Docker n'est pas installé"
@@ -118,7 +118,7 @@ log_success "Prérequis OK"
 # Étape 2: Choix de l'environnement
 ###############################################################################
 
-log_info "Étape 2/7: Choix de l'environnement"
+log_info "Étape 2/8: Choix de l'environnement"
 
 echo ""
 ENV_CHOICE=$(ask_choice "Quel environnement voulez-vous configurer ?" "1")
@@ -156,7 +156,7 @@ echo ""
 # Étape 3: Création de la structure de dossiers
 ###############################################################################
 
-log_info "Étape 3/7: Création de la structure"
+log_info "Étape 3/8: Création de la structure"
 
 cd "$PROJECT_DIR"
 
@@ -172,7 +172,7 @@ log_success "Structure créée"
 # Étape 4: Configuration des paramètres
 ###############################################################################
 
-log_info "Étape 4/7: Configuration des paramètres"
+log_info "Étape 4/8: Configuration des paramètres"
 
 echo ""
 log_info "=== Configuration générale ==="
@@ -208,10 +208,118 @@ done
 if [[ "$TABLES_JSON" == "[]" ]]; then
     log_info "Aucune table spécifiée, utilisation des tables par défaut (CSKS, COVP, CEPC, EKET)"
     TABLES_JSON='[
-        {"name": "CSKS", "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-        {"name": "COVP", "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-        {"name": "CEPC", "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-        {"name": "EKET", "primary_key": "", "delta": "bedat", "last_import": "", "finger_print": ""}
+        {
+    "name": "CSKS",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "COBK",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "COVP",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "CEPC",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBDT",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBH",
+    "primary_key": "",
+    "delta": "crtdate",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMMEASURE",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FM01H",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "KNA1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "KBLK",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "LFA1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "LFB1",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PRPS",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PRPS_RH",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "SRGBTBREL",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "TFKB",
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  }
     ]'
 fi
 
@@ -233,7 +341,7 @@ PG_PASSWORD=$(ask_secret "PostgreSQL password")
 # Étape 5: Génération des fichiers de configuration
 ###############################################################################
 
-log_info "Étape 5/7: Génération des fichiers de configuration"
+log_info "Étape 5/8: Génération des fichiers de configuration"
 
 # Génération de la clé Fernet
 generate_fernet_key() {
@@ -350,7 +458,7 @@ log_warning "Les credentials sont lus depuis .env lors de la configuration"
 # Étape 6: Démarrage des containers
 ###############################################################################
 
-log_info "Étape 6/7: Démarrage des containers Docker"
+log_info "Étape 6/8: Démarrage des containers Docker"
 
 log_info "Arrêt des containers existants..."
 $DOCKER_CMD down -v 2>/dev/null || true
@@ -375,7 +483,7 @@ log_success "Containers démarrés"
 # Étape 7: Configuration d'Airflow
 ###############################################################################
 
-log_info "Étape 7/7: Configuration d'Airflow"
+log_info "Étape 7/8: Configuration d'Airflow"
 
 # Attendre que l'API soit disponible
 log_info "Attente de l'API Airflow..."
@@ -397,6 +505,69 @@ chmod +x "$SCRIPT_DIR/setup_airflow_config.sh"
 "$SCRIPT_DIR/setup_airflow_config.sh" --external
 
 log_success "Configuration Airflow terminée"
+
+###############################################################################
+# Étape 8: Configuration des utilisateurs
+###############################################################################
+
+log_info "Étape 8/8: Configuration des utilisateurs"
+
+echo ""
+log_info "=== Configuration des utilisateurs Airflow ==="
+log_info "L'utilisateur admin par défaut (airflow/airflow) a été créé."
+log_info "Voulez-vous créer des utilisateurs supplémentaires ?"
+echo ""
+
+AIRFLOW_USERS="[]"
+
+while true; do
+    echo -n "Créer un utilisateur supplémentaire ? (o/N) : " >&2
+    read -r CREATE_USER </dev/tty
+    [[ ! "$CREATE_USER" =~ ^[oOyY]$ ]] && break
+
+    echo -n "  Username : " >&2
+    read -r USER_NAME </dev/tty
+    [[ -z "$USER_NAME" ]] && continue
+
+    echo -n "  Email : " >&2
+    read -r USER_EMAIL </dev/tty
+    [[ -z "$USER_EMAIL" ]] && USER_EMAIL="${USER_NAME}@local"
+
+    echo -n "  Prénom [$USER_NAME] : " >&2
+    read -r USER_FIRSTNAME </dev/tty
+    [[ -z "$USER_FIRSTNAME" ]] && USER_FIRSTNAME="$USER_NAME"
+
+    echo -n "  Nom [User] : " >&2
+    read -r USER_LASTNAME </dev/tty
+    [[ -z "$USER_LASTNAME" ]] && USER_LASTNAME="User"
+
+    echo "  Rôles: Admin, Op, User, Viewer" >&2
+    echo -n "  Rôle [Viewer] : " >&2
+    read -r USER_ROLE </dev/tty
+    [[ -z "$USER_ROLE" ]] && USER_ROLE="Viewer"
+
+    echo -n "  Mot de passe : " >&2
+    read -rs USER_PASSWORD </dev/tty
+    echo "" >&2
+    [[ -z "$USER_PASSWORD" ]] && { log_warning "Mot de passe vide, utilisateur ignoré"; continue; }
+
+    log_info "Création de l'utilisateur $USER_NAME ($USER_ROLE)..."
+
+    $DOCKER_CMD exec -T airflow-apiserver airflow users create \
+        --username "$USER_NAME" \
+        --email "$USER_EMAIL" \
+        --firstname "$USER_FIRSTNAME" \
+        --lastname "$USER_LASTNAME" \
+        --role "$USER_ROLE" \
+        --password "$USER_PASSWORD" 2>/dev/null && \
+        log_success "Utilisateur $USER_NAME créé" || \
+        log_warning "Erreur lors de la création de $USER_NAME"
+
+    echo ""
+done
+
+log_info "Liste des utilisateurs:"
+$DOCKER_CMD exec -T airflow-apiserver airflow users list
 
 ###############################################################################
 # Vérification finale

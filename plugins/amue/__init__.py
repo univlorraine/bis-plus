@@ -15,6 +15,14 @@ from amue.operators.table_manager import AMUETableManager
 from amue.operators.table_verifier import AMUETableVerifier
 from amue.services.metadata_manager import AMUEMetadataManager
 from amue.services.polling_service import AMUEPollingService
+from amue.services.retry_service import (
+    RetryService,
+    RetryConfig,
+    RetryStrategy,
+    RetryResult,
+    ErrorCategory,
+    get_retry_service,
+)
 from amue.services.status_checker import AMUEStatusChecker
 from amue.utils.airflow_helpers import AirflowVariableManager
 from amue.utils.hooks import HookManager, create_postgres_hook, create_api_hook
@@ -36,6 +44,13 @@ __all__ = [
     "AMUEStatusChecker",
     "AMUEPollingService",
     "AMUEMetadataManager",
+    # Retry
+    "RetryService",
+    "RetryConfig",
+    "RetryStrategy",
+    "RetryResult",
+    "ErrorCategory",
+    "get_retry_service",
     # Operators
     "AMUETableFilter",
     "AMUETableVerifier",
