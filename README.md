@@ -457,7 +457,70 @@ task = PythonOperator(
 )
 ```
 
-### Tests
+### Tests Unitaires
+
+Le projet dispose d'une suite de tests unitaires complète utilisant **pytest**.
+
+#### Structure des Tests
+
+```
+tests/
+├── __init__.py
+├── test_amue_api_hook.py        # Tests du hook API OAuth
+├── test_data_importer.py        # Tests de l'importeur de données
+├── test_metadata_manager.py     # Tests du gestionnaire de métadonnées
+├── test_notification_service.py # Tests du service de notification
+├── test_polling_service.py      # Tests du service de polling
+├── test_settings.py             # Tests de la configuration
+├── test_status_checker.py       # Tests du vérificateur de statut
+├── test_table_filter.py         # Tests du filtre de tables
+├── test_table_manager.py        # Tests du gestionnaire de tables
+├── test_table_verifier.py       # Tests du vérificateur de tables
+└── test_transformers.py         # Tests des transformations Oracle→PostgreSQL
+```
+
+#### Exécution des Tests
+
+```bash
+# Exécuter tous les tests
+pytest
+
+# Exécuter avec verbosité détaillée
+pytest -v
+
+# Exécuter un fichier de test spécifique
+pytest tests/test_transformers.py
+
+# Exécuter une classe de test spécifique
+pytest tests/test_transformers.py::TestParseColumnDefinition
+
+# Exécuter un test spécifique
+pytest tests/test_transformers.py::TestParseColumnDefinition::test_varchar2_to_varchar
+
+# Exécuter avec couverture de code
+pytest --cov=plugins/amue --cov-report=html
+```
+
+#### Configuration pytest
+
+Le fichier `pytest.ini` configure l'exécution des tests :
+- **testpaths** : `tests/`
+- **verbosité** : Activée par défaut (`-v`)
+- **traceback** : Format court (`--tb=short`)
+- **filtres** : Suppression des DeprecationWarning
+
+#### Couverture des Tests
+
+Les tests couvrent les fonctionnalités critiques :
+- Conversion des types Oracle → PostgreSQL
+- Validation des identifiants SQL (protection injection)
+- Calcul des fingerprints de structure
+- Gestion des métadonnées
+- Service de polling avec backoff
+- Notifications email
+- Import de données
+
+### Tests d'Intégration
 
 ```bash
 # Test rapide de configuration
@@ -563,24 +626,37 @@ CREATE TABLE ma_table (
 | Nombre de scripts | 12 |
 | **Dataclasses** | **5** |
 | **API publiques** | **12** |
+| **Fichiers de tests** | **11** |
+| **Framework de tests** | **pytest** |
 
 ## Améliorations Futures
 
-- [ ] Support des webhooks pour notifications temps réel
-- [ ] Intégration avec Prometheus pour métriques
-- [ ] Dashboard Grafana personnalisé
-- [ ] Support multi-environnements (dev/staging/prod)
-- [ ] API REST pour gestion externe
-- [ ] Tests unitaires complets
-- [ ] Documentation API avec Swagger
+### Fonctionnalités DAG
 
-## Licence
+- [ ] **Mode dry-run** : Simulation d'import sans commit en base de données
+- [ ] **Mode fail-fast configurable** : Option pour continuer l'import des autres tables si une échoue (`amue_fail_fast=true/false`)
+- [ ] **Checkpoint/reprise** : Sauvegarde d'état après chaque batch pour reprendre un import interrompu
 
-Ce projet est un outil interne. Consultez votre organisation pour les détails de licence.
+### Robustesse
+
+- [ ] **Retry intelligent par type d'erreur** :
+  - 4xx (erreur client) → Pas de retry
+  - 429 (rate limit) → Retry agressif avec backoff
+  - 5xx (erreur serveur) → Backoff exponentiel
+  - Timeout réseau → Retry court
+
+- [ ] **Cache des métadonnées** : Éviter les appels API répétitifs (structure, fingerprints, statuts)
+
+### Intégrations
+
+- [ ] **Webhooks génériques** : POST JSON sur endpoint personnalisé pour intégrations custom
+
+### Scripts manage.sh
+
+- [ ] `./manage.sh health-check` : Vérification rapide de tous les composants
+- [ ] `./manage.sh table-stats [name]` : Statistiques d'une table (lignes, dernière MAJ, taille)
 
 ## Crédits
-
-Développé pour l'intégration des données financières universitaires depuis l'API AMUE.
 
 **Technologies utilisées** :
 - Apache Airflow 3.1.3
@@ -588,6 +664,7 @@ Développé pour l'intégration des données financières universitaires depuis 
 - Python 3.12
 - Docker & Docker Compose
 - MailHog (développement)
+- pytest (tests unitaires)
 
 **Principes de conception** :
 - SOLID

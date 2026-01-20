@@ -26,7 +26,7 @@ fi
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║     Vérification Correctif Email Airflow 3.x                  ║
+║            Vérification Correctif Email Airflow 3.x           ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 

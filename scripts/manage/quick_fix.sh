@@ -44,7 +44,7 @@ test_check() {
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║              Test Rapide Configuration Airflow                ║
+║               Test Rapide Configuration Airflow               ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
