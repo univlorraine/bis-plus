@@ -1,7 +1,67 @@
 # amue/notifications/email_service.py
 """
-Service d'envoi d'emails via SMTP
-Gère la connexion et l'envoi de manière générique
+Service d'envoi d'emails via SMTP.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module fournit un service SMTP générique réutilisable par tous les
+composants du projet. Il est indépendant de la logique métier AMUE.
+
+COMPOSANTS :
+    - EmailConfig : Configuration SMTP (host, port, auth, TLS)
+    - Email : Représentation d'un email (destinataires, sujet, contenu)
+    - EmailService : Service d'envoi avec gestion des erreurs
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+La configuration peut être :
+    1. Fournie explicitement via EmailConfig
+    2. Chargée automatiquement depuis les variables Airflow
+
+Variables Airflow utilisées :
+    - smtp_host       : Serveur SMTP (défaut: mailhog)
+    - smtp_port       : Port SMTP (défaut: 1025)
+    - smtp_mail_from  : Adresse expéditeur
+    - smtp_use_tls    : Activer STARTTLS (défaut: false)
+    - smtp_username   : Login SMTP (optionnel)
+    - smtp_password   : Mot de passe SMTP (optionnel)
+    - smtp_timeout    : Timeout connexion en secondes (défaut: 30)
+
+================================================================================
+USAGE
+================================================================================
+
+    from amue.notifications.email_service import EmailService, Email
+
+    # Configuration automatique depuis Airflow
+    service = EmailService()
+
+    # Création de l'email
+    email = Email(
+        to=['admin@example.com', 'backup@example.com'],
+        subject='[AMUE] Rapport d\'import',
+        html_content='<h1>Import réussi</h1><p>15 tables importées</p>'
+    )
+
+    # Envoi
+    success = service.send(email)
+    if not success:
+        print("Erreur d'envoi")
+
+================================================================================
+ENVIRONNEMENT DE DÉVELOPPEMENT
+================================================================================
+
+En développement, le projet utilise MailHog (mailhog:1025) qui :
+    - Capture tous les emails sans les envoyer
+    - Fournit une UI web sur http://localhost:8025
+    - Ne nécessite pas d'authentification
+
+================================================================================
 """
 import logging
 import smtplib

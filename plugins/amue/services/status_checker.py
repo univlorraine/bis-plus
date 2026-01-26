@@ -1,6 +1,67 @@
 """
-Gestionnaire de vérification des statuts AMUE
-Mise à jour avec vérification de la variable 'finish'
+Gestionnaire de vérification des statuts AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module interroge l'API AMUE pour récupérer le statut des tables disponibles.
+Il est utilisé à deux moments :
+    1. POLLING : Vérifier si l'API est accessible et le traitement terminé
+    2. FILTRAGE : Récupérer la liste des tables disponibles et leur statut
+
+================================================================================
+STRUCTURE DE LA RÉPONSE API
+================================================================================
+
+L'API AMUE renvoie une réponse JSON avec la structure suivante :
+
+{
+    "finish": "2024-01-15 03:45:00",  # Date/heure de fin du traitement AMUE
+    "nbtables": 25,                    # Nombre total de tables
+    "nbtables_ko": 0,                  # Nombre de tables en erreur
+    "status": [
+        {
+            "name": "CSKS",            # Nom de la table
+            "status": "OK",            # Statut ("OK" ou "KO")
+            "mode": "FULL",            # Mode d'export AMUE
+            "count": 15000,            # Nombre de lignes
+            "row_size": 256            # Taille moyenne d'une ligne
+        },
+        ...
+    ]
+}
+
+================================================================================
+VARIABLE 'FINISH'
+================================================================================
+
+La variable 'finish' est CRITIQUE pour le fonctionnement du DAG :
+    - Si VIDE ou ABSENTE : Le traitement AMUE est EN COURS
+    - Si RENSEIGNÉE : Le traitement AMUE est TERMINÉ, on peut importer
+
+Le polling attend que 'finish' soit renseigné avant de continuer.
+
+================================================================================
+VÉRIFICATION HISTORIQUE
+================================================================================
+
+La méthode check_historical_status() permet de vérifier les statuts
+sur plusieurs jours passés. C'est utile pour :
+    - Identifier les imports manqués
+    - Détecter les tables qui étaient en erreur
+    - Calculer des métriques de disponibilité
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variables Airflow :
+    - universite : Code université pour l'endpoint
+    - api_endpoint_admin : Template URL admin avec $univ
+    - amue_last_successful_run : Date ISO du dernier succès (automatique)
+
+================================================================================
 """
 import logging
 from datetime import datetime, timedelta

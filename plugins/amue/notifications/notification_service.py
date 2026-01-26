@@ -1,6 +1,53 @@
 """
-Utilitaires de notification pour les DAGs AMUE
-Gestion centralisée des notifications d'erreur et de succès
+Service de notification legacy pour les DAGs AMUE.
+
+================================================================================
+NOTE : RÉTRO-COMPATIBILITÉ
+================================================================================
+
+Ce module est conservé pour la rétro-compatibilité avec le code existant.
+Pour les nouveaux développements, préférer utiliser :
+    - ErrorNotifier pour les erreurs
+    - SuccessNotifier pour les succès
+    - EmailService pour l'envoi d'emails générique
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module fournit :
+    1. NotificationService : Service d'envoi d'emails d'erreur
+    2. ErrorContext : Dataclass pour structurer les erreurs
+    3. send_failure_notification : Callback Airflow pour les échecs
+
+================================================================================
+CALLBACK AIRFLOW
+================================================================================
+
+La fonction send_failure_notification() est utilisée comme callback dans le DAG :
+
+    @dag(
+        on_failure_callback=send_failure_notification,  # DAG-level
+        default_args={
+            'on_failure_callback': send_failure_notification  # Task-level
+        }
+    )
+
+Quand une task ou le DAG échoue, Airflow appelle automatiquement cette fonction
+avec un contexte contenant l'exception et les métadonnées de la task.
+
+================================================================================
+CONTENU DE L'EMAIL D'ERREUR
+================================================================================
+
+L'email d'erreur inclut :
+    - Nom du DAG et de la task en échec
+    - Date et heure de l'erreur
+    - Type d'exception (ex: AirflowException)
+    - Message d'erreur complet
+    - Lien vers l'UI Airflow
+
+================================================================================
 """
 import json
 import logging

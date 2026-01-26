@@ -1,12 +1,90 @@
 """
-Service de retry intelligent avec stratégies différenciées par type d'erreur
+Service de retry intelligent avec stratégies différenciées par type d'erreur.
 
-Stratégies appliquées:
-- 4xx (erreur client) : Pas de retry (sauf 429)
-- 429 (rate limit) : Retry agressif avec backoff court
-- 5xx (erreur serveur) : Backoff exponentiel standard
-- Timeout réseau : Retry court avec peu de tentatives
-- Erreur connexion : Retry avec backoff modéré
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module gère les tentatives de retry lors des appels API avec des stratégies
+adaptées au TYPE d'erreur rencontré. Contrairement à un retry "bête" qui
+réessaie toujours de la même façon, ce service adapte son comportement.
+
+================================================================================
+PHILOSOPHIE : RETRY INTELLIGENT
+================================================================================
+
+Toutes les erreurs ne méritent pas le même traitement :
+
+┌────────────────┬──────────────┬────────────────────────────────────────────┐
+│ Type d'erreur  │ Stratégie    │ Justification                              │
+├────────────────┼──────────────┼────────────────────────────────────────────┤
+│ 4xx Client     │ PAS de retry │ Erreur de paramètres → inutile de réessayer│
+│ 429 Rate Limit │ Retry rapide │ Limite temporaire → réessayer vite         │
+│ 5xx Serveur    │ Backoff long │ Serveur en panne → laisser le temps        │
+│ Timeout        │ Retry court  │ Lenteur réseau → quelques tentatives       │
+│ Connexion      │ Retry modéré │ Problème réseau → tenter quelques fois     │
+└────────────────┴──────────────┴────────────────────────────────────────────┘
+
+================================================================================
+STRATÉGIES DÉTAILLÉES
+================================================================================
+
+ERREURS CLIENT (4xx sauf 429) :
+    - max_retries: 0 (aucun retry)
+    - Raison : Une erreur 400/401/403/404 indique un problème de requête,
+               réessayer avec les mêmes paramètres n'a pas de sens
+
+RATE LIMIT (429) :
+    - max_retries: 5
+    - base_delay: 2s → 4s → 8s → 16s → 30s (max)
+    - jitter: oui (évite le "thundering herd")
+    - Raison : Le serveur demande d'attendre, on attend puis on réessaie
+
+ERREURS SERVEUR (5xx) :
+    - max_retries: 3
+    - base_delay: 5s → 10s → 20s → ... → 300s (max)
+    - jitter: oui
+    - Raison : Le serveur a un problème, on lui laisse le temps de récupérer
+
+TIMEOUT :
+    - max_retries: 2
+    - base_delay: 3s (fixe)
+    - Raison : Le réseau est lent mais pas cassé, quelques tentatives suffisent
+
+ERREURS CONNEXION :
+    - max_retries: 3
+    - base_delay: 5s → 10s → 20s → ... → 60s (max)
+    - jitter: oui
+    - Raison : Problème réseau temporaire, on attend et on réessaie
+
+================================================================================
+CONCEPT : JITTER (BRUIT ALÉATOIRE)
+================================================================================
+
+Le jitter ajoute ±20% de variation aléatoire aux délais pour éviter le
+problème du "thundering herd" : si 100 workers échouent en même temps et
+réessaient exactement après 5s, ils vont tous frapper le serveur ensemble.
+
+Avec jitter : délais entre 4s et 6s → les requêtes sont étalées.
+
+================================================================================
+USAGE
+================================================================================
+
+    # Via singleton (recommandé)
+    from amue.services.retry_service import get_retry_service
+
+    service = get_retry_service()
+    result = service.execute_with_retry(lambda: api.call())
+
+    if result.success:
+        print(result.result)
+    else:
+        print(f"Échec: {result.error}")
+        print(f"Catégorie: {result.error_category}")
+        print(f"Tentatives: {result.attempts}")
+
+================================================================================
 """
 import logging
 import random

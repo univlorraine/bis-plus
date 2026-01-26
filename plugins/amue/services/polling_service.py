@@ -1,7 +1,69 @@
 """
-Service de polling intelligent pour l'API AMUE
-Attend que l'API soit disponible avec retry exponentiel et timeout configurable
-Vérifie à la fois le code HTTP 200 ET la variable 'finish' du JSON
+Service de polling intelligent pour l'API AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module attend que l'API AMUE soit disponible et que le traitement côté
+AMUE soit terminé avant de démarrer l'import. C'est le "gardien" du DAG
+qui empêche de commencer l'import tant que les données ne sont pas prêtes.
+
+CONDITIONS DE DISPONIBILITÉ :
+    1. Code HTTP 200 (API accessible)
+    2. Variable 'finish' renseignée dans la réponse JSON
+       (indique que le traitement AMUE est terminé)
+
+Les deux conditions doivent être satisfaites pour considérer l'API comme "prête".
+
+================================================================================
+STRATÉGIES DE POLLING
+================================================================================
+
+INTERVALLE FIXE (par défaut) :
+    Vérifie l'API toutes les N minutes (configurable)
+    Exemple : toutes les 10 minutes pendant 6 heures max
+
+BACKOFF EXPONENTIEL (optionnel) :
+    Augmente progressivement l'intervalle entre les vérifications
+    Utile pour réduire la charge sur l'API si elle est lente à démarrer
+    Exemple : 10min → 20min → 40min → 60min (max)
+
+================================================================================
+GESTION DES ERREURS
+================================================================================
+
+ERREURS CRITIQUES (arrêt immédiat) :
+    - 4xx (sauf 429) : Erreur de configuration ou d'authentification
+    - Le polling s'arrête et le DAG échoue
+
+ERREURS TRANSITOIRES (retry) :
+    - 5xx : Erreur serveur AMUE temporaire
+    - 429 : Rate limit (trop de requêtes)
+    - Timeout : Problème réseau temporaire
+    - Le polling continue jusqu'au timeout global
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variables Airflow :
+    - amue_polling_interval_minutes : Intervalle entre vérifications (défaut: 10)
+    - amue_max_wait_hours : Durée max d'attente (défaut: 6)
+    - amue_polling_exponential_backoff : Active le backoff (défaut: false)
+    - amue_polling_max_backoff_minutes : Intervalle max en backoff (défaut: 60)
+
+================================================================================
+MÉTRIQUES COLLECTÉES
+================================================================================
+
+Le service collecte des métriques pour le rapport final :
+    - Nombre de tentatives
+    - Temps total d'attente
+    - Valeur de 'finish' (horodatage de fin AMUE)
+    - Codes HTTP reçus
+
+================================================================================
 """
 import logging
 import time

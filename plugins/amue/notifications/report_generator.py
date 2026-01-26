@@ -1,6 +1,79 @@
 # amue/notifications/report_generator.py
 """
-Générateur de rapports et notifications
+Générateur de rapports d'import AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module génère le rapport final après un import réussi. Il est appelé
+par la dernière task du DAG (send_report) pour :
+    1. Agréger les statistiques d'import
+    2. Afficher le rapport dans les logs Airflow
+    3. Sauvegarder le rapport dans les variables Airflow
+    4. Envoyer une notification email de succès
+
+================================================================================
+CONTENU DU RAPPORT
+================================================================================
+
+Le rapport inclut :
+
+MÉTRIQUES GLOBALES :
+    - Date et heure d'exécution
+    - Durée totale (depuis le début du polling)
+    - Nombre de tentatives de polling
+    - Temps d'attente du polling
+
+STATISTIQUES D'IMPORT :
+    - Nombre de tables importées
+    - Nombre de tables ignorées (0 lignes)
+    - Total de lignes récupérées de l'API
+    - Total de lignes insérées en base
+
+DÉTAIL PAR TABLE :
+    - Nom de la table
+    - Lignes récupérées / insérées
+    - Type d'import (full / differential)
+    - Statut (success / error)
+    - Fingerprint (tronqué)
+
+================================================================================
+FORMAT DU RAPPORT DANS LES LOGS
+================================================================================
+
+    ======================================================================
+                        RAPPORT IMPORT AMUE
+    ======================================================================
+      Date d'exécution : 2024-01-15 10:30:00
+      Durée totale     : 45m 30s
+      Polling          : 3 tentative(s), 30.0min d'attente
+    ----------------------------------------------------------------------
+      Tables traitées  : 5
+      Tables ignorées  : 2 (0 lignes)
+      Lignes récupérées: 150,000
+      Lignes insérées  : 150,000
+    ======================================================================
+
+      DÉTAIL PAR TABLE:
+    ----------------------------------------------------------------------
+      Table           |     Récup. |     Inséré | Type         | Statut
+    ----------------------------------------------------------------------
+      CSKS            |     15,000 |     15,000 | full         | [OK]
+      COST            |     50,000 |     50,000 | differential | [OK]
+      ...
+
+================================================================================
+PERSISTANCE
+================================================================================
+
+Le rapport est sauvegardé dans la variable Airflow 'last_import_report'
+au format JSON. Cela permet :
+    - De consulter le dernier rapport via l'UI Airflow
+    - D'intégrer les rapports dans un système de monitoring
+    - De garder un historique (une seule entrée, le dernier)
+
+================================================================================
 """
 import json
 import logging

@@ -1,6 +1,73 @@
 """
-Vérificateur de structure et statut des tables AMUE
-Mise à jour avec fingerprint incluant les clés primaires
+Vérificateur de structure et statut des tables AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module vérifie que les tables sont prêtes pour l'import en validant :
+    1. Le STATUT de la table côté API (doit être "OK")
+    2. La STRUCTURE de la table (colonnes, types)
+    3. Le FINGERPRINT pour détecter les changements de structure
+
+PROCESSUS DE VÉRIFICATION :
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                     verify_table()                              │
+    │                          │                                      │
+    │           ┌──────────────┼──────────────┐                       │
+    │           ▼              ▼              ▼                       │
+    │    verify_status()  verify_structure()  verify_fingerprint()    │
+    │           │              │              │                       │
+    │           ▼              ▼              ▼                       │
+    │      Statut OK ?    Colonnes OK ?   Structure changée ?         │
+    │           │              │              │                       │
+    │           └──────────────┴──────────────┘                       │
+    │                          │                                      │
+    │                          ▼                                      │
+    │              Résultat de vérification                           │
+    └─────────────────────────────────────────────────────────────────┘
+
+================================================================================
+FINGERPRINT (EMPREINTE DE STRUCTURE)
+================================================================================
+
+Le fingerprint est un hash SHA256 calculé à partir de :
+    - Noms des colonnes (ordonnés)
+    - Types PostgreSQL des colonnes
+    - Clés primaires (si définies)
+
+Utilité :
+    - Détecte les changements de structure entre deux exécutions
+    - En production : BLOQUE l'import si structure modifiée
+    - En dev : ALERTE mais continue l'import
+
+Exemple de changement détecté :
+    - Ajout/suppression de colonne
+    - Modification de type
+    - Changement de clé primaire
+
+================================================================================
+RÉCUPÉRATION AUTOMATIQUE DES CLÉS PRIMAIRES
+================================================================================
+
+Si les clés primaires ne sont pas définies dans la configuration,
+le vérificateur les récupère automatiquement depuis l'API AMUE.
+Cela permet de :
+    - Simplifier la configuration initiale
+    - S'adapter aux changements de clés côté AMUE
+    - Garantir la cohérence des UPSERT
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variables Airflow :
+    - universite : Code université pour l'endpoint API
+    - api_endpoint_admin : Template d'URL admin avec $univ
+    - environment : "dev" ou "production"
+
+================================================================================
 """
 import logging
 from string import Template

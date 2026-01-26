@@ -1,8 +1,78 @@
 """
-Hook personnalisé pour interagir avec l'API AMUE
+Hook personnalisé pour interagir avec l'API AMUE.
 
-Utilise le RetryService pour appliquer des stratégies de retry
-intelligentes selon le type d'erreur HTTP.
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce hook encapsule toute la communication avec l'API AMUE :
+    - Authentification OAuth2 (client_credentials flow)
+    - Gestion automatique du token (renouvellement)
+    - Appels API avec retry intelligent
+
+================================================================================
+AUTHENTIFICATION OAUTH2
+================================================================================
+
+L'API AMUE utilise le flow OAuth2 "client_credentials" :
+
+    ┌─────────────┐                      ┌───────────────┐
+    │   Airflow   │ ──── Credentials ───►│  Auth Server  │
+    │   (client)  │                      │ (AMUE OAuth)  │
+    │             │ ◄──── Token ─────────│               │
+    └──────┬──────┘                      └───────────────┘
+           │
+           │ Token Bearer
+           ▼
+    ┌───────────────┐
+    │   API AMUE    │
+    │  (ressources) │
+    └───────────────┘
+
+Le token est mis en cache et renouvelé automatiquement :
+    - Avant expiration (marge de 10%)
+    - Après une erreur 401 (token invalide)
+
+================================================================================
+CONFIGURATION AIRFLOW
+================================================================================
+
+Connexion Airflow : 'oauth_api'
+
+Champs requis :
+    - login     : Client ID OAuth
+    - password  : Client Secret OAuth
+    - extra     : JSON avec configuration
+        {
+            "token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token",
+            "api_base_url": "https://sandbox.api.amue.fr"
+        }
+
+================================================================================
+RETRY INTELLIGENT
+================================================================================
+
+Les appels API utilisent le RetryService pour adapter le comportement
+selon le type d'erreur (voir retry_service.py pour les détails).
+
+Exception : check_status_only=True désactive le retry (utilisé par le polling
+pour simplement vérifier si l'API répond).
+
+================================================================================
+USAGE
+================================================================================
+
+    >>> from amue.hooks.amue_api_hook import AMUEAPIHook
+    >>>
+    >>> hook = AMUEAPIHook()
+    >>>
+    >>> # Appel simple
+    >>> data = hook.call_api('endpoint/path', {'param': 'value'})
+    >>>
+    >>> # Vérification de disponibilité (polling)
+    >>> status_code = hook.call_api('endpoint/path', check_status_only=True)
+
+================================================================================
 """
 import json
 import logging

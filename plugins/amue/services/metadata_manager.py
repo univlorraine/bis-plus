@@ -1,6 +1,69 @@
 """
-Gestionnaire des métadonnées d'import AMUE
-Responsable de la persistance des empreintes, dates et statuts
+Gestionnaire des métadonnées d'import AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module persiste les métadonnées d'import dans les variables Airflow.
+Ces métadonnées sont ESSENTIELLES pour :
+    - Détecter les changements de structure (fingerprint)
+    - Permettre l'import différentiel (last_import)
+    - Tracer l'historique des imports
+
+================================================================================
+MÉTADONNÉES GÉRÉES
+================================================================================
+
+Pour chaque table importée, le gestionnaire sauvegarde :
+
+┌────────────────┬────────────────────────────────────────────────────────────┐
+│ Métadonnée     │ Description                                                │
+├────────────────┼────────────────────────────────────────────────────────────┤
+│ finger_print   │ Hash SHA256 de la structure (colonnes + types + PKs)       │
+│                │ → Permet de détecter les changements de structure          │
+├────────────────┼────────────────────────────────────────────────────────────┤
+│ last_import    │ Date ISO du dernier import réussi de cette table          │
+│                │ → Utilisé pour filtrer les données en import différentiel  │
+├────────────────┼────────────────────────────────────────────────────────────┤
+│ primary_key    │ Liste des colonnes formant la clé primaire (CSV)           │
+│                │ → Utilisé pour construire les UPSERT                       │
+└────────────────┴────────────────────────────────────────────────────────────┘
+
+================================================================================
+STOCKAGE
+================================================================================
+
+Les métadonnées sont stockées dans la variable Airflow 'amue_tables_to_import'
+au format JSON :
+
+[
+    {
+        "name": "CSKS",
+        "primary_key": "BUKRS,KOSTL",
+        "delta": "AEDAT",
+        "last_import": "2024-01-15T10:30:00",
+        "finger_print": "abc123def456..."
+    },
+    ...
+]
+
+Une variable séparée 'amue_last_successful_run' stocke la date du dernier
+succès GLOBAL du DAG (toutes tables importées avec succès).
+
+================================================================================
+GESTION DES ERREURS
+================================================================================
+
+La sauvegarde des métadonnées est CRITIQUE. En cas d'échec :
+    1. Retry avec backoff exponentiel (3 tentatives)
+    2. Si échec persistant : le DAG échoue
+
+Pourquoi ? Si les métadonnées ne sont pas sauvegardées :
+    - Le prochain import ne détectera pas les changements de structure
+    - L'import différentiel réimportera toutes les données
+
+================================================================================
 """
 import json
 import logging

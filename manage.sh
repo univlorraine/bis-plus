@@ -1178,7 +1178,7 @@ cmd_health() {
 
     echo ""
     log_info "=== Métriques ==="
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | tail -n +2 | wc -l | xargs -I {} echo "DAGs totaux: {}"
+    $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | tail -n +4 | wc -l | xargs -I {} echo "DAGs totaux: {}"
     $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | grep -c "False" | xargs -I {} echo "DAGs actifs: {}" || echo "DAGs actifs: 0"
 }
 

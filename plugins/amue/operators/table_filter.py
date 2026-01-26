@@ -1,6 +1,58 @@
 """
-Filtrage et sélection des tables AMUE à importer
-Avec arrêt et notification si table absente du statut
+Filtrage et sélection des tables AMUE à importer.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module détermine quelles tables doivent être importées lors d'une exécution
+du DAG. Il compare la configuration Airflow (variable amue_tables_to_import)
+avec le statut réel de l'API AMUE.
+
+PROCESSUS DE FILTRAGE :
+    1. Charge la configuration des tables depuis Airflow
+    2. Vérifie que TOUTES les tables configurées existent dans l'API
+    3. Si tables manquantes → notification + ARRÊT du DAG
+    4. Enrichit chaque table avec son statut actuel
+    5. Détermine le type d'import (FULL ou DIFFERENTIAL)
+
+COMPORTEMENT FAIL-FAST :
+    Si une table configurée n'existe pas dans l'API, le DAG s'arrête
+    immédiatement avec une notification d'erreur. Cela évite des imports
+    partiels qui pourraient créer des incohérences de données.
+
+================================================================================
+DÉTERMINATION DU TYPE D'IMPORT
+================================================================================
+
+FULL (import complet) :
+    - Utilisé si pas de colonne delta définie
+    - Utilisé si pas de date de dernier import
+    - Résultat : TRUNCATE + INSERT de toutes les données
+
+DIFFERENTIAL (import incrémental) :
+    - Nécessite une colonne delta (date de modification)
+    - Nécessite une date de dernier import
+    - Résultat : UPSERT des données modifiées depuis le dernier import
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variable Airflow : amue_tables_to_import
+Format JSON :
+[
+    {
+        "name": "CSKS",              # Nom de la table (obligatoire)
+        "primary_key": "BUKRS,KOSTL", # Clés primaires pour UPSERT
+        "delta": "AEDAT",            # Colonne de date de modification
+        "last_import": "2024-01-15", # Date ISO du dernier import
+        "finger_print": "abc123..."  # Empreinte de structure
+    },
+    ...
+]
+
+================================================================================
 """
 import json
 import logging
@@ -15,7 +67,23 @@ logger = logging.getLogger(__name__)
 
 
 class TableNotFoundError(AirflowException):
-    """Exception levée quand une table configurée n'est pas trouvée dans le statut"""
+    """
+    Exception levée quand une table configurée n'est pas trouvée dans le statut API.
+
+    Cette exception est CRITIQUE : elle indique une incohérence entre la
+    configuration Airflow et les données disponibles côté AMUE.
+
+    Causes possibles :
+        - Nom de table mal orthographié dans la configuration
+        - Table supprimée côté AMUE
+        - API AMUE en cours de maintenance
+        - Problème de droits d'accès à la table
+
+    Attributes:
+        missing_tables: Liste des noms de tables manquantes
+        configured_count: Nombre total de tables configurées
+        found_count: Nombre de tables trouvées dans l'API
+    """
 
     def __init__(self, missing_tables: List[str], configured_count: int, found_count: int):
         self.missing_tables = missing_tables
@@ -34,14 +102,39 @@ class TableNotFoundError(AirflowException):
 
 
 class AMUETableFilter:
-    """Filtre les tables à traiter selon leur statut et historique"""
+    """
+    Filtre et sélectionne les tables à importer selon leur statut.
+
+    Cette classe est responsable de :
+        1. Charger la configuration des tables depuis Airflow
+        2. Vérifier l'existence de toutes les tables configurées
+        3. Enrichir les configs avec le statut API actuel
+        4. Déterminer le type d'import pour chaque table
+
+    Comportement FAIL-FAST :
+        Si une table configurée n'existe pas dans l'API, le filtre
+        envoie une notification d'erreur et lève une exception pour
+        arrêter le DAG immédiatement.
+
+    Attributes:
+        tables_config: Liste des configurations de tables (depuis Airflow)
+        notification_service: Service d'envoi de notifications d'erreur
+    """
 
     def __init__(self, tables_config: List[Dict] = None):
+        """
+        Initialise le filtre de tables.
+
+        Args:
+            tables_config: Configuration des tables (optionnel).
+                          Si non fourni, chargé depuis la variable Airflow.
+        """
+        # Charge la config depuis Airflow si non fournie
         if tables_config is None:
             tables_config = self._load_config()
         self.tables_config = tables_config
 
-        # Initialise le service de notification si disponible
+        # Initialise le service de notification pour les erreurs critiques
         if NotificationService is not None:
             self.notification_service = NotificationService()
         else:

@@ -1,6 +1,60 @@
 """
-Gestionnaire de création et mise à jour des tables PostgreSQL
-Responsable de la gestion du schéma DDL des tables AMUE
+Gestionnaire de création et mise à jour des tables PostgreSQL.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module gère le schéma DDL (Data Definition Language) des tables AMUE dans
+PostgreSQL. Il est responsable de la création des tables en développement
+et de la validation de leur existence en production.
+
+RÈGLES DE GESTION SELON L'ENVIRONNEMENT :
+
+┌─────────────────┬────────────────────┬────────────────────────────────────┐
+│ Environnement   │ Table existe       │ Action                             │
+├─────────────────┼────────────────────┼────────────────────────────────────┤
+│ PRODUCTION      │ Oui                │ Utilisation de la table existante  │
+│ PRODUCTION      │ Non                │ ERREUR - Création interdite        │
+│ DÉVELOPPEMENT   │ Oui                │ Utilisation de la table existante  │
+│ DÉVELOPPEMENT   │ Non                │ Création automatique (DROP IF + CREATE) │
+└─────────────────┴────────────────────┴────────────────────────────────────┘
+
+PHILOSOPHIE :
+    - En PRODUCTION : lecture seule du schéma (sécurité maximale)
+    - En DEV : création automatique pour faciliter le développement
+    - La structure est toujours validée avant toute opération
+
+================================================================================
+GÉNÉRATION DDL
+================================================================================
+
+Le DDL généré inclut :
+    - DROP TABLE IF EXISTS ... CASCADE (en dev uniquement)
+    - CREATE TABLE avec colonnes typées
+    - Contrainte PRIMARY KEY si clés définies
+
+Exemple de DDL généré :
+    DROP TABLE IF EXISTS csks CASCADE;
+    CREATE TABLE csks (
+        bukrs VARCHAR(4),
+        kostl VARCHAR(10),
+        datab DATE,
+        PRIMARY KEY (bukrs, kostl)
+    );
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variable Airflow :
+    - environment : "dev" ou "production" (défaut: "production")
+
+Connexion PostgreSQL :
+    - postgres_conn_id : "postgres_data"
+    - schema : "splus"
+
+================================================================================
 """
 import logging
 from dataclasses import dataclass

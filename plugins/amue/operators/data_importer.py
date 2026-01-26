@@ -1,6 +1,52 @@
 """
-Gestionnaire d'import des données depuis l'API AMUE
-Avec streaming et insertion par batch pour optimiser la mémoire
+Gestionnaire d'import des données depuis l'API AMUE vers PostgreSQL.
+
+================================================================================
+ARCHITECTURE DU MODULE
+================================================================================
+
+Ce module gère l'import des données financières depuis l'API AMUE vers une base
+PostgreSQL. Il utilise une approche STREAMING pour optimiser la mémoire lors du
+traitement de gros volumes de données.
+
+FLUX DE DONNÉES :
+    API AMUE  →  Streaming (générateur)  →  Batching  →  PostgreSQL
+       ↓              ↓                       ↓            ↓
+   Pagination    Yield ligne/ligne      5000 lignes   INSERT/UPSERT
+
+MODES D'IMPORT :
+    1. FULL (complet) :
+       - TRUNCATE + INSERT dans une transaction atomique
+       - Rollback complet en cas d'erreur → données originales préservées
+       - Utilisé quand il n'y a pas de colonne delta ou pour un reset
+
+    2. DIFFERENTIAL (différentiel) :
+       - UPSERT (INSERT ON CONFLICT UPDATE) idempotent
+       - Commit par batch (plus résilient aux erreurs)
+       - Nécessite une clé primaire et une colonne delta (date modification)
+
+GESTION DES ERREURS :
+    - Retry intelligent via RetryService (stratégies différenciées 4xx/5xx/429)
+    - Détection proactive des doublons AVANT insertion
+    - Logs détaillés en cas de conflit de clé primaire
+    - Rollback automatique selon le mode d'import
+
+SÉCURITÉ SQL :
+    - Utilisation de psycopg2.sql pour les identifiants (anti-injection)
+    - Paramètres préparés pour toutes les valeurs
+
+================================================================================
+CONFIGURATION
+================================================================================
+
+Variables Airflow utilisées :
+    - universite              : Code université (obligatoire)
+    - api_endpoint_table      : Template URL avec $univ et $table (obligatoire)
+    - amue_api_max_retries    : Nombre de tentatives API (défaut: 3)
+    - amue_api_retry_delay_seconds : Délai entre tentatives (défaut: 30)
+    - amue_import_batch_size  : Taille des batchs d'insertion (défaut: 5000)
+
+================================================================================
 """
 import logging
 import re
@@ -20,32 +66,78 @@ logger = logging.getLogger(__name__)
 
 
 class AMUEDataImporter:
-    """Gère l'import des données depuis l'API vers PostgreSQL avec streaming"""
+    """
+    Gère l'import des données depuis l'API AMUE vers PostgreSQL.
+
+    Cette classe implémente un import optimisé en mémoire grâce au streaming
+    (générateur Python) et à l'insertion par batch.
+
+    Stratégies d'import supportées :
+        - INSERT simple : Pour les tables sans clé primaire ou import FULL
+        - UPSERT : INSERT ON CONFLICT DO UPDATE pour les imports différentiels
+
+    Attributes:
+        api_hook: Hook de connexion à l'API AMUE (OAuth)
+        postgres_hook: Hook de connexion PostgreSQL
+        endpoint: URL de l'endpoint API (après substitution)
+        max_retries: Nombre max de tentatives en cas d'erreur
+        retry_delay: Délai entre les tentatives (secondes)
+        batch_size: Nombre de lignes par batch d'insertion
+
+    Example:
+        >>> api_hook = AMUEAPIHook()
+        >>> importer = AMUEDataImporter(api_hook)
+        >>> result = importer.import_table(
+        ...     table_name='CSKS',
+        ...     columns=['bukrs', 'kostl', 'datab'],
+        ...     primary_keys=['bukrs', 'kostl'],
+        ...     import_config={'import_type': 'differential'}
+        ... )
+    """
 
     # Taille de batch par défaut pour l'insertion
+    # Compromis entre performance (moins de commits) et mémoire
     DEFAULT_BATCH_SIZE = 5000
 
     def __init__(self, api_hook, postgres_hook: PostgresHook = None):
+        """
+        Initialise l'importeur de données AMUE.
+
+        Args:
+            api_hook: Instance de AMUEAPIHook pour les appels API
+            postgres_hook: Hook PostgreSQL optionnel (créé si non fourni)
+
+        Raises:
+            AirflowException: Si les variables obligatoires sont manquantes
+        """
         self.api_hook = api_hook
+
+        # Connexion PostgreSQL avec schema splus par défaut
         self.postgres_hook = postgres_hook or PostgresHook(
             postgres_conn_id='postgres_data',
-            options='-c search_path=splus'
+            options='-c search_path=splus'  # Schema de données AMUE
         )
-        self._conn = None  # Cache de connexion
+        self._conn = None  # Cache de connexion (réutilisation)
 
+        # --- Chargement des variables obligatoires ---
         try:
             univ = VarMgr.get('universite')
         except KeyError:
             raise AirflowException("La variable 'universite' doit être définie")
+
         try:
             endpointtbl = VarMgr.get('api_endpoint_table')
         except KeyError:
             raise AirflowException("La variable 'api_endpoint_table' doit être définie")
+
+        # Substitution du placeholder $univ dans l'endpoint
+        # Exemple: "/sifacweb/data/$univ/$table" → "/sifacweb/data/ul/$table"
         try:
             self.endpoint = Template(endpointtbl).substitute(univ=univ)
         except KeyError as e:
             raise AirflowException(f"Erreur lors de la substitution dans l'endpoint: {e}")
 
+        # --- Chargement des paramètres de configuration ---
         self.max_retries = int(VarMgr.get('amue_api_max_retries', default='3'))
         self.retry_delay = int(VarMgr.get('amue_api_retry_delay_seconds', default='30'))
         self.batch_size = int(VarMgr.get('amue_import_batch_size', default=str(self.DEFAULT_BATCH_SIZE)))
@@ -85,15 +177,46 @@ class AMUEDataImporter:
 
     def import_table(self, table_name: str, columns: List[str], primary_keys: List[str],
                      import_config: Dict) -> Dict:
-        """Importe les données d'une table avec streaming"""
+        """
+        Importe les données d'une table depuis l'API vers PostgreSQL.
+
+        Point d'entrée principal pour l'import d'une table.
+        Coordonne le streaming des données et leur insertion par batch.
+
+        Args:
+            table_name: Nom de la table PostgreSQL cible
+            columns: Liste des colonnes à importer (noms en minuscules)
+            primary_keys: Liste des colonnes formant la clé primaire
+            import_config: Configuration d'import contenant :
+                - import_type: "full" ou "differential"
+                - delta: Nom de la colonne de date pour import différentiel
+                - last_import: Date ISO du dernier import
+                - finger_print: Empreinte de structure de la table
+
+        Returns:
+            Dictionnaire avec le résultat de l'import :
+            {
+                "table_name": "CSKS",
+                "rows_inserted": 1500,     # Lignes effectivement insérées
+                "rows_fetched": 1500,      # Lignes récupérées de l'API
+                "import_type": "full",
+                "finger_print": "abc123...",
+                "status": "success"
+            }
+
+        Raises:
+            AirflowException: Si l'import échoue (erreur API, DB, doublons...)
+        """
         logger.info(f"Table: {table_name}, type: {import_config.get('import_type', 'full')}")
 
         try:
-            # Détermine si on utilise UPSERT (vérifie avant le stream)
+            # Détermine la stratégie d'insertion :
+            # - UPSERT si import différentiel ET clé primaire définie
+            # - INSERT simple sinon (TRUNCATE préalable pour FULL)
             import_type = import_config.get('import_type', 'full')
             use_upsert = import_type == 'differential' and bool(primary_keys)
 
-            # Stream les données et insère par batch
+            # Lance le streaming et l'insertion par batch
             rows_inserted, rows_fetched = self._stream_and_insert(
                 table_name,
                 columns,
@@ -115,21 +238,36 @@ class AMUEDataImporter:
             logger.error(f"Erreur import {table_name}: {e}")
             raise
         finally:
+            # Libère la connexion PostgreSQL dans tous les cas
             self._close_connection()
 
     def _stream_and_insert(self, table_name: str, columns: List[str],
                            primary_keys: List[str], import_config: Dict,
                            use_upsert: bool) -> tuple:
         """
-        Stream les données depuis l'API et insère par batch
+        Orchestre le streaming des données et leur insertion par batch.
 
-        Pour un import FULL: utilise une transaction unique (TRUNCATE + INSERT)
-        afin de garantir un rollback complet en cas d'erreur.
+        Cette méthode implémente deux stratégies transactionnelles :
 
-        Pour un import DIFFERENTIAL: commit par batch (UPSERT idempotent).
+        IMPORT FULL (transaction atomique) :
+            BEGIN → TRUNCATE → INSERT batch 1 → INSERT batch 2 → ... → COMMIT
+            En cas d'erreur : ROLLBACK → données originales intactes
+
+        IMPORT DIFFERENTIAL (commits par batch) :
+            UPSERT batch 1 → COMMIT → UPSERT batch 2 → COMMIT → ...
+            Plus résilient : les batchs déjà commitées sont conservés
+
+        Args:
+            table_name: Nom de la table cible
+            columns: Liste des colonnes
+            primary_keys: Clés primaires pour UPSERT
+            import_config: Configuration d'import
+            use_upsert: True pour UPSERT, False pour INSERT simple
 
         Returns:
-            Tuple (rows_inserted, rows_fetched)
+            Tuple (rows_inserted, rows_fetched) :
+            - rows_inserted: Nombre de lignes insérées en base
+            - rows_fetched: Nombre de lignes récupérées de l'API
         """
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -137,28 +275,32 @@ class AMUEDataImporter:
         import_type = import_config.get('import_type', 'full')
         is_full_import = import_type == 'full'
 
-        # Pour un import FULL, vide la table (dans la même transaction)
+        # --- FULL IMPORT : TRUNCATE dans la même transaction ---
+        # Le TRUNCATE est exécuté SANS commit pour permettre un rollback complet
         if is_full_import:
             self._truncate_table_no_commit(cursor, table_name)
 
-        # Construit la requête SQL
+        # Prépare la requête SQL (INSERT ou UPSERT selon la stratégie)
         insert_sql = self._build_insert_sql(table_name, columns, primary_keys, use_upsert)
 
         total_inserted = 0
         total_fetched = 0
-        batch = []
+        batch = []  # Buffer pour accumulation des lignes
 
         try:
-            # Stream les données depuis l'API
+            # --- STREAMING : récupère les données ligne par ligne ---
+            # Le générateur évite de charger toutes les données en mémoire
             for row in self._fetch_data_stream(table_name, import_config):
                 total_fetched += 1
 
-                # Prépare le record
+                # Normalise les clés en minuscules (API renvoie parfois en majuscules)
                 row_lower = {k.lower(): v for k, v in row.items()} if isinstance(row, dict) else {}
+
+                # Construit le tuple dans l'ordre des colonnes attendues
                 record = tuple(row_lower.get(col, None) for col in columns)
                 batch.append(record)
 
-                # Insert quand batch plein
+                # --- BATCH PLEIN : insertion immédiate ---
                 if len(batch) >= self.batch_size:
                     self._execute_batch(
                         cursor, conn, insert_sql, batch,
@@ -167,9 +309,9 @@ class AMUEDataImporter:
                     )
                     total_inserted += len(batch)
                     logger.info(f"{table_name}: {total_inserted:,} lignes insérées")
-                    batch.clear()  # Libère mémoire
+                    batch.clear()  # Libère la mémoire du batch traité
 
-            # Insert reste du batch
+            # --- RESTE DU BATCH : dernières lignes ---
             if batch:
                 self._execute_batch(
                     cursor, conn, insert_sql, batch,
@@ -178,7 +320,8 @@ class AMUEDataImporter:
                 )
                 total_inserted += len(batch)
 
-            # Pour FULL import: commit final de toute la transaction
+            # --- FULL IMPORT : commit final de toute la transaction ---
+            # C'est ici que TRUNCATE + tous les INSERT sont validés ensemble
             if is_full_import:
                 conn.commit()
                 logger.info(f"[FULL IMPORT] Transaction commitée pour {table_name}")
@@ -187,11 +330,13 @@ class AMUEDataImporter:
             return total_inserted, total_fetched
 
         except AirflowException:
+            # Erreur métier (doublons, etc.) : rollback et propagation
             conn.rollback()
             if is_full_import:
                 logger.warning(f"[FULL IMPORT] Rollback complet pour {table_name} - données originales préservées")
             raise
         except Exception as e:
+            # Erreur technique : rollback, log et wrap en AirflowException
             conn.rollback()
             if is_full_import:
                 logger.warning(f"[FULL IMPORT] Rollback complet pour {table_name} - données originales préservées")

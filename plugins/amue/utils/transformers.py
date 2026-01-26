@@ -1,6 +1,87 @@
 """
-Fonctions de transformation pour les données AMUE
-Mise à jour avec fingerprint incluant les clés primaires
+Fonctions de transformation et validation pour les données AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module contient des fonctions utilitaires de trois catégories :
+
+1. VALIDATION (protection contre les injections SQL)
+2. TRANSFORMATION DE TYPES (Oracle/AMUE → PostgreSQL)
+3. FINGERPRINT (empreinte de structure pour détection des changements)
+
+================================================================================
+1. VALIDATION DES IDENTIFIANTS
+================================================================================
+
+Toutes les entrées utilisateur (noms de tables, colonnes) sont validées
+avant d'être utilisées dans des requêtes SQL. Cela protège contre :
+    - Injections SQL (ex: "users; DROP TABLE--")
+    - Caractères invalides
+    - Noms trop longs
+
+Règles appliquées :
+    - Caractères autorisés : A-Z, a-z, 0-9, _
+    - Longueur max : 63 caractères (limite PostgreSQL)
+
+================================================================================
+2. TRANSFORMATION DE TYPES
+================================================================================
+
+L'API AMUE renvoie des types Oracle qu'il faut convertir en PostgreSQL :
+
+┌────────────────────┬────────────────────┬────────────────────────────────┐
+│ Type AMUE/Oracle   │ Type PostgreSQL    │ Notes                          │
+├────────────────────┼────────────────────┼────────────────────────────────┤
+│ VARCHAR2(50)       │ VARCHAR(50)        │ Chaîne variable                │
+│ NUMBER(10,2)       │ NUMERIC(10,2)      │ Nombre décimal                 │
+│ NUMBER(10)         │ NUMERIC(10)        │ Entier                         │
+│ CHAR(10)           │ BPCHAR(10)         │ Chaîne fixe (blank-padded)     │
+│ DATE               │ TIMESTAMP          │ Date+heure                     │
+│ CLOB               │ TEXT               │ Texte long                     │
+│ BLOB               │ BYTEA              │ Binaire                        │
+│ INTEGER(1)         │ SMALLINT           │ Petit entier                   │
+│ INTEGER(4)         │ INTEGER            │ Entier standard                │
+│ INTEGER(8)         │ BIGINT             │ Grand entier                   │
+└────────────────────┴────────────────────┴────────────────────────────────┘
+
+================================================================================
+3. FINGERPRINT (EMPREINTE DE STRUCTURE)
+================================================================================
+
+Le fingerprint est un hash MD5 qui capture la structure complète d'une table :
+    - Noms et types des colonnes
+    - Clés primaires
+
+Format interne : "COLUMNS:col1:TYPE,col2:TYPE|PRIMARY_KEYS:pk1,pk2"
+
+Utilisation :
+    - Détection des changements de structure entre deux imports
+    - En production : bloque l'import si structure modifiée
+    - Permet de savoir si une table doit être recréée
+
+================================================================================
+USAGE
+================================================================================
+
+    from amue.utils.transformers import (
+        validate_table_name,
+        parse_column_definition,
+        compute_structure_hash_with_pk
+    )
+
+    # Validation
+    safe_name = validate_table_name('CSKS')  # 'CSKS'
+    safe_col = validate_column_name('MY_COL')  # 'my_col'
+
+    # Transformation de type
+    pg_type = parse_column_definition('VARCHAR2(50)')  # 'VARCHAR(50)'
+
+    # Fingerprint
+    hash = compute_structure_hash_with_pk(columns, 'id,code')
+
+================================================================================
 """
 import hashlib
 import logging
