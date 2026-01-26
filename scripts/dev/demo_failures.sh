@@ -77,7 +77,7 @@ demo_missing_table() {
     print_step "Ajout d'une table fictive à la configuration..."
 
     # Créer une config avec une table inexistante
-    NEW_CONFIG='[{"name":"CSKS","primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"TABLE_INEXISTANTE","primary_key":"","delta":"","last_import":"","finger_print":""}]'
+    NEW_CONFIG='[{"name":"CSKS","enable":true,"primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"TABLE_INEXISTANTE","enable":true,"primary_key":"","delta":"","last_import":"","finger_print":""}]'
 
     docker exec airflow-apiserver airflow variables set amue_tables_to_import "$NEW_CONFIG"
 
@@ -188,7 +188,7 @@ restore_config() {
     print_step "Restauration de la configuration des tables..."
 
     # Config par défaut
-    DEFAULT_CONFIG='[{"name":"CSKS","primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"COVP","primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"CEPC","primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"EKET","primary_key":"","delta":"bedat","last_import":"","finger_print":""}]'
+    DEFAULT_CONFIG='[{"name":"CSKS","enable":true,"primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"COVP","enable":true,"primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"CEPC","enable":true,"primary_key":"","delta":"","last_import":"","finger_print":""},{"name":"EKET","enable":true,"primary_key":"","delta":"bedat","last_import":"","finger_print":""}]'
 
     docker exec airflow-apiserver airflow variables set amue_tables_to_import "$DEFAULT_CONFIG" 2>/dev/null || true
 

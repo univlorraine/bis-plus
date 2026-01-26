@@ -197,6 +197,7 @@ while true; do
         --arg delta "$TABLE_DELTA" \
         '. + [{
             name: $name,
+            enable: true,
             primary_key: "",
             delta: $delta,
             last_import: "",
@@ -206,121 +207,25 @@ done
 
 # Si aucune table, ajouter les tables par défaut
 if [[ "$TABLES_JSON" == "[]" ]]; then
-    log_info "Aucune table spécifiée, utilisation des tables par défaut (CSKS, COVP, CEPC, EKET)"
+    log_info "Aucune table spécifiée, utilisation des tables par défaut"
     TABLES_JSON='[
-        {
-    "name": "CSKS",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "COBK",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "COVP",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "CEPC",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "FMBDT",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "FMBH",
-    "primary_key": "",
-    "delta": "crtdate",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "FMMEASURE",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "FM01H",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "KNA1",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "KBLK",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "LFA1",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "LFB1",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "PRPS",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "PRPS_RH",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "SRGBTBREL",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "TFKB",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  }
-    ]'
+  {"name": "CSKS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "COBK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "COVP", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "CEPC", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "FMBDT", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "FMBH", "enable": true, "primary_key": "", "delta": "crtdate", "last_import": "", "finger_print": ""},
+  {"name": "FMMEASURE", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "FM01H", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "KNA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "KBLK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "LFA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "LFB1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "PRPS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "PRPS_RH", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "SRGBTBREL", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+  {"name": "TFKB", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""}
+]'
 fi
 
 echo ""

@@ -15,22 +15,9 @@
   "smtp_port": "1025",
   "smtp_mail_from": "airflow@amue-project.local",
   "amue_tables_to_import": [
-        {
-    "name": "CSKS",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
   {
-    "name": "COBK",
-    "primary_key": "",
-    "delta": "",
-    "last_import": "",
-    "finger_print": ""
-  },
-  {
-    "name": "COVP",
+    "name": "AGR_USERS",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -38,27 +25,39 @@
   },
   {
     "name": "CEPC",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
     "finger_print": ""
   },
   {
-    "name": "FMBDT",
+    "name": "COBK",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
     "finger_print": ""
   },
   {
-    "name": "FMBH",
+    "name": "COVP",
+    "enable": true,
     "primary_key": "",
-    "delta": "crtdate",
+    "delta": "",
     "last_import": "",
     "finger_print": ""
   },
   {
-    "name": "FMMEASURE",
+    "name": "CSKS",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "CSKU",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -66,13 +65,63 @@
   },
   {
     "name": "FM01H",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
     "finger_print": ""
   },
   {
-    "name": "KNA1",
+    "name": "FMBDT",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBH",
+    "enable": true,
+    "primary_key": "",
+    "delta": "crtdate",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMBL",
+    "enable": true,
+    "primary_key": "",
+    "delta": "crtdate",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMFCTR",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMFINCODE",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMHISV",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "FMMEASURE",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -80,6 +129,15 @@
   },
   {
     "name": "KBLK",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "KNA1",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -87,6 +145,7 @@
   },
   {
     "name": "LFA1",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -94,6 +153,39 @@
   },
   {
     "name": "LFB1",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PA0000",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PA0001",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PA0002",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "PA0105",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -101,6 +193,7 @@
   },
   {
     "name": "PRPS",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -108,6 +201,15 @@
   },
   {
     "name": "PRPS_RH",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "SOOD",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -115,6 +217,7 @@
   },
   {
     "name": "SRGBTBREL",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
@@ -122,12 +225,53 @@
   },
   {
     "name": "TFKB",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "TVARVC",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "UST04",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "UST10S",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "UST12",
+    "enable": true,
+    "primary_key": "",
+    "delta": "",
+    "last_import": "",
+    "finger_print": ""
+  },
+  {
+    "name": "ZSIFACTAFM",
+    "enable": true,
     "primary_key": "",
     "delta": "",
     "last_import": "",
     "finger_print": ""
   }
-    ],
+],
   "amue_last_successful_run": "",
   "last_import_report": "",
   "TYPE_MAPPING_SQLITE_TO_POSTGRES": {

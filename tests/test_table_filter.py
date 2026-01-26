@@ -353,3 +353,135 @@ class TestTableFilterLoadConfig:
         filter_obj = AMUETableFilter()
 
         assert filter_obj.tables_config == []
+
+
+class TestTableFilterEnableAttribute:
+    """Tests pour l'attribut 'enable' des tables"""
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_split_by_enable_all_enabled(self, mock_varmgr):
+        """Toutes les tables sont activées par défaut"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS'},  # enable non défini = True
+            {'name': 'PRKS', 'enable': True}
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+        enabled, disabled = filter_obj._split_by_enable_status()
+
+        assert len(enabled) == 2
+        assert len(disabled) == 0
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_split_by_enable_some_disabled(self, mock_varmgr):
+        """Tables avec enable=false sont dans la liste disabled"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS', 'enable': True},
+            {'name': 'PRKS', 'enable': False},
+            {'name': 'COST'}  # enable non défini = True
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+        enabled, disabled = filter_obj._split_by_enable_status()
+
+        assert len(enabled) == 2
+        assert len(disabled) == 1
+        assert disabled[0]['name'] == 'PRKS'
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_split_by_enable_string_values(self, mock_varmgr):
+        """Gestion des valeurs string pour enable"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS', 'enable': 'true'},
+            {'name': 'PRKS', 'enable': 'false'},
+            {'name': 'COST', 'enable': 'yes'},
+            {'name': 'BKPF', 'enable': '1'},
+            {'name': 'BSEG', 'enable': 'oui'}
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+        enabled, disabled = filter_obj._split_by_enable_status()
+
+        assert len(enabled) == 4  # CSKS, COST, BKPF, BSEG
+        assert len(disabled) == 1  # PRKS
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_filter_tables_ignores_disabled(self, mock_varmgr):
+        """filter_tables ignore les tables désactivées"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': '', 'last_import': ''},
+            {'name': 'PRKS', 'enable': False, 'primary_key': 'code', 'delta': '', 'last_import': ''},
+            {'name': 'COST', 'primary_key': 'id', 'delta': '', 'last_import': ''}
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+
+        current_status = {
+            'CSKS': {'status': 'OK', 'mode': 'FULL'},
+            'COST': {'status': 'OK', 'mode': 'FULL'}
+            # PRKS n'est pas dans le statut car désactivée
+        }
+
+        result = filter_obj.filter_tables(current_status)
+
+        # Seules CSKS et COST sont retournées (PRKS est désactivée)
+        assert len(result) == 2
+        table_names = [t['name'] for t in result]
+        assert 'CSKS' in table_names
+        assert 'COST' in table_names
+        assert 'PRKS' not in table_names
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_filter_tables_disabled_not_checked_in_status(self, mock_varmgr):
+        """Tables désactivées ne sont pas vérifiées dans le statut API"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': '', 'last_import': ''},
+            {'name': 'UNKNOWN', 'enable': False}  # Désactivée, ne devrait pas causer d'erreur
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+
+        current_status = {
+            'CSKS': {'status': 'OK', 'mode': 'FULL'}
+            # UNKNOWN n'existe pas mais c'est OK car désactivée
+        }
+
+        # Ne devrait pas lever d'exception
+        result = filter_obj.filter_tables(current_status)
+
+        assert len(result) == 1
+        assert result[0]['name'] == 'CSKS'
+
+    @patch('amue.operators.table_filter.NotificationService', None)
+    @patch('amue.operators.table_filter.VarMgr')
+    def test_filter_tables_all_disabled(self, mock_varmgr):
+        """Toutes les tables désactivées retourne liste vide"""
+        from amue.operators.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'CSKS', 'enable': False},
+            {'name': 'PRKS', 'enable': False}
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+
+        current_status = {}
+
+        result = filter_obj.filter_tables(current_status)
+
+        assert len(result) == 0

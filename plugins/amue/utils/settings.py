@@ -12,10 +12,10 @@ OBLIGATOIRES :
                                 Format: 2-50 caractères alphanumériques ou tirets
 
   api_endpoint_admin            Endpoint API admin avec placeholder $univ
-                                Ex: "/sifacweb/admin/$univ"
+                                Ex: "/sifacweb/admin/$univ/admin"
 
   api_endpoint_table            Endpoint API données avec placeholders $univ et $table
-                                Ex: "/sifacweb/data/$univ/$table"
+                                Ex: "/sifacweb/data/$univ/table"
 
 OPTIONNELLES (avec valeurs par défaut) :
 ----------------------------------------
@@ -25,7 +25,14 @@ OPTIONNELLES (avec valeurs par défaut) :
                                 Impact: En production, création de tables interdite
 
   amue_tables_to_import         Liste JSON des tables à importer
-                                Format: [{"name": "CSKS", "primary_key": "", ...}, ...]
+                                Format: [{"name": "CSKS", "enable": true, ...}, ...]
+                                Attributs par table:
+                                  - name: Nom de la table (obligatoire)
+                                  - enable: true/false pour activer/désactiver (défaut: true)
+                                  - primary_key: Clés primaires CSV pour UPSERT
+                                  - delta: Colonne de date pour import différentiel
+                                  - last_import: Date ISO du dernier import
+                                  - finger_print: Hash de structure (géré automatiquement)
 
   amue_api_max_retries          Nombre max de tentatives API en cas d'erreur
                                 Valeurs: 1-10

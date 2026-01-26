@@ -22,6 +22,17 @@ COMPORTEMENT FAIL-FAST :
     partiels qui pourraient créer des incohérences de données.
 
 ================================================================================
+ATTRIBUT 'ENABLE' (ACTIVATION/DÉSACTIVATION)
+================================================================================
+
+Chaque table peut avoir un attribut "enable" (booléen) :
+    - true (ou absent) : La table sera traitée
+    - false : La table est ignorée sans erreur
+
+Cela permet de désactiver temporairement une table sans la supprimer
+de la configuration (utile pour le debug ou la maintenance).
+
+================================================================================
 DÉTERMINATION DU TYPE D'IMPORT
 ================================================================================
 
@@ -44,6 +55,7 @@ Format JSON :
 [
     {
         "name": "CSKS",              # Nom de la table (obligatoire)
+        "enable": true,              # Activer/désactiver (défaut: true)
         "primary_key": "BUKRS,KOSTL", # Clés primaires pour UPSERT
         "delta": "AEDAT",            # Colonne de date de modification
         "last_import": "2024-01-15", # Date ISO du dernier import
@@ -142,24 +154,34 @@ class AMUETableFilter:
 
     def filter_tables(self, current_status: Dict) -> List[Dict]:
         """
-        Filtre les tables selon statut actuel
+        Filtre les tables selon statut actuel et attribut 'enable'
 
-        Vérifie que toutes les tables configurées existent dans le statut.
-        Si des tables sont manquantes, envoie une notification et arrête le traitement.
+        Étapes :
+            1. Filtre les tables désactivées (enable=false)
+            2. Vérifie que les tables ACTIVES existent dans le statut API
+            3. Enrichit et retourne les tables à traiter
 
         Args:
             current_status: Statut actuel de l'API (dict avec noms de tables en clés)
 
         Returns:
-            Liste des tables à traiter
+            Liste des tables à traiter (uniquement celles avec enable=true)
 
         Raises:
-            TableNotFoundError: Si des tables configurées sont absentes du statut
+            TableNotFoundError: Si des tables ACTIVES sont absentes du statut
         """
-        logger.info(f"[FILTER] Filtrage de {len(self.tables_config)} tables configurées")
+        # Sépare les tables actives des désactivées
+        enabled_tables, disabled_tables = self._split_by_enable_status()
 
-        # Vérification CRITIQUE: toutes les tables configurées doivent exister dans le statut
-        missing_tables = self._check_tables_exist_in_status(current_status)
+        logger.info(f"[FILTER] {len(self.tables_config)} tables configurées")
+        logger.info(f"[FILTER] {len(enabled_tables)} tables actives, {len(disabled_tables)} désactivées")
+
+        # Log des tables désactivées
+        for table in disabled_tables:
+            logger.info(f"[FILTER] {table.get('name', 'unknown')}: Désactivée (enable=false)")
+
+        # Vérification CRITIQUE: les tables ACTIVES doivent exister dans le statut
+        missing_tables = self._check_tables_exist_in_status(current_status, enabled_tables)
 
         if missing_tables:
             # Envoi de la notification d'erreur
@@ -168,14 +190,14 @@ class AMUETableFilter:
             # Lève une exception pour arrêter le DAG
             raise TableNotFoundError(
                 missing_tables=missing_tables,
-                configured_count=len(self.tables_config),
+                configured_count=len(enabled_tables),
                 found_count=len(current_status)
             )
 
-        # Si toutes les tables existent, on continue le filtrage normal
+        # Si toutes les tables actives existent, on continue le filtrage
         tables_to_process = []
 
-        for table_config in self.tables_config:
+        for table_config in enabled_tables:
             if not isinstance(table_config, dict) or 'name' not in table_config:
                 continue
 
@@ -197,19 +219,53 @@ class AMUETableFilter:
         logger.info(f"[FILTER] {len(tables_to_process)} tables à traiter")
         return tables_to_process
 
-    def _check_tables_exist_in_status(self, current_status: Dict) -> List[str]:
+    def _split_by_enable_status(self) -> tuple:
         """
-        Vérifie que toutes les tables configurées existent dans le statut API
+        Sépare les tables en deux listes selon leur attribut 'enable'
+
+        L'attribut 'enable' est True par défaut si non spécifié.
+
+        Returns:
+            Tuple (enabled_tables, disabled_tables)
+        """
+        enabled_tables = []
+        disabled_tables = []
+
+        for table_config in self.tables_config:
+            if not isinstance(table_config, dict):
+                continue
+
+            # Par défaut, enable=True si non spécifié
+            is_enabled = table_config.get('enable', True)
+
+            # Gère les différents formats de booléens
+            if isinstance(is_enabled, str):
+                is_enabled = is_enabled.lower() in ('true', '1', 'yes', 'oui')
+
+            if is_enabled:
+                enabled_tables.append(table_config)
+            else:
+                disabled_tables.append(table_config)
+
+        return enabled_tables, disabled_tables
+
+    def _check_tables_exist_in_status(self, current_status: Dict, tables_to_check: List[Dict] = None) -> List[str]:
+        """
+        Vérifie que les tables spécifiées existent dans le statut API
 
         Args:
             current_status: Statut actuel de l'API
+            tables_to_check: Liste des tables à vérifier (défaut: toutes)
 
         Returns:
             Liste des tables manquantes (vide si tout OK)
         """
         missing_tables = []
 
-        for table_config in self.tables_config:
+        # Utilise la liste fournie ou toutes les tables par défaut
+        tables = tables_to_check if tables_to_check is not None else self.tables_config
+
+        for table_config in tables:
             if not isinstance(table_config, dict) or 'name' not in table_config:
                 continue
 
@@ -329,6 +385,7 @@ class AMUETableFilter:
         """Charge la configuration des tables depuis les variables"""
         default_config = json.dumps([{
             "name": "CSKS",
+            "enable": True,
             "primary_key": "",
             "delta": "",
             "last_import": "",

@@ -114,6 +114,7 @@ PHASE 4 : FINALISATION
 - Jusqu'à 10 tables en parallèle
 - Pagination automatique des grands volumes
 - UPSERT si clé primaire définie
+- Activation/désactivation individuelle des tables (`enable`)
 
 ### Retry intelligent
 Stratégies adaptées selon le type d'erreur :
@@ -196,9 +197,12 @@ Stratégies adaptées selon le type d'erreur :
 
 ### Tables
 ```bash
-./manage.sh list-tables        # Liste les tables configurées
-./manage.sh add-table          # Ajoute une table
-./manage.sh remove-table <name># Supprime une table
+./manage.sh list-tables              # Liste les tables avec statut enable
+./manage.sh add-table [t1 t2..]      # Ajoute une ou plusieurs tables
+./manage.sh remove-table <t1 t2..>   # Supprime une ou plusieurs tables
+./manage.sh toggle-table <t1 t2..>   # Bascule enable d'une ou plusieurs tables
+./manage.sh enable-table <t1 t2..>   # Active une ou plusieurs tables
+./manage.sh disable-table <t1 t2..>  # Désactive une ou plusieurs tables
 ```
 
 ### Base de données
@@ -234,7 +238,11 @@ Stratégies adaptées selon le type d'erreur :
   "environment": "dev",
   "oauth_api_connection_id": "oauth_api",
   "universite": "ul",
-  "amue_tables_to_import": [...],
+  "amue_tables_to_import": [
+    {"name": "CSKS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+    {"name": "COVP", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
+    {"name": "EKET", "enable": false, "primary_key": "", "delta": "bedat", "last_import": "", "finger_print": ""}
+  ],
   "amue_import_batch_size": "5000",
   "amue_polling_interval_minutes": "10",
   "amue_max_wait_hours": "6",
@@ -244,6 +252,16 @@ Stratégies adaptées selon le type d'erreur :
   "amue_report_recipients": "admin@example.com"
 }
 ```
+
+**Attributs des tables :**
+| Attribut | Description |
+|----------|-------------|
+| `name` | Nom de la table (obligatoire) |
+| `enable` | Active/désactive la table (défaut: `true`) |
+| `primary_key` | Clés primaires pour UPSERT (ex: `"BUKRS,KOSTL"`) |
+| `delta` | Colonne de date pour import différentiel |
+| `last_import` | Date ISO du dernier import |
+| `finger_print` | Empreinte de structure (auto-générée) |
 
 ### Sécurité des credentials
 
