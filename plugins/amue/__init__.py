@@ -1,18 +1,25 @@
 from amue.hooks.amue_api_hook import AMUEAPIHook
-# Nouveau système de notifications
+# Systeme de notifications unifie
 from amue.notifications import (
     EmailService,
-    ErrorNotifier,
-    SuccessNotifier,
+    EmailConfig,
+    Email,
+    NotificationTemplates,
+    NotificationService,
+    NotificationType,
     send_failure_notification,
+    send_success_notification,
 )
-# Rétro-compatibilité avec l'ancien système
-from amue.notifications.notification_service import NotificationService, ErrorContext
 from amue.notifications.report_generator import AMUEReportGenerator
+# Operators - Import de donnees
 from amue.operators.data_importer import AMUEDataImporter
+from amue.operators.data_streamer import AMUEDataStreamer
+from amue.operators.batch_inserter import AMUEBatchInserter
+from amue.operators.duplicate_detector import DuplicateDetector
 from amue.operators.table_filter import AMUETableFilter
 from amue.operators.table_manager import AMUETableManager
 from amue.operators.table_verifier import AMUETableVerifier
+# Services
 from amue.services.metadata_manager import AMUEMetadataManager
 from amue.services.polling_service import AMUEPollingService
 from amue.services.retry_service import (
@@ -24,6 +31,7 @@ from amue.services.retry_service import (
     get_retry_service,
 )
 from amue.services.status_checker import AMUEStatusChecker
+# Utils
 from amue.utils.airflow_helpers import AirflowVariableManager
 from amue.utils.hooks import HookManager, create_postgres_hook, create_api_hook
 from amue.utils.settings import AMUEConfig, get_config, reload_config
@@ -51,19 +59,24 @@ __all__ = [
     "RetryResult",
     "ErrorCategory",
     "get_retry_service",
-    # Operators
+    # Operators - Import
+    "AMUEDataImporter",
+    "AMUEDataStreamer",
+    "AMUEBatchInserter",
+    "DuplicateDetector",
+    # Operators - Other
     "AMUETableFilter",
     "AMUETableVerifier",
     "AMUETableManager",
-    "AMUEDataImporter",
-    # Notifications (nouveau)
+    # Notifications
     "EmailService",
-    "ErrorNotifier",
-    "SuccessNotifier",
-    "send_failure_notification",
-    # Notifications (rétro-compatibilité)
+    "EmailConfig",
+    "Email",
+    "NotificationTemplates",
     "NotificationService",
-    "ErrorContext",
+    "NotificationType",
+    "send_failure_notification",
+    "send_success_notification",
     "AMUEReportGenerator",
     # Utils - Transformers
     "parse_column_definition",

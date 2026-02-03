@@ -14,7 +14,7 @@ class TestEmailConfig:
     """Tests pour EmailConfig"""
 
     def test_email_config_defaults(self):
-        """Valeurs par défaut de EmailConfig"""
+        """Valeurs par defaut de EmailConfig"""
         from amue.notifications.email_service import EmailConfig
 
         config = EmailConfig(
@@ -61,7 +61,7 @@ class TestEmail:
     """Tests pour Email dataclass"""
 
     def test_email_creation(self):
-        """Création d'un email"""
+        """Creation d'un email"""
         from amue.notifications.email_service import Email
 
         email = Email(
@@ -76,7 +76,7 @@ class TestEmail:
         assert email.text_content is None
 
     def test_email_with_text(self):
-        """Création d'un email avec texte"""
+        """Creation d'un email avec texte"""
         from amue.notifications.email_service import Email
 
         email = Email(
@@ -94,7 +94,7 @@ class TestEmailService:
 
     @patch('amue.notifications.email_service.VarMgr')
     def test_init_default_config(self, mock_varmgr):
-        """Initialisation avec config par défaut"""
+        """Initialisation avec config par defaut"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
 
         from amue.notifications.email_service import EmailService
@@ -105,7 +105,7 @@ class TestEmailService:
         assert service.config.port == 1025
 
     def test_init_custom_config(self):
-        """Initialisation avec config personnalisée"""
+        """Initialisation avec config personnalisee"""
         from amue.notifications.email_service import EmailService, EmailConfig
 
         config = EmailConfig(
@@ -121,7 +121,7 @@ class TestEmailService:
     @patch('amue.notifications.email_service.smtplib.SMTP')
     @patch('amue.notifications.email_service.VarMgr')
     def test_send_success(self, mock_varmgr, mock_smtp):
-        """Envoi réussi"""
+        """Envoi reussi"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
         mock_server = MagicMock()
         mock_smtp.return_value.__enter__.return_value = mock_server
@@ -143,7 +143,7 @@ class TestEmailService:
     @patch('amue.notifications.email_service.smtplib.SMTP')
     @patch('amue.notifications.email_service.VarMgr')
     def test_send_failure(self, mock_varmgr, mock_smtp):
-        """Envoi échoué retourne False"""
+        """Envoi echoue retourne False"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
         mock_smtp.side_effect = Exception("SMTP Error")
 
@@ -184,38 +184,34 @@ class TestEmailService:
 
 
 class TestNotificationService:
-    """Tests pour NotificationService"""
+    """Tests pour NotificationService (nouvelle architecture)"""
 
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_init(self, mock_varmgr):
+    @patch('amue.notifications.notifier.VarMgr')
+    @patch('amue.notifications.email_service.VarMgr')
+    def test_init(self, mock_email_varmgr, mock_notifier_varmgr):
         """Initialisation du service"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
             'amue_report_recipients': 'admin@example.com, user@example.com',
-            'smtp_host': 'mailhog',
-            'smtp_port': '1025',
-            'smtp_mail_from': 'airflow@amue.local'
         }.get(key, default)
+        mock_email_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.notification_service import NotificationService
+        from amue.notifications.notifier import NotificationService
 
         service = NotificationService()
 
         assert len(service.recipients) == 2
         assert 'admin@example.com' in service.recipients
-        assert service.smtp_host == 'mailhog'
-        assert service.smtp_port == 1025
 
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_load_recipients(self, mock_varmgr):
+    @patch('amue.notifications.notifier.VarMgr')
+    @patch('amue.notifications.email_service.VarMgr')
+    def test_load_recipients(self, mock_email_varmgr, mock_notifier_varmgr):
         """Charge les destinataires"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
             'amue_report_recipients': '  user1@test.com , user2@test.com  ',
-            'smtp_host': 'mailhog',
-            'smtp_port': '1025',
-            'smtp_mail_from': 'airflow@amue.local'
         }.get(key, default)
+        mock_email_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.notification_service import NotificationService
+        from amue.notifications.notifier import NotificationService
 
         service = NotificationService()
 
@@ -223,174 +219,155 @@ class TestNotificationService:
         assert 'user1@test.com' in service.recipients
         assert 'user2@test.com' in service.recipients
 
-    @patch('amue.notifications.notification_service.smtplib.SMTP')
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_send_error_notification(self, mock_varmgr, mock_smtp):
+    @patch('amue.notifications.notifier.VarMgr')
+    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.notifications.email_service.smtplib.SMTP')
+    def test_notify_error(self, mock_smtp, mock_email_varmgr, mock_notifier_varmgr):
         """Envoi notification d'erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
             'amue_report_recipients': 'admin@example.com',
-            'smtp_host': 'mailhog',
-            'smtp_port': '1025',
-            'smtp_mail_from': 'airflow@amue.local'
         }.get(key, default)
-        mock_varmgr.set.return_value = True
+        mock_notifier_varmgr.set.return_value = True
+        mock_email_varmgr.get.side_effect = lambda key, default=None: default
         mock_server = MagicMock()
         mock_smtp.return_value.__enter__.return_value = mock_server
 
-        from amue.notifications.notification_service import NotificationService, ErrorContext
+        from amue.notifications.notifier import NotificationService
 
         service = NotificationService()
 
-        error_context = ErrorContext(
-            execution_date='2024-01-15T10:30:00',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='Test error message',
-            error_type='TestError'
-        )
+        error_data = {
+            'dag_id': 'test_dag',
+            'task_id': 'test_task',
+            'error_message': 'Test error message',
+            'error_type': 'TestError'
+        }
 
-        service.send_error_notification(error_context)
+        result = service.notify_error(error_data)
 
+        assert result is True
         mock_server.sendmail.assert_called_once()
 
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_build_error_subject(self, mock_varmgr):
-        """Construction du sujet d'erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: default
+    @patch('amue.notifications.notifier.VarMgr')
+    @patch('amue.notifications.email_service.VarMgr')
+    def test_build_error_context(self, mock_email_varmgr, mock_notifier_varmgr):
+        """Construction du contexte d'erreur"""
+        mock_notifier_varmgr.get.side_effect = lambda key, default=None: default
+        mock_email_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.notification_service import NotificationService, ErrorContext
+        from amue.notifications.notifier import NotificationService
 
         service = NotificationService()
 
-        ctx = ErrorContext(
-            execution_date='2024-01-15',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='Error',
-            error_type='Error'
-        )
+        data = {
+            'dag_id': 'test_dag',
+            'task_id': 'test_task',
+            'error_message': 'Test error',
+            'error_type': 'TestError'
+        }
 
-        subject = service._build_error_subject(ctx)
+        context = service._build_error_context(data)
+
+        assert context['dag_id'] == 'test_dag'
+        assert context['task_id'] == 'test_task'
+        assert context['error_message'] == 'Test error'
+        assert context['error_type'] == 'TestError'
+        assert context['status'] == 'failed'
+
+    @patch('amue.notifications.notifier.VarMgr')
+    @patch('amue.notifications.email_service.VarMgr')
+    def test_build_error_subject(self, mock_email_varmgr, mock_notifier_varmgr):
+        """Construction du sujet d'erreur"""
+        mock_notifier_varmgr.get.side_effect = lambda key, default=None: default
+        mock_email_varmgr.get.side_effect = lambda key, default=None: default
+
+        from amue.notifications.notifier import NotificationService
+
+        service = NotificationService()
+
+        context = {
+            'dag_id': 'test_dag',
+            'task_id': 'test_task'
+        }
+
+        subject = service._build_error_subject(context)
 
         assert '[ERREUR]' in subject
         assert 'test_dag' in subject
 
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_build_error_html(self, mock_varmgr):
-        """Construction du HTML d'erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.notification_service import NotificationService, ErrorContext
+class TestNotificationTemplates:
+    """Tests pour NotificationTemplates"""
 
-        service = NotificationService()
-
-        ctx = ErrorContext(
-            execution_date='2024-01-15',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='Test error message',
-            error_type='TestError',
-            status='failed'
-        )
-
-        html = service._build_error_html(ctx)
-
-        assert 'test_dag' in html
-        assert 'test_task' in html
-        assert 'Test error message' in html
-        assert 'TestError' in html
-        assert 'FAILED' in html
-
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_escape_html(self, mock_varmgr):
-        """Échappement HTML"""
-        mock_varmgr.get.side_effect = lambda key, default=None: default
-
-        from amue.notifications.notification_service import NotificationService
-
-        service = NotificationService()
+    def test_escape_html(self):
+        """Echappement HTML"""
+        from amue.notifications.templates import NotificationTemplates
 
         text = '<script>alert("XSS")</script>'
-        escaped = service._escape_html(text)
+        escaped = NotificationTemplates.escape_html(text)
 
         assert '<' not in escaped
         assert '>' not in escaped
         assert '&lt;' in escaped
         assert '&gt;' in escaped
 
-    @patch('amue.notifications.notification_service.VarMgr')
-    def test_save_error_report(self, mock_varmgr):
-        """Sauvegarde du rapport d'erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: default
-        mock_varmgr.set.return_value = True
+    def test_render_error(self):
+        """Rendu du template d'erreur"""
+        from amue.notifications.templates import NotificationTemplates
 
-        from amue.notifications.notification_service import NotificationService, ErrorContext
+        context = {
+            'title': 'Erreur Test',
+            'subtitle': '2024-01-15',
+            'dag_id': 'test_dag',
+            'task_id': 'test_task',
+            'error_message': 'Test error message',
+            'error_type': 'TestError',
+            'status': 'failed'
+        }
 
-        service = NotificationService()
+        html = NotificationTemplates.render_error(context)
 
-        ctx = ErrorContext(
-            execution_date='2024-01-15',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='Error',
-            error_type='Error'
-        )
+        assert 'test_dag' in html
+        assert 'test_task' in html
+        assert 'Test error message' in html
+        assert 'TestError' in html
+        assert 'failed' in html
 
-        service._save_error_report(ctx)
+    def test_render_success(self):
+        """Rendu du template de succes"""
+        from amue.notifications.templates import NotificationTemplates
 
-        mock_varmgr.set.assert_called_once()
-        call_args = mock_varmgr.set.call_args[0]
-        assert call_args[0] == 'last_import_report'
+        context = {
+            'title': 'Import Reussi',
+            'subtitle': '2024-01-15',
+            'dag_id': 'test_dag',
+            'execution_date': '2024-01-15',
+            'duration': '5m 30s',
+            'tables_imported': [
+                {'table_name': 'TABLE1', 'rows_fetched': 100, 'rows_inserted': 100, 'status': 'success'}
+            ],
+            'total_rows': 100,
+            'total_fetched': 100
+        }
 
+        html = NotificationTemplates.render_success(context)
 
-class TestErrorContext:
-    """Tests pour ErrorContext dataclass"""
-
-    def test_error_context_creation(self):
-        """Création d'un contexte d'erreur"""
-        from amue.notifications.notification_service import ErrorContext
-
-        ctx = ErrorContext(
-            execution_date='2024-01-15T10:30:00',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='An error occurred',
-            error_type='ValueError'
-        )
-
-        assert ctx.execution_date == '2024-01-15T10:30:00'
-        assert ctx.dag_id == 'test_dag'
-        assert ctx.task_id == 'test_task'
-        assert ctx.error_message == 'An error occurred'
-        assert ctx.error_type == 'ValueError'
-        assert ctx.status == 'failed'  # Default
-
-    def test_error_context_custom_status(self):
-        """Contexte d'erreur avec statut personnalisé"""
-        from amue.notifications.notification_service import ErrorContext
-
-        ctx = ErrorContext(
-            execution_date='2024-01-15',
-            dag_id='test_dag',
-            task_id='test_task',
-            error_message='Error',
-            error_type='Error',
-            status='retrying'
-        )
-
-        assert ctx.status == 'retrying'
+        assert 'test_dag' in html
+        assert 'TABLE1' in html
+        assert '100' in html
 
 
 class TestSendFailureNotification:
     """Tests pour la fonction callback send_failure_notification"""
 
-    @patch('amue.notifications.notification_service.NotificationService')
+    @patch('amue.notifications.notifier.NotificationService')
     def test_send_failure_notification_with_exception(self, mock_service_class):
         """Callback avec exception"""
         mock_service = MagicMock()
+        mock_service.notify_error.return_value = True
         mock_service_class.return_value = mock_service
 
-        from amue.notifications.notification_service import send_failure_notification
+        from amue.notifications.callbacks import send_failure_notification
 
         task_instance = MagicMock()
         task_instance.dag_id = 'test_dag'
@@ -403,15 +380,15 @@ class TestSendFailureNotification:
 
         send_failure_notification(context)
 
-        mock_service.send_error_notification.assert_called_once()
+        mock_service.notify_error.assert_called_once()
 
-    @patch('amue.notifications.notification_service.NotificationService')
+    @patch('amue.notifications.notifier.NotificationService')
     def test_send_failure_notification_no_exception(self, mock_service_class):
-        """Callback sans exception - notification ignorée"""
+        """Callback sans exception - notification ignoree"""
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service
 
-        from amue.notifications.notification_service import send_failure_notification
+        from amue.notifications.callbacks import send_failure_notification
 
         context = {
             'task_instance': MagicMock(),
@@ -420,4 +397,4 @@ class TestSendFailureNotification:
 
         send_failure_notification(context)
 
-        mock_service.send_error_notification.assert_not_called()
+        mock_service.notify_error.assert_not_called()

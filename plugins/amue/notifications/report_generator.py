@@ -81,7 +81,7 @@ from datetime import datetime
 from typing import List, Dict
 
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.notifications.notifiers.success_notifier import SuccessNotifier
+from amue.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class AMUEReportGenerator:
 
     def __init__(self):
         """Initialise le générateur de rapports"""
-        self.notifier = SuccessNotifier()
+        self.notification_service = NotificationService()
 
     def generate_report(self, import_results: List[Dict], polling_result: Dict) -> Dict:
         """
@@ -185,7 +185,7 @@ class AMUEReportGenerator:
         """
         logger.info("[REPORT] Envoi notification email")
 
-        # Prépare les données pour le notifier
+        # Prépare les données pour le service de notification
         notification_data = {
             'dag_id': 'amue_multi_table_import',
             'execution_date': report.get('execution_date', datetime.now().isoformat()),
@@ -195,7 +195,7 @@ class AMUEReportGenerator:
             'total_fetched': report.get('total_fetched', 0)
         }
 
-        success = self.notifier.notify(notification_data)
+        success = self.notification_service.notify_success(notification_data)
 
         if success:
             logger.info("[REPORT] Email envoyé avec succès")

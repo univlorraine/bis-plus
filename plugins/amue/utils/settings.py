@@ -89,6 +89,7 @@ VARIABLES INTERNES (gérées automatiquement) :
 """
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -261,20 +262,25 @@ class AMUEConfig:
         return self.environment.lower() in ('dev', 'development')
 
 
-# Instance globale (lazy loading)
+# Instance globale (lazy loading avec thread-safety)
 _config: Optional[AMUEConfig] = None
+_config_lock = threading.Lock()
 
 
 def get_config() -> AMUEConfig:
-    """Récupère la configuration globale (singleton)"""
+    """Récupère la configuration globale (singleton thread-safe)"""
     global _config
     if _config is None:
-        _config = AMUEConfig.from_airflow_variables()
+        with _config_lock:
+            # Double-check locking pattern
+            if _config is None:
+                _config = AMUEConfig.from_airflow_variables()
     return _config
 
 
 def reload_config() -> AMUEConfig:
-    """Force le rechargement de la configuration depuis Airflow"""
+    """Force le rechargement de la configuration depuis Airflow (thread-safe)"""
     global _config
-    _config = AMUEConfig.from_airflow_variables()
+    with _config_lock:
+        _config = AMUEConfig.from_airflow_variables()
     return _config

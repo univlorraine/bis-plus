@@ -88,6 +88,7 @@ USAGE
 """
 import logging
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -446,24 +447,29 @@ class RetryService:
         }
 
 
-# Instance singleton pour utilisation globale
+# Instance singleton pour utilisation globale (thread-safe)
 _default_service: Optional[RetryService] = None
+_service_lock = threading.Lock()
 
 
 def get_retry_service() -> RetryService:
     """
-    Retourne l'instance singleton du service de retry
+    Retourne l'instance singleton du service de retry (thread-safe)
 
     Returns:
         Instance de RetryService
     """
     global _default_service
     if _default_service is None:
-        _default_service = RetryService()
+        with _service_lock:
+            # Double-check locking pattern
+            if _default_service is None:
+                _default_service = RetryService()
     return _default_service
 
 
 def reset_retry_service() -> None:
-    """Réinitialise le service singleton (utile pour les tests)"""
+    """Réinitialise le service singleton (utile pour les tests, thread-safe)"""
     global _default_service
-    _default_service = None
+    with _service_lock:
+        _default_service = None

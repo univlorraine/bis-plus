@@ -72,7 +72,7 @@ from datetime import datetime
 from typing import Dict, List
 
 from airflow.exceptions import AirflowException
-from amue.notifications.notification_service import NotificationService, ErrorContext, send_failure_notification
+from amue.notifications import NotificationService, send_failure_notification
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
@@ -292,7 +292,7 @@ class AMUETableFilter:
         error_message = self._build_missing_tables_error_message(missing_tables, current_status)
 
         # Si NotificationService n'est pas disponible, utiliser le fallback
-        if self.notification_service is None or ErrorContext is None:
+        if self.notification_service is None:
             logger.warning("NotificationService non disponible, utilisation du fallback")
             logger.error(error_message)
 
@@ -315,19 +315,18 @@ class AMUETableFilter:
                 logger.warning(f"[{type(e).__name__}] Impossible d'envoyer la notification: {str(e)}")
             return
 
-        # Contexte d'erreur
-        error_context = ErrorContext(
-            execution_date=datetime.now().isoformat(),
-            dag_id='amue_multi_table_import',
-            task_id='filter_tables_to_process',
-            error_message=error_message,
-            error_type='TableNotFoundError',
-            status='failed'
-        )
+        # Donnees d'erreur pour le nouveau service de notification
+        error_data = {
+            'dag_id': 'amue_multi_table_import',
+            'task_id': 'filter_tables_to_process',
+            'error_message': error_message,
+            'error_type': 'TableNotFoundError',
+            'execution_date': datetime.now().isoformat()
+        }
 
         # Envoi de la notification
         try:
-            self.notification_service.send_error_notification(error_context)
+            self.notification_service.notify_error(error_data)
             logger.info("[FILTER] Notification envoyée avec succès")
         except Exception as e:
             logger.warning(f"[{type(e).__name__}] Échec envoi notification: {str(e)}")
