@@ -107,8 +107,9 @@ class AMUEMetadataManager:
         """Initialise le gestionnaire de métadonnées"""
         self.tables_var_name = 'amue_tables_to_import'
         self.last_success_var_name = 'amue_last_successful_run'
+        self.last_finish_var_name = 'amue_last_finish_timestamp'
 
-    def update_metadata(self, import_results: List[Dict]) -> None:
+    def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None) -> None:
         """
         Met à jour les métadonnées après des imports réussis
 
@@ -118,12 +119,17 @@ class AMUEMetadataManager:
 
         Args:
             import_results: Liste des résultats d'import
+            finish_timestamp: Timestamp finish de l'API (pour le polling)
 
         Raises:
             AirflowException: Si mise à jour échoue après tous les retries
         """
         logger.info("Début mise à jour des métadonnées")
         logger.info(f"{len(import_results)} résultats à traiter")
+
+        # Sauvegarde le finish timestamp pour le prochain polling
+        if finish_timestamp:
+            self._save_finish_timestamp(finish_timestamp)
 
         if not import_results:
             logger.info("Aucun résultat à traiter")
@@ -249,16 +255,10 @@ class AMUEMetadataManager:
                 table['finger_print'] = new_fingerprint
                 table['last_import'] = datetime.now().isoformat()
 
-                # Mise à jour des clés primaires si récupérées
-                if result.get('primary_keys'):
-                    old_pk = table.get('primary_key', 'none')
-                    new_pk = result['primary_keys']
-
-                    if old_pk != new_pk:
-                        logger.info(f"{table_name}: Mise à jour clés primaires")
-                        logger.info(f"  Ancien: {old_pk}")
-                        logger.info(f"  Nouveau: {new_pk}")
-                        table['primary_key'] = new_pk
+                # Mise à jour des clés primaires uniquement si pas déjà définies
+                if result.get('primary_keys') and not table.get('primary_key'):
+                    table['primary_key'] = result['primary_keys']
+                    logger.info(f"{table_name}: Clés primaires initialisées: {result['primary_keys']}")
 
                 fp_old_short = old_fingerprint[:8] if old_fingerprint else 'none'
                 fp_new_short = new_fingerprint[:8] if new_fingerprint else 'none'
@@ -301,6 +301,28 @@ class AMUEMetadataManager:
             logger.info(f"Dernier succès: {success_date}")
         else:
             logger.warning("Impossible de sauvegarder la date du dernier succès")
+
+    def _save_finish_timestamp(self, finish_timestamp: str) -> None:
+        """
+        Sauvegarde le timestamp finish de l'API.
+
+        Ce timestamp est utilisé par le polling pour détecter si de nouvelles
+        données sont disponibles. Si le timestamp est identique au précédent,
+        l'import est ignoré.
+
+        Args:
+            finish_timestamp: Valeur du timestamp finish retourné par l'API
+        """
+        old_timestamp = VarMgr.get(self.last_finish_var_name, default='')
+
+        success = VarMgr.set(self.last_finish_var_name, finish_timestamp)
+        if success:
+            if old_timestamp:
+                logger.info(f"Finish timestamp mis à jour: {old_timestamp} -> {finish_timestamp}")
+            else:
+                logger.info(f"Finish timestamp enregistré: {finish_timestamp}")
+        else:
+            logger.warning(f"Impossible de sauvegarder le finish timestamp: {finish_timestamp}")
 
     def get_last_success_date(self) -> Optional[datetime]:
         """

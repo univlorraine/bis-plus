@@ -58,13 +58,16 @@ Connexion PostgreSQL :
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
+from amue.exceptions import AMUESchemaError, AMUETableNotFoundError, AMUEDatabaseError
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.hooks import create_postgres_hook
+from amue.utils.schema_utils import SchemaQualifier
+from amue.services.view_switcher import ViewSwitcher
 
 logger = logging.getLogger(__name__)
 
@@ -88,21 +91,120 @@ class AMUETableManager:
     - En production : Aucune création de table (lecture seule)
     - En développement : Création automatique si table absente
     - Validation systématique de la structure avant opération
+    - Support blue/green : création dans le schéma cible spécifié
     """
 
-    def __init__(self, postgres_hook: PostgresHook = None):
+    def __init__(self, postgres_hook: PostgresHook = None, target_schema: Optional[str] = None):
         """
         Initialise le gestionnaire de tables
 
         Args:
             postgres_hook: Hook PostgreSQL personnalisé (optionnel)
+            target_schema: Schéma cible pour blue/green (ex: 'splus_blue')
+                          Si None, utilise le schéma par défaut 'splus'
         """
+        self._schema_qualifier = SchemaQualifier(target_schema)
         self.postgres_hook = postgres_hook or self._create_default_hook()
         self.environment = VarMgr.get('environment', default='production')
+        self.default_source = VarMgr.get('amue_default_source', default='sifac_plus')
+        # ViewSwitcher pour créer les vues dans splus (uniquement en mode blue/green)
+        self.view_switcher = ViewSwitcher(self.postgres_hook) if target_schema else None
+
+    @property
+    def target_schema(self) -> Optional[str]:
+        """Retourne le schéma cible."""
+        return self._schema_qualifier.target_schema
+
+    @target_schema.setter
+    def target_schema(self, value: Optional[str]) -> None:
+        """Définit le schéma cible."""
+        self._schema_qualifier.target_schema = value
 
     def _create_default_hook(self) -> PostgresHook:
-        """Crée le hook PostgreSQL par défaut via factory"""
+        """Crée le hook PostgreSQL par défaut via factory."""
+        if self._schema_qualifier.target_schema:
+            return create_postgres_hook(bluegreen_schema=self._schema_qualifier.target_schema)
         return create_postgres_hook()
+
+    def _ensure_view_exists(self, table_name: str) -> None:
+        """
+        S'assure que la vue existe dans le schéma splus (mode blue/green uniquement).
+
+        En mode blue/green, chaque table dans splus_blue/splus_green doit avoir
+        une vue correspondante dans splus. Cette méthode crée la vue si elle
+        n'existe pas.
+
+        Args:
+            table_name: Nom de la table
+        """
+        if not self.view_switcher or not self.target_schema:
+            # Pas en mode blue/green, pas de vue à créer
+            return
+
+        table_name_lower = table_name.lower()
+
+        # Vérifie si la vue existe déjà
+        query = """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.views
+                WHERE table_schema = 'splus'
+                  AND table_name = %s
+            )
+        """
+        result = self.postgres_hook.get_first(query, parameters=(table_name_lower,))
+        view_exists = result[0] if result else False
+
+        if view_exists:
+            logger.debug(f"[TABLE_MGT] Vue splus.{table_name_lower} existe déjà")
+            return
+
+        # Crée la vue
+        logger.info(f"[TABLE_MGT] Création vue splus.{table_name_lower} -> {self.target_schema}.{table_name_lower}")
+        success = self.view_switcher.create_view_for_table(table_name_lower, self.target_schema)
+
+        if success:
+            logger.info(f"[TABLE_MGT] Vue splus.{table_name_lower} créée avec succès")
+        else:
+            logger.warning(f"[TABLE_MGT] Échec création vue splus.{table_name_lower}")
+
+    def _get_qualified_table_name(self, table_name: str) -> str:
+        """
+        Retourne le nom de table qualifié avec le schéma.
+
+        Args:
+            table_name: Nom de la table
+
+        Returns:
+            Nom qualifié (ex: 'splus_blue.csks' ou 'csks' si pas de target_schema)
+        """
+        return self._schema_qualifier.qualify(table_name)
+
+    def ensure_meta_columns(self, table_name: str) -> None:
+        """
+        S'assure que les meta colonnes _source et _imported_at existent.
+
+        Cette méthode ajoute les colonnes si elles n'existent pas déjà,
+        permettant ainsi la migration des tables existantes.
+
+        Args:
+            table_name: Nom de la table à mettre à jour
+        """
+        qualified_name = self._get_qualified_table_name(table_name)
+        logger.info(f"[TABLE_MGT] Vérification meta colonnes pour {qualified_name}")
+
+        sql = f"""
+            ALTER TABLE {qualified_name}
+            ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT '{self.default_source}';
+
+            ALTER TABLE {qualified_name}
+            ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        """
+
+        try:
+            self.postgres_hook.run(sql)
+            logger.info(f"[TABLE_MGT] Meta colonnes OK pour {qualified_name}")
+        except Exception as e:
+            logger.warning(f"[TABLE_MGT] Erreur ajout meta colonnes pour {qualified_name}: {e}")
 
     def manage_table(self, structure_info: Dict) -> Dict:
         """
@@ -138,19 +240,21 @@ class AMUETableManager:
         Valide la complétude des informations de structure
 
         Raises:
-            AirflowException: Si structure invalide
+            AMUESchemaError: Si structure invalide
         """
         required_fields = ['table_name', 'columns', 'primary_keys', 'exists']
         missing = [f for f in required_fields if f not in structure_info]
 
         if missing:
-            raise AirflowException(
-                f"Structure invalide pour table. Champs manquants: {missing}"
+            raise AMUESchemaError(
+                f"Structure invalide pour table. Champs manquants: {missing}",
+                table_name=structure_info.get('table_name', 'unknown')
             )
 
         if not structure_info['columns']:
-            raise AirflowException(
-                f"Table {structure_info['table_name']}: aucune colonne définie"
+            raise AMUESchemaError(
+                f"Table {structure_info['table_name']}: aucune colonne définie",
+                table_name=structure_info['table_name']
             )
 
     def _handle_production_table(self, structure_info: Dict, exists: bool) -> Dict:
@@ -158,24 +262,39 @@ class AMUETableManager:
         Gère une table en environnement de production
 
         En production, on refuse catégoriquement toute création.
+        L'ajout de meta colonnes est autorisé (opération non destructive).
         """
+        table_name = structure_info['table_name'].lower()
+        qualified_name = self._get_qualified_table_name(table_name)
+
         if not exists:
-            table_name = structure_info['table_name']
-            raise AirflowException(
-                f"[PRODUCTION] Table {table_name} inexistante. "
-                "Création interdite en production. Créez la table manuellement."
+            raise AMUETableNotFoundError(
+                f"[PRODUCTION] Table {qualified_name} inexistante. "
+                "Création interdite en production. Créez la table manuellement.",
+                table_name=table_name
             )
 
-        logger.info(f"[PRODUCTION] Utilisation table existante")
+        logger.info(f"[PRODUCTION] Utilisation table existante: {qualified_name}")
+        # S'assure que les meta colonnes existent (ADD COLUMN IF NOT EXISTS est safe)
+        self.ensure_meta_columns(table_name)
+        # S'assure que la vue existe dans splus (mode blue/green)
+        self._ensure_view_exists(table_name)
         return self._build_existing_table_result(structure_info)
 
     def _handle_dev_table(self, structure_info: Dict, exists: bool) -> Dict:
         """Gère une table en environnement de développement"""
+        table_name = structure_info['table_name'].lower()
+        qualified_name = self._get_qualified_table_name(table_name)
+
         if exists:
-            logger.info(f"[DEV] Utilisation table existante")
+            logger.info(f"[DEV] Utilisation table existante: {qualified_name}")
+            # S'assure que les meta colonnes existent
+            self.ensure_meta_columns(table_name)
+            # S'assure que la vue existe dans splus (mode blue/green)
+            self._ensure_view_exists(table_name)
             return self._build_existing_table_result(structure_info)
 
-        logger.info(f"[DEV] Création de la table")
+        logger.info(f"[DEV] Création de la table: {qualified_name}")
         return self._create_table(structure_info)
 
     def _build_existing_table_result(self, structure_info: Dict) -> Dict:
@@ -209,21 +328,25 @@ class AMUETableManager:
             AirflowException: Si création échoue
         """
         table_name = structure_info['table_name'].lower()
+        qualified_name = self._get_qualified_table_name(table_name)
         columns = structure_info['columns']
         primary_keys_str = structure_info['primary_keys']
 
         try:
-            # Génère le DDL
+            # Génère le DDL avec le nom qualifié
             create_sql = self._build_create_table_sql(
-                table_name,
+                qualified_name,
                 columns,
                 primary_keys_str
             )
 
             # Exécute la création
-            logger.info(f"[DEV] Exécution CREATE TABLE {table_name}")
+            logger.info(f"[DEV] Exécution CREATE TABLE {qualified_name}")
             self.postgres_hook.run(create_sql)
-            logger.info(f"[DEV] Table {table_name} créée avec succès")
+            logger.info(f"[DEV] Table {qualified_name} créée avec succès")
+
+            # S'assure que la vue existe dans splus (mode blue/green)
+            self._ensure_view_exists(table_name)
 
             # Construit le résultat
             result = TableManagementResult(
@@ -239,11 +362,11 @@ class AMUETableManager:
         except (DatabaseError, IntegrityError, ProgrammingError) as e:
             error_msg = f"Échec création table {table_name} (erreur SQL): {str(e)}"
             logger.error(f"[ERROR] {error_msg}")
-            raise AirflowException(error_msg) from e
+            raise AMUEDatabaseError(error_msg, table_name=table_name) from e
         except ValueError as e:
             error_msg = f"Échec création table {table_name} (paramètres invalides): {str(e)}"
             logger.error(f"[ERROR] {error_msg}")
-            raise AirflowException(error_msg) from e
+            raise AMUESchemaError(error_msg, table_name=table_name) from e
 
     def _build_create_table_sql(
             self,
@@ -267,6 +390,10 @@ class AMUETableManager:
             f"{col['name'].lower()} {col['type_postgres']}"
             for col in columns
         ]
+
+        # Ajout des meta colonnes pour le traçage
+        column_defs.append(f"_source VARCHAR(50) DEFAULT '{self.default_source}'")
+        column_defs.append("_imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
 
         # Contrainte de clé primaire
         pk_constraint = self._build_primary_key_constraint(primary_keys_str)

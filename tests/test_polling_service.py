@@ -248,17 +248,26 @@ class TestPollingServiceElapsedTime:
 
 
 class TestPollingServiceWaitForReady:
-    """Tests pour wait_for_ready"""
+    """Tests pour wait_for_ready (utilise fetch_full_status)"""
 
     @patch('amue.services.polling_service.time.sleep')
     @patch('amue.services.polling_service.VarMgr')
     def test_wait_for_ready_immediate_success(self, mock_varmgr, mock_sleep):
-        """API prête immédiatement"""
+        """API prête immédiatement (première exécution ou nouveau timestamp)"""
+        # Simule une première exécution (pas de timestamp précédent)
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_last_finish_timestamp': '',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
         from amue.services.polling_service import AMUEPollingService, PollingConfig
 
         mock_status_checker = MagicMock()
-        mock_status_checker.check_status_code.return_value = 200
-        mock_status_checker.check_finish_status.return_value = '2024-01-15T10:00:00'
+        mock_status_checker.fetch_full_status.return_value = {
+            'http_status': 200,
+            'finish': '2024-01-15T10:00:00',
+            'tables_status': {'CSKS': {'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}}
+        }
 
         config = PollingConfig(interval_minutes=10, max_wait_hours=1)
         service = AMUEPollingService(mock_status_checker, config=config)
@@ -269,18 +278,33 @@ class TestPollingServiceWaitForReady:
         assert result['status'] == 'success'
         assert result['attempts'] == 1
         assert result['finish'] == '2024-01-15T10:00:00'
+        # Vérifie que tables_status est inclus dans le résultat
+        assert 'tables_status' in result
+        assert 'CSKS' in result['tables_status']
         mock_sleep.assert_not_called()
+        # Un seul appel à fetch_full_status (au lieu de 2 appels séparés)
+        mock_status_checker.fetch_full_status.assert_called_once()
 
     @patch('amue.services.polling_service.time.sleep')
     @patch('amue.services.polling_service.VarMgr')
     def test_wait_for_ready_after_retries(self, mock_varmgr, mock_sleep):
         """API prête après plusieurs tentatives"""
+        # Simule première exécution
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_last_finish_timestamp': '',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
         from amue.services.polling_service import AMUEPollingService, PollingConfig
 
         mock_status_checker = MagicMock()
         # Première tentative: 503, deuxième: 200 sans finish, troisième: 200 avec finish
-        mock_status_checker.check_status_code.side_effect = [503, 200, 200]
-        mock_status_checker.check_finish_status.side_effect = [None, '2024-01-15T10:00:00']
+        mock_status_checker.fetch_full_status.side_effect = [
+            {'http_status': 503, 'finish': None, 'tables_status': {}},
+            {'http_status': 200, 'finish': None, 'tables_status': {}},
+            {'http_status': 200, 'finish': '2024-01-15T10:00:00',
+             'tables_status': {'CSKS': {'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}}}
+        ]
 
         config = PollingConfig(interval_minutes=1, max_wait_hours=1)  # Intervalle court pour les tests
         service = AMUEPollingService(mock_status_checker, config=config)
@@ -290,16 +314,27 @@ class TestPollingServiceWaitForReady:
         assert result['ready'] is True
         assert result['attempts'] == 3
         assert mock_sleep.call_count == 2  # Deux attentes entre les tentatives
+        # 3 appels à fetch_full_status (un par tentative)
+        assert mock_status_checker.fetch_full_status.call_count == 3
 
     @patch('amue.services.polling_service.time.sleep')
     @patch('amue.services.polling_service.VarMgr')
     def test_wait_for_ready_critical_error(self, mock_varmgr, mock_sleep):
         """Erreur critique arrête le polling"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_last_finish_timestamp': '',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
         from amue.services.polling_service import AMUEPollingService, PollingConfig
         from airflow.exceptions import AirflowException
 
         mock_status_checker = MagicMock()
-        mock_status_checker.check_status_code.return_value = 401  # Erreur critique
+        mock_status_checker.fetch_full_status.return_value = {
+            'http_status': 401,  # Erreur critique
+            'finish': None,
+            'tables_status': {}
+        }
 
         config = PollingConfig(interval_minutes=10, max_wait_hours=1)
         service = AMUEPollingService(mock_status_checker, config=config)
@@ -311,12 +346,20 @@ class TestPollingServiceWaitForReady:
     @patch('amue.services.polling_service.VarMgr')
     def test_wait_for_ready_timeout(self, mock_varmgr, mock_sleep):
         """Timeout après max_wait_hours"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_last_finish_timestamp': '',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
         from amue.services.polling_service import AMUEPollingService, PollingConfig
         from airflow.exceptions import AirflowException
 
         mock_status_checker = MagicMock()
-        mock_status_checker.check_status_code.return_value = 200
-        mock_status_checker.check_finish_status.return_value = None  # Jamais prêt
+        mock_status_checker.fetch_full_status.return_value = {
+            'http_status': 200,
+            'finish': None,  # Jamais prêt
+            'tables_status': {}
+        }
 
         # Config avec intervalle de 30min et max 1h = 2 tentatives max
         config = PollingConfig(interval_minutes=30, max_wait_hours=1)
@@ -364,6 +407,211 @@ class TestPollingResult:
         assert result.ready is False
         assert result.status == 'timeout'
         assert result.error == 'Timeout après 6 heures'
+
+    def test_polling_result_no_skip_fields(self):
+        """PollingResult n'a plus de champs skip_import/skip_reason"""
+        from amue.services.polling_service import PollingResult
+
+        result = PollingResult(
+            ready=True,
+            attempts=1,
+            total_wait_minutes=0.5,
+            status='success',
+            last_status_code=200
+        )
+
+        assert not hasattr(result, 'skip_import')
+        assert not hasattr(result, 'skip_reason')
+
+
+class TestPollingServiceSkipImport:
+    """Tests pour la détection de skip (même timestamp finish)"""
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_should_skip_import_same_timestamp(self, mock_varmgr):
+        """Skip si même timestamp finish"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '2024-01-15T10:00:00',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        service = AMUEPollingService(mock_status_checker)
+
+        assert service._should_skip_import('2024-01-15T10:00:00') is True
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_should_not_skip_import_different_timestamp(self, mock_varmgr):
+        """Ne skip pas si timestamp différent"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '2024-01-15T10:00:00',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        service = AMUEPollingService(mock_status_checker)
+
+        assert service._should_skip_import('2024-01-16T10:00:00') is False
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_should_not_skip_import_no_previous(self, mock_varmgr):
+        """Ne skip pas si pas de timestamp précédent (première exécution)"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        service = AMUEPollingService(mock_status_checker)
+
+        assert service._should_skip_import('2024-01-15T10:00:00') is False
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_should_not_skip_import_force_enabled(self, mock_varmgr):
+        """Ne skip jamais si force_import activé"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '2024-01-15T10:00:00',
+            'amue_force_import': 'true'  # Force activé
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        service = AMUEPollingService(mock_status_checker)
+
+        # Même timestamp mais force_import=true -> pas de skip
+        assert service._should_skip_import('2024-01-15T10:00:00') is False
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_validate_finish_timestamp_valid(self, mock_varmgr):
+        """Valide un timestamp correct"""
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        config = PollingConfig(interval_minutes=10, max_wait_hours=1)
+        service = AMUEPollingService(mock_status_checker, config=config)
+
+        assert service._validate_finish_timestamp('2024-01-15T10:00:00') is True
+        assert service._validate_finish_timestamp('20240115100000') is True
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_validate_finish_timestamp_invalid(self, mock_varmgr):
+        """Rejette les timestamps invalides"""
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        config = PollingConfig(interval_minutes=10, max_wait_hours=1)
+        service = AMUEPollingService(mock_status_checker, config=config)
+
+        assert service._validate_finish_timestamp('') is False
+        assert service._validate_finish_timestamp('   ') is False
+        assert service._validate_finish_timestamp('null') is False
+        assert service._validate_finish_timestamp('none') is False
+        assert service._validate_finish_timestamp('0') is False
+
+    @patch('amue.services.polling_service.VarMgr')
+    def test_should_not_skip_import_invalid_timestamp(self, mock_varmgr):
+        """Ne skip pas si timestamp actuel invalide (sécurité)"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '2024-01-15T10:00:00',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        service = AMUEPollingService(mock_status_checker)
+
+        # Timestamp invalide -> import par précaution
+        assert service._should_skip_import('') is False
+        assert service._should_skip_import('null') is False
+
+    @patch('amue.services.polling_service.time.sleep')
+    @patch('amue.services.polling_service.VarMgr')
+    def test_wait_for_ready_continues_polling_same_timestamp(self, mock_varmgr, mock_sleep):
+        """wait_for_ready continue le polling si même timestamp (au lieu de skip)"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '30',
+            'amue_max_wait_hours': '1',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '2024-01-15T10:00:00',
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+        from airflow.exceptions import AirflowException
+
+        mock_status_checker = MagicMock()
+        mock_status_checker.fetch_full_status.return_value = {
+            'http_status': 200,
+            'finish': '2024-01-15T10:00:00',  # Même timestamp
+            'tables_status': {'CSKS': {'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}}
+        }
+
+        service = AMUEPollingService(mock_status_checker)
+
+        # Avec le même timestamp, le polling continue jusqu'au timeout
+        with pytest.raises(AirflowException, match="Timeout"):
+            service.wait_for_ready()
+
+    @patch('amue.services.polling_service.time.sleep')
+    @patch('amue.services.polling_service.VarMgr')
+    def test_wait_for_ready_first_execution(self, mock_varmgr, mock_sleep):
+        """wait_for_ready exécute l'import lors de la première exécution"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_polling_interval_minutes': '10',
+            'amue_max_wait_hours': '6',
+            'amue_polling_exponential_backoff': 'False',
+            'amue_polling_max_backoff_minutes': '60',
+            'amue_last_finish_timestamp': '',  # Première exécution
+            'amue_force_import': 'false'
+        }.get(key, default)
+
+        from amue.services.polling_service import AMUEPollingService, PollingConfig
+
+        mock_status_checker = MagicMock()
+        mock_status_checker.fetch_full_status.return_value = {
+            'http_status': 200,
+            'finish': '2024-01-15T10:00:00',
+            'tables_status': {'CSKS': {'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}}
+        }
+
+        service = AMUEPollingService(mock_status_checker)
+
+        result = service.wait_for_ready()
+
+        assert result['ready'] is True
+        assert result['status'] == 'success'
+        # Vérifie que tables_status est inclus
+        assert 'tables_status' in result
+        mock_sleep.assert_not_called()
 
 
 class TestPollingConfig:

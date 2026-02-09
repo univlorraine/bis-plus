@@ -65,13 +65,34 @@ class AirflowVariableManager:
         if not isinstance(value, str):
             value = json.dumps(value)
 
+        logger.info(f"[VAR_SET] Tentative set '{key}' ({len(value)} chars)")
+
+        # Essai Airflow 3.x SDK - mais attention, Variable.set() peut ne pas exister
         try:
             from airflow.sdk import Variable
-            Variable.set(key, value, description)
-            logger.info(f"[VAR] Set '{key}'")
+            if hasattr(Variable, 'set'):
+                Variable.set(key, value, description)
+                logger.info(f"[VAR_SET] SUCCESS via SDK pour '{key}'")
+                return True
+            else:
+                logger.info(f"[VAR_SET] SDK Variable n'a pas de méthode set(), fallback models")
+        except ImportError:
+            logger.info(f"[VAR_SET] airflow.sdk non disponible, fallback models")
+        except Exception as e:
+            logger.error(f"[VAR_SET] SDK Variable.set failed for '{key}': {type(e).__name__}: {e}")
+            # Ne pas retourner False ici, essayer le fallback
+
+        # Fallback Airflow 2.x / 3.x models
+        try:
+            from airflow.models import Variable
+            Variable.set(key, value, description=description)
+            logger.info(f"[VAR_SET] SUCCESS via models pour '{key}'")
             return True
-        except (ImportError, AttributeError, Exception) as e:
-            logger.error(f"[ERROR] Cannot set variable '{key}': {e}")
+        except ImportError:
+            logger.error(f"[VAR_SET] airflow.models non disponible non plus!")
+            return False
+        except Exception as e:
+            logger.error(f"[VAR_SET] Models Variable.set failed for '{key}': {type(e).__name__}: {e}")
             return False
 
     @staticmethod

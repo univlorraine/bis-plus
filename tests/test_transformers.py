@@ -22,31 +22,38 @@ from amue.utils.transformers import (
 class TestParseColumnDefinition:
     """Tests pour parse_column_definition"""
 
-    def test_varchar2_to_varchar(self):
-        """VARCHAR2 Oracle doit être converti en VARCHAR PostgreSQL"""
-        assert parse_column_definition('VARCHAR2(50)') == 'VARCHAR(50)'
-        assert parse_column_definition('VARCHAR2(255)') == 'VARCHAR(255)'
+    # --- Types texte ---
 
-    def test_number_to_numeric(self):
-        """NUMBER Oracle doit être converti en NUMERIC PostgreSQL"""
-        assert parse_column_definition('NUMBER(10,2)') == 'NUMERIC(10,2)'
-        assert parse_column_definition('NUMBER(5)') == 'NUMERIC(5)'
-
-    def test_date_to_timestamp(self):
-        """DATE Oracle doit être converti en TIMESTAMP PostgreSQL"""
-        assert parse_column_definition('DATE') == 'TIMESTAMP'
-
-    def test_char_to_bpchar(self):
-        """CHAR doit être converti en BPCHAR PostgreSQL"""
-        assert parse_column_definition('CHAR(10)') == 'BPCHAR(10)'
+    def test_text(self):
+        """TEXT reste TEXT"""
+        assert parse_column_definition('TEXT') == 'TEXT'
 
     def test_clob_to_text(self):
         """CLOB doit être converti en TEXT"""
         assert parse_column_definition('CLOB') == 'TEXT'
 
-    def test_blob_to_bytea(self):
-        """BLOB doit être converti en BYTEA"""
-        assert parse_column_definition('BLOB') == 'BYTEA'
+    def test_varchar(self):
+        """VARCHAR conserve ses paramètres"""
+        assert parse_column_definition('VARCHAR(50)') == 'VARCHAR(50)'
+        assert parse_column_definition('VARCHAR(255)') == 'VARCHAR(255)'
+
+    def test_nvarchar_to_varchar(self):
+        """NVARCHAR doit être converti en VARCHAR"""
+        assert parse_column_definition('NVARCHAR(100)') == 'VARCHAR(100)'
+
+    def test_char_to_bpchar(self):
+        """CHAR doit être converti en BPCHAR"""
+        assert parse_column_definition('CHAR(10)') == 'BPCHAR(10)'
+
+    def test_character_to_bpchar(self):
+        """CHARACTER doit être converti en BPCHAR"""
+        assert parse_column_definition('CHARACTER(20)') == 'BPCHAR(20)'
+
+    def test_nchar_to_bpchar(self):
+        """NCHAR doit être converti en BPCHAR"""
+        assert parse_column_definition('NCHAR(10)') == 'BPCHAR(10)'
+
+    # --- Types entiers ---
 
     def test_integer_small(self):
         """INTEGER(1-2) doit devenir SMALLINT"""
@@ -63,15 +70,80 @@ class TestParseColumnDefinition:
         assert parse_column_definition('INTEGER(5)') == 'BIGINT'
         assert parse_column_definition('INTEGER(10)') == 'BIGINT'
 
-    def test_invalid_type_returns_text(self):
-        """Un type invalide doit retourner TEXT par défaut"""
-        assert parse_column_definition('INVALID_TYPE') == 'INVALID_TYPE'
+    def test_tinyint_to_smallint(self):
+        """TINYINT doit devenir SMALLINT"""
+        assert parse_column_definition('TINYINT') == 'SMALLINT'
+
+    def test_mediumint_to_integer(self):
+        """MEDIUMINT doit devenir INTEGER"""
+        assert parse_column_definition('MEDIUMINT') == 'INTEGER'
+
+    def test_int2_to_smallint(self):
+        """INT2 doit devenir SMALLINT"""
+        assert parse_column_definition('INT2') == 'SMALLINT'
+
+    def test_int8_to_bigint(self):
+        """INT8 doit devenir BIGINT"""
+        assert parse_column_definition('INT8') == 'BIGINT'
+
+    # --- Types numériques ---
+
+    def test_numeric(self):
+        """NUMERIC conserve ses paramètres"""
+        assert parse_column_definition('NUMERIC(10,2)') == 'NUMERIC(10,2)'
+        assert parse_column_definition('NUMERIC(5)') == 'NUMERIC(5)'
+
+    def test_decimal_to_numeric(self):
+        """DECIMAL doit être converti en NUMERIC"""
+        assert parse_column_definition('DECIMAL(10,2)') == 'NUMERIC(10,2)'
+
+    def test_boolean(self):
+        """BOOLEAN reste BOOLEAN"""
+        assert parse_column_definition('BOOLEAN') == 'BOOLEAN'
+
+    # --- Types réels ---
+
+    def test_real_to_double_precision(self):
+        """REAL doit devenir DOUBLE PRECISION"""
+        assert parse_column_definition('REAL') == 'DOUBLE PRECISION'
+
+    def test_double_to_double_precision(self):
+        """DOUBLE doit devenir DOUBLE PRECISION"""
+        assert parse_column_definition('DOUBLE') == 'DOUBLE PRECISION'
+
+    def test_float_to_double_precision(self):
+        """FLOAT doit devenir DOUBLE PRECISION"""
+        assert parse_column_definition('FLOAT') == 'DOUBLE PRECISION'
+
+    # --- Types date ---
+
+    def test_date_to_timestamp(self):
+        """DATE doit être converti en TIMESTAMP"""
+        assert parse_column_definition('DATE') == 'TIMESTAMP'
+
+    def test_datetime_to_timestamp(self):
+        """DATETIME doit être converti en TIMESTAMP"""
+        assert parse_column_definition('DATETIME') == 'TIMESTAMP'
+
+    # --- Types binaires ---
+
+    def test_blob_to_bytea(self):
+        """BLOB doit être converti en BYTEA"""
+        assert parse_column_definition('BLOB') == 'BYTEA'
+
+    # --- Cas limites ---
+
+    def test_unknown_type_passes_through(self):
+        """Un type inconnu passe tel quel"""
+        assert parse_column_definition('UNKNOWN_TYPE') == 'UNKNOWN_TYPE'
         assert parse_column_definition('') == 'TEXT'
 
     def test_case_insensitive(self):
         """La conversion doit être insensible à la casse"""
-        assert parse_column_definition('varchar2(50)') == 'VARCHAR(50)'
-        assert parse_column_definition('Varchar2(50)') == 'VARCHAR(50)'
+        assert parse_column_definition('varchar(50)') == 'VARCHAR(50)'
+        assert parse_column_definition('Varchar(50)') == 'VARCHAR(50)'
+        assert parse_column_definition('integer(1)') == 'SMALLINT'
+        assert parse_column_definition('blob') == 'BYTEA'
 
 
 class TestValidateTableName:

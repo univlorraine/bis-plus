@@ -76,6 +76,7 @@ USAGE
 """
 import json
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -85,6 +86,60 @@ from airflow.sdk import Connection
 from amue.services.retry_service import get_retry_service, ErrorCategory
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CACHE DE TOKEN GLOBAL (Thread-Safe)
+# =============================================================================
+# Le cache est partagé entre toutes les instances de AMUEAPIHook pour éviter
+# de demander plusieurs tokens en parallèle.
+# =============================================================================
+
+class _TokenCache:
+    """Cache thread-safe pour le token OAuth."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._token: Optional[str] = None
+        self._expires_at: Optional[datetime] = None
+
+    def get_token(self) -> tuple[Optional[str], bool]:
+        """
+        Récupère le token du cache.
+
+        Returns:
+            Tuple (token, is_valid): token et si il est encore valide
+        """
+        with self._lock:
+            if not self._token or not self._expires_at:
+                return None, False
+
+            is_valid = datetime.now() < self._expires_at
+            return self._token, is_valid
+
+    def set_token(self, token: str, expires_in_seconds: int) -> None:
+        """
+        Stocke le token dans le cache.
+
+        Args:
+            token: Token d'accès
+            expires_in_seconds: Durée de validité en secondes
+        """
+        with self._lock:
+            self._token = token
+            # Marge de sécurité de 10%
+            safe_duration = int(expires_in_seconds * 0.9)
+            self._expires_at = datetime.now() + timedelta(seconds=safe_duration)
+
+    def invalidate(self) -> None:
+        """Invalide le token en cache."""
+        with self._lock:
+            self._token = None
+            self._expires_at = None
+
+
+# Instance globale du cache
+_token_cache = _TokenCache()
 
 
 class AMUEAPIHook:
@@ -101,29 +156,42 @@ class AMUEAPIHook:
 
     def __init__(self):
         """
-        Initialise le hook avec la connexion Airflow
+        Initialise le hook avec la connexion Airflow.
 
-        Args:
-            conn_id: ID de la connexion Airflow
+        Le token OAuth est géré via un cache global thread-safe
+        pour éviter les requêtes de token multiples en parallèle.
         """
         self.connection = Connection.get('oauth_api')
-        self.access_token: Optional[str] = None
-        self.token_expires_at: Optional[datetime] = None
+        self._token_cache = _token_cache  # Utilise le cache global
 
     def _is_token_expired(self) -> bool:
         """
-        Vérifie si le token est expiré ou proche de l'expiration
+        Vérifie si le token est expiré ou proche de l'expiration.
 
         Returns:
             True si le token est expiré ou absent
         """
-        if not self.access_token or not self.token_expires_at:
-            return True
-        return datetime.now() >= self.token_expires_at
+        _, is_valid = self._token_cache.get_token()
+        return not is_valid
+
+    @property
+    def access_token(self) -> Optional[str]:
+        """Récupère le token d'accès du cache."""
+        token, _ = self._token_cache.get_token()
+        return token
+
+    @access_token.setter
+    def access_token(self, value: Optional[str]) -> None:
+        """Invalide le cache si on assigne None."""
+        if value is None:
+            self._token_cache.invalidate()
 
     def get_oauth_token(self) -> str:
         """
-        Obtient un token OAuth2 via le flow client_credentials
+        Obtient un token OAuth2 via le flow client_credentials.
+
+        Le token est stocké dans un cache thread-safe partagé entre
+        toutes les instances de AMUEAPIHook.
 
         Returns:
             Le token d'accès OAuth2
@@ -131,7 +199,18 @@ class AMUEAPIHook:
         Raises:
             ValueError: Si token_url est manquant dans la configuration
             requests.exceptions.RequestException: En cas d'erreur réseau
+
+        Security:
+            - Les credentials ne sont jamais loggés
+            - Le token n'est jamais loggé
+            - Seul le type de token et la durée de validité sont loggés
         """
+        # Vérifie d'abord le cache (évite les requêtes inutiles)
+        cached_token, is_valid = self._token_cache.get_token()
+        if cached_token and is_valid:
+            logger.debug("[AUTH] Token récupéré du cache")
+            return cached_token
+
         client_id = self.connection.login
         client_secret = self.connection.password
 
@@ -141,13 +220,13 @@ class AMUEAPIHook:
 
         if not token_url:
             raise ValueError(
-                f"token_url manquant dans la connexion 'oauth_api'! "
+                "token_url manquant dans la connexion 'oauth_api'! "
                 "Ajoutez-le dans Admin > Connections > Extra: "
                 '{"token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token"}'
             )
 
-        logger.info(f"[AUTH] Authentification OAuth: {token_url}")
-        logger.info(f"[AUTH] Client ID: {client_id[:10]}***")
+        # SECURITY: Ne jamais logger les credentials ou le token
+        logger.info("[AUTH] Demande de token OAuth...")
 
         # Prépare la requête OAuth2
         auth = (client_id, client_secret)
@@ -165,32 +244,32 @@ class AMUEAPIHook:
             response.raise_for_status()
 
             token_data = response.json()
-            self.access_token = token_data['access_token']
+            access_token = token_data['access_token']
 
             expires_in = token_data.get('expires_in', 3600)
             token_type = token_data.get('token_type', 'Bearer')
 
-            # Enregistre l'expiration avec marge de sécurité (90% du temps)
+            # Stocke dans le cache (avec marge de sécurité)
             if isinstance(expires_in, int):
-                self.token_expires_at = datetime.now() + timedelta(seconds=int(expires_in * 0.9))
+                self._token_cache.set_token(access_token, expires_in)
             else:
-                self.token_expires_at = datetime.now() + timedelta(seconds=3240)  # 90% de 3600
+                self._token_cache.set_token(access_token, 3600)
 
-            logger.info(f"[AUTH] Token obtenu - Type: {token_type}, Expire: {expires_in}s")
-            logger.debug(f"[AUTH] Token valide jusqu'à: {self.token_expires_at}")
+            # SECURITY: Ne loggue que les métadonnées, jamais le token
+            logger.info(f"[AUTH] Token obtenu - Type: {token_type}, Validité: {expires_in}s")
 
-            return self.access_token
+            return access_token
 
         except requests.exceptions.HTTPError as e:
-            error_detail = e.response.text if e.response else 'N/A'
-            logger.error(f"[ERROR] Erreur HTTP {e.response.status_code if e.response else 'N/A'}")
-            logger.error(f"[ERROR] Detail: {error_detail}")
+            status_code = e.response.status_code if e.response else 'N/A'
+            # SECURITY: Ne pas logger le body de réponse qui pourrait contenir des infos sensibles
+            logger.error(f"[AUTH] Erreur HTTP {status_code} lors de l'authentification")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"[ERROR] Erreur de connexion: {e}")
+            logger.error(f"[AUTH] Erreur réseau: {type(e).__name__}")
             raise
         except KeyError as e:
-            logger.error(f"[ERROR] Format de reponse OAuth invalide: champ manquant {e}")
+            logger.error(f"[AUTH] Réponse OAuth invalide: champ manquant {e}")
             raise ValueError(f"Reponse OAuth invalide: {e}")
 
     def call_api(

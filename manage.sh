@@ -59,7 +59,8 @@ Commandes disponibles:
     health              Vérifie la santé de tous les services
 
   CONFIGURATION
-    setup               Installation complète initiale
+    setup               Installation complète initiale (inclut Blue/Green)
+    setup-bluegreen     Initialise uniquement les schémas Blue/Green
     config              Reconfigure les variables et connexions
     fix                 Corrige la configuration (avec attente API)
     auto-fix            Correction automatique complète (détecte et corrige)
@@ -205,6 +206,142 @@ cmd_setup() {
     log_info "Lancement du setup complet..."
     chmod +x scripts/install/quick_setup.sh
     ./scripts/install/quick_setup.sh
+
+    # Initialisation Blue/Green après le setup principal
+    log_info "Initialisation des schémas Blue/Green..."
+    cmd_setup_bluegreen
+}
+
+cmd_setup_bluegreen() {
+    log_info "Configuration de l'architecture Blue/Green..."
+
+    # Charge les variables depuis .env
+    if [[ ! -f ".env" ]]; then
+        log_error "Fichier .env non trouvé"
+        return 1
+    fi
+
+    # Récupère les paramètres de connexion depuis .env
+    local PG_HOST=$(grep -E "^POSTGRES_DATA_HOST=" .env | cut -d'=' -f2-)
+    local PG_PORT=$(grep -E "^POSTGRES_DATA_PORT=" .env | cut -d'=' -f2- || echo "5432")
+    local PG_DB=$(grep -E "^POSTGRES_DATA_DB=" .env | cut -d'=' -f2-)
+    local PG_USER=$(grep -E "^POSTGRES_DATA_LOGIN=" .env | cut -d'=' -f2-)
+    local PG_PASSWORD=$(grep -E "^POSTGRES_DATA_PASSWORD=" .env | cut -d'=' -f2-)
+
+    # Valeurs par défaut si non définies
+    PG_PORT=${PG_PORT:-5432}
+
+    # Vérifie les paramètres obligatoires
+    if [[ -z "$PG_HOST" ]] || [[ -z "$PG_DB" ]] || [[ -z "$PG_USER" ]] || [[ -z "$PG_PASSWORD" ]]; then
+        log_error "Paramètres de connexion PostgreSQL incomplets dans .env"
+        log_info "Variables requises: POSTGRES_DATA_HOST, POSTGRES_DATA_DB, POSTGRES_DATA_LOGIN, POSTGRES_DATA_PASSWORD"
+        return 1
+    fi
+
+    log_info "Connexion à PostgreSQL: $PG_HOST:$PG_PORT/$PG_DB (user: $PG_USER)"
+
+    # Vérifie que PostgreSQL est accessible
+    log_info "Vérification de la connexion..."
+    local retries=30
+    while [[ $retries -gt 0 ]]; do
+        if PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "SELECT 1" > /dev/null 2>&1; then
+            break
+        fi
+        log_warning "PostgreSQL n'est pas prêt. Attente... ($retries)"
+        sleep 2
+        ((retries-=1))
+    done
+
+    if [[ $retries -eq 0 ]]; then
+        log_error "PostgreSQL n'est pas accessible après 60 secondes"
+        return 1
+    fi
+
+    log_success "Connexion PostgreSQL OK"
+
+    # Crée les schémas Blue/Green
+    log_info "Création des schémas splus_blue et splus_green..."
+    PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" << EOSQL
+-- Création des schémas Blue/Green
+CREATE SCHEMA IF NOT EXISTS splus;
+CREATE SCHEMA IF NOT EXISTS splus_blue;
+CREATE SCHEMA IF NOT EXISTS splus_green;
+
+-- Permissions sur le schéma principal (vues)
+GRANT ALL PRIVILEGES ON SCHEMA splus TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus TO $PG_USER;
+
+-- Permissions sur splus_blue
+GRANT ALL PRIVILEGES ON SCHEMA splus_blue TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_blue TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_blue TO $PG_USER;
+
+-- Permissions sur splus_green
+GRANT ALL PRIVILEGES ON SCHEMA splus_green TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_green TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_green TO $PG_USER;
+
+-- Permissions par défaut pour les futures tables
+ALTER DEFAULT PRIVILEGES IN SCHEMA splus
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $PG_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA splus_blue
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $PG_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA splus_green
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $PG_USER;
+
+-- Définir le search_path par défaut
+ALTER ROLE $PG_USER SET search_path TO splus, splus_blue, splus_green, public;
+
+SELECT 'Blue/Green schemas created successfully' AS status;
+EOSQL
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Erreur lors de la création des schémas Blue/Green"
+        return 1
+    fi
+
+    log_success "Schémas Blue/Green créés avec succès"
+    log_info "  - splus       : schéma des vues (interface publique)"
+    log_info "  - splus_blue  : schéma des tables blue"
+    log_info "  - splus_green : schéma des tables green"
+
+    # Création des vues dans splus pour les tables existantes dans splus_blue
+    log_info "Vérification et création des vues dans splus..."
+
+    # Récupère la liste des tables dans splus_blue qui n'ont pas de vue correspondante dans splus
+    local tables_without_views=$(PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -A << 'EOSQL'
+SELECT t.table_name
+FROM information_schema.tables t
+WHERE t.table_schema = 'splus_blue'
+  AND t.table_type = 'BASE TABLE'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM information_schema.views v
+      WHERE v.table_schema = 'splus'
+        AND v.table_name = t.table_name
+  )
+ORDER BY t.table_name;
+EOSQL
+)
+
+    if [[ -z "$tables_without_views" ]]; then
+        log_info "Toutes les vues sont déjà créées (ou aucune table dans splus_blue)"
+    else
+        local view_count=0
+        while IFS= read -r table_name; do
+            [[ -z "$table_name" ]] && continue
+
+            log_info "  Création de la vue splus.$table_name -> splus_blue.$table_name"
+            PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -q << EOSQL
+CREATE OR REPLACE VIEW splus.$table_name AS SELECT * FROM splus_blue.$table_name;
+GRANT SELECT ON splus.$table_name TO $PG_USER;
+EOSQL
+            ((view_count+=1))
+        done <<< "$tables_without_views"
+
+        log_success "$view_count vue(s) créée(s) dans le schéma splus"
+    fi
 }
 
 cmd_config() {
@@ -1726,6 +1863,7 @@ main() {
 
         # Configuration
         setup)          cmd_setup "$@" ;;
+        setup-bluegreen) cmd_setup_bluegreen "$@" ;;
         config)         cmd_config "$@" ;;
         fix)            cmd_fix "$@" ;;
         auto-fix)       cmd_auto_fix "$@" ;;

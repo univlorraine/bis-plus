@@ -105,8 +105,8 @@ class TestTableVerifierVerifyStructure:
 
     @patch('amue.operators.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_verifier.VarMgr')
-    def test_verify_structure_success(self, mock_varmgr, mock_create_hook):
-        """Vérification structure réussie"""
+    def test_verify_structure_success_fetch_pk_from_api(self, mock_varmgr, mock_create_hook):
+        """Vérification structure réussie - PK absente, récupérée depuis l'API"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
@@ -120,9 +120,9 @@ class TestTableVerifierVerifyStructure:
         from amue.operators.table_verifier import AMUETableVerifier
 
         mock_api_hook = MagicMock()
-        # Structure API
+        # Structure API + Primary keys (car PK vide)
         mock_api_hook.call_api.side_effect = [
-            'ID NUMBER(10), NAME VARCHAR2(50)',  # Structure
+            'ID INTEGER(10), NAME VARCHAR(50)',  # Structure
             'ID'  # Primary keys
         ]
 
@@ -131,7 +131,6 @@ class TestTableVerifierVerifyStructure:
         table_info = {
             'name': 'CSKS',
             'primary_key': '',
-            'needs_pk_update': True,
             'finger_print': ''
         }
 
@@ -141,6 +140,41 @@ class TestTableVerifierVerifyStructure:
         assert result['structure_ok'] is True
         assert len(result['columns']) == 2
         assert result['primary_keys'] == 'ID'
+
+    @patch('amue.operators.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_verifier.VarMgr')
+    def test_verify_structure_keeps_existing_pk(self, mock_varmgr, mock_create_hook):
+        """PK existante dans la variable Airflow est conservée (pas de fetch API)"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (True,)
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        # Seule la structure est récupérée (pas les PKs)
+        mock_api_hook.call_api.return_value = 'ID INTEGER(10), NAME VARCHAR(50)'
+
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        table_info = {
+            'name': 'CSKS',
+            'primary_key': 'BUKRS,KOSTL',  # PK déjà définie
+            'finger_print': ''
+        }
+
+        result = verifier.verify_structure(table_info)
+
+        assert result['status'] == 'success'
+        assert result['primary_keys'] == 'BUKRS,KOSTL'
+        # Un seul appel API (structure), pas de fetch PKs
+        assert mock_api_hook.call_api.call_count == 1
 
     @patch('amue.operators.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_verifier.VarMgr')
@@ -160,7 +194,7 @@ class TestTableVerifierVerifyStructure:
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
-            'ID NUMBER(10)',
+            'ID INTEGER(10)',
             'ID'
         ]
 
@@ -169,7 +203,6 @@ class TestTableVerifierVerifyStructure:
         table_info = {
             'name': 'CSKS',
             'primary_key': 'ID',
-            'needs_pk_update': False,
             'finger_print': ''
         }
 
@@ -200,7 +233,7 @@ class TestTableVerifierVerifyTable:
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
-            'ID NUMBER(10), NAME VARCHAR2(50)',
+            'ID INTEGER(10), NAME VARCHAR(50)',
             'ID'
         ]
 
@@ -210,7 +243,6 @@ class TestTableVerifierVerifyTable:
             'name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': '',
-            'needs_pk_update': True,
             'finger_print': ''
         }
 
@@ -264,7 +296,7 @@ class TestTableVerifierVerifyTable:
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
-            'ID NUMBER(10), NAME VARCHAR2(50)',
+            'ID INTEGER(10), NAME VARCHAR(50)',
             'ID'
         ]
 
@@ -274,7 +306,6 @@ class TestTableVerifierVerifyTable:
             'name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
-            'needs_pk_update': False,
             'finger_print': 'old_fingerprint_12345'  # Ancien fingerprint différent
         }
 
@@ -301,7 +332,7 @@ class TestTableVerifierFetchStructure:
         from amue.operators.table_verifier import AMUETableVerifier
 
         mock_api_hook = MagicMock()
-        mock_api_hook.call_api.return_value = 'ID NUMBER(10), NAME VARCHAR2(50), DATE DATE'
+        mock_api_hook.call_api.return_value = 'ID INTEGER(10), NAME VARCHAR(50), DATE DATE'
 
         verifier = AMUETableVerifier(mock_api_hook)
 
@@ -309,7 +340,7 @@ class TestTableVerifierFetchStructure:
 
         assert len(result) == 3
         assert result[0]['name'] == 'ID'
-        assert result[0]['type_postgres'] == 'NUMERIC(10)'
+        assert result[0]['type_postgres'] == 'BIGINT'
         assert result[1]['name'] == 'NAME'
         assert result[1]['type_postgres'] == 'VARCHAR(50)'
         assert result[2]['name'] == 'DATE'
@@ -472,6 +503,112 @@ class TestTableVerifierTableExists:
         result = verifier._table_exists('CSKS')
 
         assert result is False
+
+
+class TestTableVerifierSavePrimaryKeys:
+    """Tests pour _save_primary_keys (persistance immédiate)"""
+
+    @patch('amue.operators.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_verifier.VarMgr')
+    def test_save_primary_keys_success(self, mock_varmgr, mock_create_hook):
+        """Sauvegarde des PKs dans la variable Airflow"""
+        import json
+
+        tables_config = json.dumps([
+            {'name': 'CSKS', 'primary_key': '', 'finger_print': ''}
+        ])
+
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev',
+            'amue_tables_to_import': tables_config
+        }.get(key, default)
+        mock_varmgr.set.return_value = True
+
+        from amue.operators.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        verifier._save_primary_keys('CSKS', 'ID,NAME')
+
+        # Vérifie que set a été appelé avec les PKs mises à jour
+        mock_varmgr.set.assert_called()
+        call_args = mock_varmgr.set.call_args[0]
+        saved_config = json.loads(call_args[1])
+        assert saved_config[0]['primary_key'] == 'ID,NAME'
+
+    @patch('amue.operators.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_verifier.VarMgr')
+    def test_save_primary_keys_no_change(self, mock_varmgr, mock_create_hook):
+        """Pas de sauvegarde si PKs identiques"""
+        import json
+
+        tables_config = json.dumps([
+            {'name': 'CSKS', 'primary_key': 'ID,NAME', 'finger_print': ''}
+        ])
+
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev',
+            'amue_tables_to_import': tables_config
+        }.get(key, default)
+
+        from amue.operators.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        verifier._save_primary_keys('CSKS', 'ID,NAME')
+
+        # Pas d'appel à set car les PKs sont identiques
+        mock_varmgr.set.assert_not_called()
+
+    @patch('amue.operators.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_verifier.VarMgr')
+    def test_verify_structure_calls_save_pks(self, mock_varmgr, mock_create_hook):
+        """verify_structure appelle _save_primary_keys après récupération API"""
+        import json
+
+        tables_config = json.dumps([
+            {'name': 'CSKS', 'primary_key': '', 'finger_print': ''}
+        ])
+
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev',
+            'amue_tables_to_import': tables_config
+        }.get(key, default)
+        mock_varmgr.set.return_value = True
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (True,)
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        mock_api_hook.call_api.side_effect = [
+            'ID INTEGER(10), NAME VARCHAR(50)',  # Structure
+            'ID'  # Primary keys
+        ]
+
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        table_info = {
+            'name': 'CSKS',
+            'primary_key': '',
+            'finger_print': ''
+        }
+
+        result = verifier.verify_structure(table_info)
+
+        # Vérifie que les PKs ont été sauvegardées
+        assert result['primary_keys'] == 'ID'
+        mock_varmgr.set.assert_called()
 
 
 class TestCheckStructureChange:

@@ -1,0 +1,210 @@
+# tests/utils/test_hooks.py
+"""
+Tests unitaires pour le module hooks.
+"""
+import pytest
+import sys
+import os
+from unittest.mock import patch, MagicMock
+
+# Ajoute le chemin des plugins au PYTHONPATH
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'plugins'))
+
+from amue.utils.hooks import (
+    create_postgres_hook,
+    create_bluegreen_hook,
+    create_api_hook,
+    HookManager,
+    POSTGRES_DEFAULT_CONN_ID,
+    POSTGRES_DEFAULT_SCHEMA,
+    SCHEMA_BLUE,
+    SCHEMA_GREEN,
+)
+
+
+class TestCreatePostgresHook:
+    """Tests pour create_postgres_hook."""
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_creates_hook_with_defaults(self, mock_hook_class):
+        """Test création avec paramètres par défaut."""
+        create_postgres_hook()
+
+        mock_hook_class.assert_called_once_with(
+            postgres_conn_id=POSTGRES_DEFAULT_CONN_ID,
+            options=f'-c search_path={POSTGRES_DEFAULT_SCHEMA}'
+        )
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_creates_hook_with_custom_conn_id(self, mock_hook_class):
+        """Test création avec conn_id personnalisé."""
+        create_postgres_hook(conn_id='custom_db')
+
+        mock_hook_class.assert_called_once()
+        call_kwargs = mock_hook_class.call_args[1]
+        assert call_kwargs['postgres_conn_id'] == 'custom_db'
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_creates_hook_with_custom_schema(self, mock_hook_class):
+        """Test création avec schéma personnalisé."""
+        create_postgres_hook(schema='public')
+
+        mock_hook_class.assert_called_once()
+        call_kwargs = mock_hook_class.call_args[1]
+        assert 'public' in call_kwargs['options']
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_bluegreen_schema_overrides_schema(self, mock_hook_class):
+        """Test que bluegreen_schema a priorité sur schema."""
+        create_postgres_hook(schema='public', bluegreen_schema='splus_blue')
+
+        mock_hook_class.assert_called_once()
+        call_kwargs = mock_hook_class.call_args[1]
+        assert 'splus_blue' in call_kwargs['options']
+        assert 'public' not in call_kwargs['options']
+
+
+class TestCreateBluegreenHook:
+    """Tests pour create_bluegreen_hook."""
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_creates_hook_for_blue_schema(self, mock_hook_class):
+        """Test création pour schéma blue."""
+        create_bluegreen_hook(SCHEMA_BLUE)
+
+        mock_hook_class.assert_called_once()
+        call_kwargs = mock_hook_class.call_args[1]
+        assert SCHEMA_BLUE in call_kwargs['options']
+
+    @patch('amue.utils.hooks.PostgresHook')
+    def test_creates_hook_for_green_schema(self, mock_hook_class):
+        """Test création pour schéma green."""
+        create_bluegreen_hook(SCHEMA_GREEN)
+
+        mock_hook_class.assert_called_once()
+        call_kwargs = mock_hook_class.call_args[1]
+        assert SCHEMA_GREEN in call_kwargs['options']
+
+    def test_raises_on_invalid_schema(self):
+        """Test lève erreur sur schéma invalide."""
+        with pytest.raises(ValueError) as exc_info:
+            create_bluegreen_hook('invalid_schema')
+
+        assert "Schéma invalide" in str(exc_info.value)
+        assert SCHEMA_BLUE in str(exc_info.value)
+        assert SCHEMA_GREEN in str(exc_info.value)
+
+    def test_raises_on_default_schema(self):
+        """Test lève erreur sur schéma par défaut."""
+        with pytest.raises(ValueError):
+            create_bluegreen_hook('splus')
+
+
+class TestCreateApiHook:
+    """Tests pour create_api_hook."""
+
+    @patch('amue.utils.hooks.AMUEAPIHook')
+    def test_creates_api_hook(self, mock_hook_class):
+        """Test création du hook API."""
+        create_api_hook()
+
+        mock_hook_class.assert_called_once()
+
+
+class TestHookManagerSingleton:
+    """Tests pour le pattern singleton de HookManager."""
+
+    def teardown_method(self):
+        """Reset singleton après chaque test."""
+        HookManager._instance = None
+        HookManager._api_hook = None
+        HookManager._postgres_hook = None
+
+    def test_singleton_returns_same_instance(self):
+        """Test que le singleton retourne la même instance."""
+        manager1 = HookManager()
+        manager2 = HookManager()
+
+        assert manager1 is manager2
+
+    def test_reset_clears_hooks(self):
+        """Test que reset efface les hooks."""
+        manager = HookManager()
+        manager._api_hook = MagicMock()
+        manager._postgres_hook = MagicMock()
+
+        manager.reset()
+
+        assert manager._api_hook is None
+        assert manager._postgres_hook is None
+
+
+class TestHookManagerApiHook:
+    """Tests pour HookManager.api_hook."""
+
+    def teardown_method(self):
+        """Reset singleton après chaque test."""
+        HookManager._instance = None
+        HookManager._api_hook = None
+        HookManager._postgres_hook = None
+
+    @patch('amue.utils.hooks.create_api_hook')
+    def test_lazy_loads_api_hook(self, mock_create):
+        """Test lazy loading du hook API."""
+        mock_hook = MagicMock()
+        mock_create.return_value = mock_hook
+
+        manager = HookManager()
+        hook = manager.api_hook
+
+        mock_create.assert_called_once()
+        assert hook is mock_hook
+
+    @patch('amue.utils.hooks.create_api_hook')
+    def test_reuses_api_hook(self, mock_create):
+        """Test réutilisation du hook API."""
+        mock_hook = MagicMock()
+        mock_create.return_value = mock_hook
+
+        manager = HookManager()
+        hook1 = manager.api_hook
+        hook2 = manager.api_hook
+
+        # create_api_hook ne devrait être appelé qu'une fois
+        mock_create.assert_called_once()
+        assert hook1 is hook2
+
+
+class TestHookManagerPostgresHook:
+    """Tests pour HookManager.postgres_hook."""
+
+    def teardown_method(self):
+        """Reset singleton après chaque test."""
+        HookManager._instance = None
+        HookManager._api_hook = None
+        HookManager._postgres_hook = None
+
+    @patch('amue.utils.hooks.create_postgres_hook')
+    def test_lazy_loads_postgres_hook(self, mock_create):
+        """Test lazy loading du hook PostgreSQL."""
+        mock_hook = MagicMock()
+        mock_create.return_value = mock_hook
+
+        manager = HookManager()
+        hook = manager.postgres_hook
+
+        mock_create.assert_called_once()
+        assert hook is mock_hook
+
+    @patch('amue.utils.hooks.create_postgres_hook')
+    def test_reuses_postgres_hook(self, mock_create):
+        """Test réutilisation du hook PostgreSQL."""
+        mock_hook = MagicMock()
+        mock_create.return_value = mock_hook
+
+        manager = HookManager()
+        hook1 = manager.postgres_hook
+        hook2 = manager.postgres_hook
+
+        mock_create.assert_called_once()
+        assert hook1 is hook2

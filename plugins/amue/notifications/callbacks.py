@@ -58,6 +58,17 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f"Erreur dans le callback de notification: {e}")
 
+    # Libere le verrou blue/green si actif
+    try:
+        from amue.services.bluegreen_manager import BlueGreenManager
+
+        manager = BlueGreenManager()
+        if manager.is_enabled() and manager.is_import_in_progress():
+            manager.release_import_lock(mark_completed=False)
+            logger.info("Verrou blue/green libere apres echec du DAG")
+    except Exception as e:
+        logger.error(f"Erreur lors de la liberation du verrou blue/green: {e}")
+
     logger.info("Callback d'erreur termine")
 
 

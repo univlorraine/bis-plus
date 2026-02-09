@@ -40,6 +40,9 @@ PHASE 4 - FINALISATION
     │   • Met à jour les fingerprints dans les variables Airflow
     │   • Enregistre la date de dernier import par table
     │
+    ├── switch_views()
+    │   • Bascule atomique des vues vers le schéma cible (blue/green)
+    │
     └── send_report()
         • Génère un rapport HTML de l'exécution
         • Envoie par email aux destinataires configurés
@@ -82,6 +85,8 @@ from amue import (
     send_failure_notification,
     AirflowVariableManager as VarMgr,
 )
+from amue.services.bluegreen_manager import BlueGreenManager
+from amue.services.view_switcher import ViewSwitcher
 import json
 import logging
 
@@ -136,11 +141,61 @@ def amue_multi_table_import():
     """
 
     # ==========================================================================
+    # PHASE 0 : BLUE/GREEN INITIALISATION
+    # ==========================================================================
+
+    @task(task_id='init_bluegreen')
+    def init_bluegreen() -> Dict:
+        """
+        Initialise le contexte blue/green pour ce DAG run.
+
+        Détermine le schéma cible (opposé de l'actif) et prépare l'état.
+
+        Returns:
+            Contexte blue/green :
+            {
+                "enabled": True/False,
+                "target_schema": "splus_green",
+                "active_schema": "splus_blue",
+                "needs_sync": True/False
+            }
+        """
+        manager = BlueGreenManager()
+
+        if not manager.is_enabled():
+            logger.info("[BLUEGREEN] Mode désactivé - import classique")
+            return {
+                "enabled": False,
+                "target_schema": None,
+                "active_schema": None,
+                "needs_sync": False
+            }
+
+        target = manager.get_target_schema()
+        active = manager.get_active_schema()
+        needs_sync = manager.needs_sync()
+
+        logger.info(f"[BLUEGREEN] Mode activé")
+        logger.info(f"[BLUEGREEN] Schéma actif: {active}")
+        logger.info(f"[BLUEGREEN] Schéma cible: {target}")
+        logger.info(f"[BLUEGREEN] Sync nécessaire: {needs_sync}")
+
+        # Marque le début de l'import
+        manager.mark_import_started()
+
+        return {
+            "enabled": True,
+            "target_schema": target,
+            "active_schema": active,
+            "needs_sync": needs_sync
+        }
+
+    # ==========================================================================
     # PHASE 1 : INITIALISATION
     # ==========================================================================
 
     @task(task_id='wait_for_api_and_select')
-    def wait_for_api_and_select() -> List[Dict]:
+    def wait_for_api_and_select(bluegreen_ctx: Dict) -> List[Dict]:
         """
         Attend la disponibilité de l'API et sélectionne les tables à importer
 
@@ -185,19 +240,33 @@ def amue_multi_table_import():
         # --- Étape 2 : Sélection des tables ---
         logger.info("[INIT] API prête, sélection des tables...")
 
-        # Récupère le statut actuel de toutes les tables depuis l'API
-        current_status = status_checker.get_current_status()
+        # Utilise le cache tables_status du polling (évite un appel API supplémentaire)
+        # Le polling a déjà récupéré cette info lors du dernier appel fetch_full_status()
+        current_status = polling_result.get('tables_status', {})
+        if not current_status:
+            # Fallback si tables_status non disponible (ne devrait pas arriver)
+            logger.warning("[INIT] tables_status non disponible, appel API de secours")
+            current_status = status_checker.get_current_status()
+        else:
+            logger.info(f"[INIT] Utilisation du cache tables_status ({len(current_status)} tables)")
 
         # Filtre les tables selon la configuration Airflow
         # Ne garde que les tables listées dans amue_tables_to_import
         table_filter = AMUETableFilter()
         tables = table_filter.filter_tables(current_status)
 
+        # Injecte le schéma cible blue/green dans chaque table
+        target_schema = bluegreen_ctx.get("target_schema") if bluegreen_ctx.get("enabled") else None
+        for table in tables:
+            table["target_schema"] = target_schema
+
         # Log des tables sélectionnées
         if not tables:
             logger.info("[INIT] Aucune table à importer")
         else:
             logger.info(f"[INIT] {len(tables)} table(s) à importer")
+            if target_schema:
+                logger.info(f"[INIT] Schéma cible: {target_schema}")
             for t in tables:
                 logger.info(f"  - {t.get('name')}")
 
@@ -225,7 +294,8 @@ def amue_multi_table_import():
                     "name": "CSKS",
                     "primary_key": "...",
                     "finger_print": "...",  # Fingerprint stocké
-                    "api_status": {...}
+                    "api_status": {...},
+                    "target_schema": "splus_blue" | None  # Blue/green
                 }
 
         Returns:
@@ -238,12 +308,17 @@ def amue_multi_table_import():
                 "primary_keys": "...",
                 "finger_print": "...",      # Nouveau fingerprint
                 "original_info": {...},     # Infos originales pour l'import
+                "target_schema": "...",     # Schéma cible blue/green
                 "error": "..."              # Si erreur
             }
         """
         api_hook = AMUEAPIHook()
-        verifier = AMUETableVerifier(api_hook)
-        return verifier.verify_table(table_info)
+        target_schema = table_info.get("target_schema")
+        verifier = AMUETableVerifier(api_hook, target_schema=target_schema)
+        result = verifier.verify_table(table_info)
+        # Propage le schéma cible dans le résultat
+        result["target_schema"] = target_schema
+        return result
 
     @task(task_id='validate_tables')
     def validate_tables(verification_results: List[Dict]) -> List[Dict]:
@@ -315,15 +390,19 @@ def amue_multi_table_import():
                 "table_name": "CSKS",
                 "columns": [...],
                 "primary_keys": "BUKRS,KOSTL",
-                "original_info": {...}  # Config de la table pour l'import
+                "original_info": {...},  # Config de la table pour l'import
+                "target_schema": "..."   # Schéma cible blue/green
             }
         """
-        manager = AMUETableManager()
+        target_schema = verified_table.get("target_schema")
+        manager = AMUETableManager(target_schema=target_schema)
         result = manager.manage_table(verified_table)
 
         # Conserve les infos originales pour l'import
         # (delta, primary_key de la config, etc.)
         result['original_info'] = verified_table.get('original_info', {})
+        # Propage le schéma cible
+        result['target_schema'] = target_schema
         return result
 
     @task(task_id='import_data')
@@ -343,6 +422,10 @@ def amue_multi_table_import():
             - Retry intelligent selon le type d'erreur (4xx, 5xx, timeout)
             - Rollback automatique en cas d'échec
 
+        Blue/Green :
+            - Si target_schema spécifié, importe dans ce schéma
+            - Sinon, utilise le schéma par défaut (splus)
+
         Args:
             prepared_table: Résultat de prepare_table()
 
@@ -354,11 +437,13 @@ def amue_multi_table_import():
                 "rows_imported": 1500,
                 "finger_print": "...",
                 "duration_seconds": 45.2,
+                "target_schema": "...",  # Schéma où les données ont été importées
                 "error": "..."  # Si échec
             }
         """
         api_hook = AMUEAPIHook()
-        importer = AMUEDataImporter(api_hook)
+        target_schema = prepared_table.get("target_schema")
+        importer = AMUEDataImporter(api_hook, target_schema=target_schema)
 
         # Parse les clés primaires (string séparé par virgules -> liste)
         primary_keys = [
@@ -367,43 +452,121 @@ def amue_multi_table_import():
             if pk.strip()
         ]
 
-        return importer.import_table(
+        result = importer.import_table(
             table_name=prepared_table['table_name'],
             columns=prepared_table['columns'],
             primary_keys=primary_keys,
             import_config=prepared_table['original_info']
         )
 
+        # Ajoute le schéma cible au résultat
+        result['target_schema'] = target_schema
+        return result
+
     # ==========================================================================
     # PHASE 4 : FINALISATION
     # ==========================================================================
 
     @task(task_id='save_metadata')
-    def save_metadata(import_results: List[Dict]) -> None:
+    def save_metadata(import_results: List[Dict]) -> Dict:
         """
         Met à jour les métadonnées après un import réussi
 
         Pour chaque table importée avec succès :
             - Sauvegarde le nouveau fingerprint
             - Enregistre la date de dernier import
+            - Sauvegarde le finish timestamp pour le prochain polling
 
         Ces métadonnées sont stockées dans la variable Airflow
         'amue_tables_to_import' et servent à :
             - Détecter les changements de structure (fingerprint)
             - Permettre l'import différentiel (delta depuis last_import)
+            - Éviter les imports inutiles (même finish timestamp)
 
         Args:
             import_results: Liste des résultats de import_data()
 
+        Returns:
+            Contexte pour les phases suivantes (blue/green, etc.)
+
         Raises:
             AirflowException: Si sauvegarde échoue (critique pour la cohérence)
         """
+        # Récupère le finish timestamp depuis les infos de polling
+        polling_json = VarMgr.get('_current_run_polling', default='{}')
+        try:
+            polling_result = json.loads(polling_json)
+            finish_timestamp = polling_result.get('finish', '')
+        except Exception:
+            finish_timestamp = ''
+
         manager = AMUEMetadataManager()
-        manager.update_metadata(import_results)
+        manager.update_metadata(import_results, finish_timestamp=finish_timestamp)
         logger.info(f"[METADATA] Métadonnées mises à jour pour {len(import_results)} table(s)")
 
+        # Extrait le schéma cible des résultats (pour switch_views)
+        target_schema = None
+        if import_results:
+            target_schema = import_results[0].get('target_schema')
+
+        return {
+            'tables_imported': len(import_results),
+            'target_schema': target_schema
+        }
+
+    @task(task_id='switch_views')
+    def switch_views(metadata_result: Dict) -> Dict:
+        """
+        Bascule les vues vers le nouveau schéma après un import réussi.
+
+        Cette opération est atomique : toutes les vues sont switchées
+        dans une seule transaction.
+
+        Args:
+            metadata_result: Résultat de save_metadata() avec target_schema
+
+        Returns:
+            Résultat du switch :
+            {
+                "switched": True/False,
+                "target_schema": "splus_green",
+                "error": None | "message"
+            }
+        """
+        target_schema = metadata_result.get('target_schema')
+
+        if not target_schema:
+            logger.info("[SWITCH] Pas de schéma cible - blue/green désactivé")
+            return {"switched": False, "reason": "bluegreen disabled"}
+
+        manager = BlueGreenManager()
+        if not manager.is_enabled():
+            logger.info("[SWITCH] Blue/green désactivé dans la config")
+            return {"switched": False, "reason": "bluegreen disabled in config"}
+
+        switcher = ViewSwitcher()
+        success = switcher.switch_views_to_schema(target_schema)
+
+        if success:
+            # Met à jour l'état blue/green
+            manager.mark_import_completed()
+            manager.mark_switch_completed()
+            logger.info(f"[SWITCH] Vues basculées vers {target_schema}")
+            return {
+                "switched": True,
+                "target_schema": target_schema,
+                "error": None
+            }
+        else:
+            logger.error(f"[SWITCH] Échec du switch vers {target_schema}")
+            return {
+                "switched": False,
+                "target_schema": target_schema,
+                "error": "Switch failed"
+            }
+
     @task(task_id='send_report')
-    def send_report(import_results: List[Dict]) -> Dict:
+    def send_report(import_results: List[Dict], switch_result: Dict) -> Dict:
         """
         Génère et envoie le rapport d'exécution par email
 
@@ -417,6 +580,7 @@ def amue_multi_table_import():
 
         Args:
             import_results: Liste des résultats de import_data()
+            switch_result: Résultat de switch_views()
 
         Returns:
             Statut de l'envoi : {"sent": True/False, "recipients": [...]}
@@ -435,9 +599,12 @@ def amue_multi_table_import():
     # DÉFINITION DU WORKFLOW (enchaînement des tasks)
     # ==========================================================================
 
+    # Phase 0 : Blue/Green Initialisation
+    bluegreen_ctx = init_bluegreen()
+
     # Phase 1 : Initialisation
-    # Retourne la liste des tables à traiter
-    tables = wait_for_api_and_select()
+    # Retourne la liste des tables à traiter (avec schéma cible injecté)
+    tables = wait_for_api_and_select(bluegreen_ctx)
 
     # Phase 2 : Vérification
     # .expand() crée une task par table (parallélisation automatique)
@@ -450,12 +617,14 @@ def amue_multi_table_import():
     imported = import_data.expand(prepared_table=prepared)
 
     # Phase 4 : Finalisation
-    # Les métadonnées sont sauvegardées AVANT l'envoi du rapport
+    # Les métadonnées sont sauvegardées AVANT le switch des vues
     metadata = save_metadata(imported)
-    report = send_report(imported)
 
-    # Dépendance explicite : le rapport est envoyé après les métadonnées
-    metadata >> report
+    # Phase 5 : Blue/Green Switch
+    switch_result = switch_views(metadata)
+
+    # Phase 6 : Rapport
+    report = send_report(imported, switch_result)
 
 
 # ==============================================================================

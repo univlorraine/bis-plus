@@ -33,13 +33,18 @@ class TestAMUEAPIHookTokenExpiration:
         mock_conn.extra = '{}'
         mock_connection.get.return_value = mock_conn
 
-        from amue.hooks.amue_api_hook import AMUEAPIHook
+        from amue.hooks.amue_api_hook import AMUEAPIHook, _token_cache
+
+        # Reset le cache et ajoute un token valide
+        _token_cache.invalidate()
+        _token_cache.set_token('valid_token', 3600)  # 1 heure
 
         hook = AMUEAPIHook()
-        hook.access_token = 'valid_token'
-        hook.token_expires_at = datetime.now() + timedelta(hours=1)
 
         assert hook._is_token_expired() is False
+
+        # Cleanup
+        _token_cache.invalidate()
 
     @patch('amue.hooks.amue_api_hook.Connection')
     def test_is_token_expired_token_expired(self, mock_connection):
@@ -75,17 +80,23 @@ class TestAMUEAPIHookTokenExpiration:
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        from amue.hooks.amue_api_hook import AMUEAPIHook
+        from amue.hooks.amue_api_hook import AMUEAPIHook, _token_cache
+
+        # Reset le cache avant le test
+        _token_cache.invalidate()
 
         hook = AMUEAPIHook()
         token = hook.get_oauth_token()
 
         assert token == 'new_token'
         assert hook.access_token == 'new_token'
-        assert hook.token_expires_at is not None
-        # Vérifie que l'expiration est à ~90% de 3600s (3240s)
-        expected_expiration = datetime.now() + timedelta(seconds=3240)
-        assert abs((hook.token_expires_at - expected_expiration).total_seconds()) < 5
+        # Vérifie que le token est dans le cache et valide
+        cached_token, is_valid = _token_cache.get_token()
+        assert cached_token == 'new_token'
+        assert is_valid is True
+
+        # Cleanup
+        _token_cache.invalidate()
 
     @patch('amue.hooks.amue_api_hook.Connection')
     def test_parse_connection_extra_valid_json(self, mock_connection):

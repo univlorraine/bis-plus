@@ -394,6 +394,12 @@ class AMUETableFilter:
         tables_var = VarMgr.get('amue_tables_to_import', default=default_config)
         tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
 
+        # DEBUG: Afficher les PKs chargées depuis la variable Airflow
+        logger.info(f"[LOAD_CONFIG] Chargé depuis amue_tables_to_import: {len(tables_config) if isinstance(tables_config, list) else 0} tables")
+        if isinstance(tables_config, list):
+            for t in tables_config[:5]:  # Limite aux 5 premières pour les logs
+                logger.info(f"[LOAD_CONFIG] - {t.get('name', 'NO_NAME')}: primary_key='{t.get('primary_key', 'NOT_SET')}'")
+
         return tables_config if isinstance(tables_config, list) else []
 
     def _enrich_table_config(self, table_config: Dict, current_status: Dict) -> Dict:
@@ -404,6 +410,9 @@ class AMUETableFilter:
         """
         enriched = table_config.copy()
 
+        # DEBUG: Afficher ce qui vient de la variable Airflow
+        logger.info(f"[ENRICH] Table {enriched.get('name')}: Config originale primary_key='{table_config.get('primary_key', 'NOT_SET')}'")
+
         # Ajoute les valeurs par défaut
         enriched.setdefault('primary_key', '')
         enriched.setdefault('delta', '')
@@ -411,10 +420,14 @@ class AMUETableFilter:
         enriched.setdefault('finger_print', '')
 
         # Récupération automatique des clés primaires si absentes
-        if not enriched.get('primary_key') or not enriched['primary_key'].strip():
-            logger.info(f"[FILTER] Table {enriched['name']}: Clés primaires absentes, récupération via API")
+        pk_value = enriched.get('primary_key', '')
+        logger.info(f"[ENRICH] Table {enriched['name']}: primary_key après setdefault='{pk_value}'")
+
+        if not pk_value or not pk_value.strip():
+            logger.info(f"[ENRICH] Table {enriched['name']}: PKs absentes -> needs_pk_update=True")
             enriched['needs_pk_update'] = True
         else:
+            logger.info(f"[ENRICH] Table {enriched['name']}: PKs présentes='{pk_value}' -> needs_pk_update=False")
             enriched['needs_pk_update'] = False
 
         # Ajoute le statut actuel

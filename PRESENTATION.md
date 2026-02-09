@@ -193,7 +193,7 @@ Le DAG `amue_multi_table_import` automatise l'import quotidien de données finan
 **Vérifications effectuées** :
 1. **Statut** : La table a bien statut=OK dans l'API
 2. **Structure** : Récupère les colonnes et types depuis l'API
-3. **Clés primaires** : Récupère les PK (ou les obtient via API si absentes)
+3. **Clés primaires** : Utilise les PK configurées dans les variables Airflow (ou les obtient via API si absentes)
 4. **Fingerprint** : Calcule le hash MD5 de la structure
 5. **Changement** : Compare avec le fingerprint stocké
 
@@ -626,6 +626,7 @@ Le script `manage.sh` est le **point d'entrée unique** pour gérer l'ensemble d
 | **Credentials sécurisés** | Stockage `.env` uniquement | Pas de secrets dans le code |
 | **Streaming données** | Générateur Python pour l'import | Mémoire constante même gros volumes |
 | **Parallélisation** | Tasks verify/prepare/import en parallèle | Temps d'exécution réduit |
+| **Tests automatisés** | 449 tests unitaires (pytest) | Détection rapide des régressions |
 
 ---
 
@@ -633,7 +634,6 @@ Le script `manage.sh` est le **point d'entrée unique** pour gérer l'ensemble d
 
 | Point | Impact | Effort | Recommandation |
 |-------|--------|--------|----------------|
-| **Pas de tests automatisés** | Risque régression élevé | Moyen | pytest + mocks API/DB |
 | **Pas de monitoring** | Détection tardive problèmes | Moyen | Prometheus + Grafana |
 | **Pas de dry-run** | Impossible tester sans impacter | Faible | Mode simulation |
 | **Config dispersée** | Variables Airflow + JSON + .env | Faible | Fichier unique par env |
@@ -730,7 +730,7 @@ DemoDAGS/
 │       ├── airflow_helpers.py    # Gestion variables Airflow
 │       ├── logger.py             # Logger centralisé
 │       ├── settings.py           # Configuration
-│       └── transformers.py       # Types Oracle→PG + fingerprint
+│       └── transformers.py       # Types SQLite→PG + fingerprint
 │
 ├── scripts/
 │   ├── install/

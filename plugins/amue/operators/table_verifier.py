@@ -75,6 +75,8 @@ from typing import Dict, List
 
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+import json
+from amue.exceptions import AMUESchemaError, AMUEStructureChangedError, AMUETableNotFoundError
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.hooks import create_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
@@ -117,13 +119,22 @@ def _check_structure_change(table_name: str, new_fingerprint: str,
 class AMUETableVerifier:
     """Vérifie le statut et la structure des tables"""
 
-    def __init__(self, api_hook, postgres_hook: PostgresHook = None):
+    def __init__(self, api_hook, postgres_hook: PostgresHook = None, target_schema: str = None):
         # Validation des paramètres requis
         if api_hook is None:
             raise ValueError("api_hook est requis pour AMUETableVerifier")
 
         self.api_hook = api_hook
-        self.postgres_hook = postgres_hook or create_postgres_hook()
+        self.target_schema = target_schema
+
+        # Crée le hook avec le schéma cible si spécifié
+        if postgres_hook:
+            self.postgres_hook = postgres_hook
+        elif target_schema:
+            self.postgres_hook = create_postgres_hook(bluegreen_schema=target_schema)
+        else:
+            self.postgres_hook = create_postgres_hook()
+
         self.environment = VarMgr.get('environment', default='production')
         try:
             univ = VarMgr.get('universite')
@@ -138,6 +149,9 @@ class AMUETableVerifier:
             self.endpoint = Template(endpointadm).substitute(univ=univ)
         except KeyError as e:
             raise AirflowException(f"Erreur lors de la substitution dans l'endpoint: {e}")
+
+        if target_schema:
+            logger.info(f"[VERIFY] Schéma cible blue/green: {target_schema}")
 
     def verify_status(self, table_info: Dict) -> Dict:
         """Vérifie le statut d'une table"""
@@ -178,25 +192,32 @@ class AMUETableVerifier:
         table_name = table_info.get('name', 'unknown')
         logger.info(f"[STRUCTURE_CHECK] Vérification structure: {table_name}")
 
+        # DEBUG: Afficher toutes les clés de table_info
+        logger.info(f"[STRUCTURE_CHECK] table_info keys: {list(table_info.keys())}")
+        logger.info(f"[STRUCTURE_CHECK] table_info['primary_key'] = '{table_info.get('primary_key', 'NOT_SET')}'")
+
         try:
             # Récupère la structure depuis l'API
             columns = self._fetch_structure(table_name)
 
             # Récupère les clés primaires
             primary_keys = table_info.get('primary_key', '')
-            needs_pk_update = table_info.get('needs_pk_update', False)
 
-            if not primary_keys or needs_pk_update:
-                logger.info(f"[STRUCTURE_CHECK] Clés primaires absentes ou à mettre à jour")
-                logger.info(f"[STRUCTURE_CHECK] Récupération depuis API...")
+            logger.info(f"[STRUCTURE_CHECK] primary_keys='{primary_keys}'")
+
+            if not primary_keys:
+                logger.info(f"[STRUCTURE_CHECK] => Récupération PKs depuis API...")
                 primary_keys = self._fetch_primary_keys(table_name)
+                logger.info(f"[STRUCTURE_CHECK] PKs retournées par API: '{primary_keys}'")
 
                 if primary_keys:
-                    logger.info(f"[STRUCTURE_CHECK] Clés primaires récupérées: {primary_keys}")
+                    logger.info(f"[STRUCTURE_CHECK] => Appel _save_primary_keys({table_name}, {primary_keys})")
+                    # Persister immédiatement dans la variable Airflow
+                    self._save_primary_keys(table_name, primary_keys)
                 else:
                     logger.warning(f"[WARN] Aucune clé primaire trouvée pour {table_name}")
             else:
-                logger.info(f"[STRUCTURE_CHECK] Clés primaires existantes: {primary_keys}")
+                logger.info(f"[STRUCTURE_CHECK] => PKs déjà présentes, pas de fetch: {primary_keys}")
 
             # NOUVEAU: Calcul du fingerprint avec les clés primaires
             finger_print = compute_structure_hash_with_pk(columns, primary_keys)
@@ -233,7 +254,6 @@ class AMUETableVerifier:
                 'primary_keys': primary_keys,
                 'exists': exists,
                 'structure_changed': structure_changed,
-                'needs_pk_update': needs_pk_update  # Pour mise à jour ultérieure
             }
 
         except Exception as e:
@@ -311,15 +331,82 @@ class AMUETableVerifier:
             logger.error(f"[ERROR] Erreur lors de la récupération des clés: {str(e)}")
             return ''
 
+    def _save_primary_keys(self, table_name: str, primary_keys: str) -> None:
+        """
+        Persiste les clés primaires dans la variable Airflow immédiatement.
+
+        Cette méthode met à jour la variable amue_tables_to_import pour stocker
+        les PKs récupérées depuis l'API, permettant ainsi à l'importeur de les
+        utiliser sans les passer en paramètre.
+
+        Args:
+            table_name: Nom de la table
+            primary_keys: Clés primaires séparées par virgules
+        """
+        logger.info(f"[SAVE_PK] Tentative sauvegarde PKs pour {table_name}: '{primary_keys}'")
+
+        if not primary_keys:
+            logger.warning(f"[SAVE_PK] PKs vides pour {table_name}, abandon")
+            return
+
+        try:
+            tables_var = VarMgr.get('amue_tables_to_import', default='[]')
+            logger.info(f"[SAVE_PK] Variable chargée, type={type(tables_var).__name__}")
+
+            tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
+            logger.info(f"[SAVE_PK] Config parsée: {len(tables_config)} tables")
+
+            # Debug: lister les noms de tables dans la config
+            config_names = [t.get('name', 'NO_NAME') for t in tables_config if isinstance(t, dict)]
+            logger.info(f"[SAVE_PK] Tables dans config: {config_names}")
+
+            updated = False
+            table_found = False
+            for table in tables_config:
+                config_name = table.get('name', '')
+                if config_name.upper() == table_name.upper():
+                    table_found = True
+                    old_pk = table.get('primary_key', '')
+                    logger.info(f"[SAVE_PK] Table trouvée! old_pk='{old_pk}', new_pk='{primary_keys}'")
+
+                    if old_pk != primary_keys:
+                        table['primary_key'] = primary_keys
+                        updated = True
+                        logger.info(f"[SAVE_PK] PKs marquées pour mise à jour: {old_pk} -> {primary_keys}")
+                    else:
+                        logger.info(f"[SAVE_PK] PKs identiques, pas de mise à jour nécessaire")
+                    break
+
+            if not table_found:
+                logger.error(f"[SAVE_PK] Table {table_name} NON TROUVÉE dans la config!")
+                return
+
+            if updated:
+                new_config_json = json.dumps(tables_config)
+                logger.info(f"[SAVE_PK] Appel VarMgr.set() avec {len(new_config_json)} caractères")
+                success = VarMgr.set('amue_tables_to_import', new_config_json)
+                if success:
+                    logger.info(f"[SAVE_PK] SUCCESS - Variable Airflow mise à jour pour {table_name}")
+                else:
+                    logger.error(f"[SAVE_PK] ECHEC - VarMgr.set() a retourné False pour {table_name}")
+            else:
+                logger.info(f"[SAVE_PK] Pas de mise à jour nécessaire pour {table_name}")
+
+        except Exception as e:
+            logger.error(f"[SAVE_PK] EXCEPTION pour {table_name}: {type(e).__name__}: {e}")
+
     def _table_exists(self, table_name: str) -> bool:
-        """Vérifie si une table existe en base"""
+        """Vérifie si une table existe en base dans le schéma cible"""
+        # Détermine le schéma à vérifier
+        schema_to_check = self.target_schema if self.target_schema else 'splus'
+
         check_sql = """
                     SELECT EXISTS (SELECT 1
                                    FROM information_schema.tables
-                                   WHERE table_schema = 'splus'
+                                   WHERE table_schema = %s
                                      AND table_name = %s)
                     """
-        result = self.postgres_hook.get_first(check_sql, parameters=(table_name.lower(),))
+        result = self.postgres_hook.get_first(check_sql, parameters=(schema_to_check, table_name.lower(),))
         return result[0] if result else False
 
     def verify_table(self, table_info: Dict) -> Dict:

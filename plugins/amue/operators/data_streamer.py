@@ -105,8 +105,9 @@ class AMUEDataStreamer:
 
         if import_type == 'differential' and delta_column and last_import:
             last_import_str = self._format_date_for_query(last_import)
-            params['q'] = f"{delta_column}='{last_import_str}'"
-            logger.info(f"Delta: {params['q']}")
+            # Utilise >= pour récupérer toutes les modifications depuis le dernier import
+            params['q'] = f"{delta_column}>='{last_import_str}'"
+            logger.info(f"Delta (plage): {params['q']}")
 
         return params
 

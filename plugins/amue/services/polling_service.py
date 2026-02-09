@@ -106,6 +106,7 @@ class AMUEPollingService:
     - Timeout global pour éviter les attentes infinies
     - Logs détaillés de progression
     - Métriques d'exécution (tentatives, temps d'attente)
+    - Cache du tables_status pour éviter un appel API supplémentaire
     """
 
     def __init__(self, status_checker, config: Optional[PollingConfig] = None):
@@ -119,6 +120,7 @@ class AMUEPollingService:
         self.status_checker = status_checker
         self.config = config or self._load_default_config()
         self.start_time = None
+        self._cached_tables_status = None  # Cache pour éviter appel API supplémentaire
 
     def _load_default_config(self) -> PollingConfig:
         """Charge la configuration depuis les variables Airflow"""
@@ -128,6 +130,95 @@ class AMUEPollingService:
             exponential_backoff=VarMgr.get('amue_polling_exponential_backoff', default='False').lower() == 'true',
             max_backoff_minutes=int(VarMgr.get('amue_polling_max_backoff_minutes', default='60'))
         )
+
+    def _validate_finish_timestamp(self, finish_value: str) -> bool:
+        """
+        Valide le format du timestamp finish retourné par l'API.
+
+        Args:
+            finish_value: Valeur du finish à valider
+
+        Returns:
+            True si le format est valide
+        """
+        if not finish_value or not finish_value.strip():
+            logger.warning("[POLLING] Finish timestamp vide ou invalide")
+            return False
+
+        # Vérifie que ce n'est pas une valeur par défaut ou placeholder
+        invalid_values = ['', 'null', 'none', 'undefined', '0', '00000000']
+        if finish_value.lower().strip() in invalid_values:
+            logger.warning(f"[POLLING] Finish timestamp invalide: '{finish_value}'")
+            return False
+
+        # Log le format pour traçabilité
+        logger.info(f"[POLLING] Finish timestamp valide: {finish_value}")
+        return True
+
+    def _should_skip_import(self, current_finish: str) -> bool:
+        """
+        Vérifie si l'import doit être ignoré car le timestamp finish est inchangé.
+
+        Compare le timestamp finish actuel avec celui du dernier import réussi.
+        Si identique, cela signifie qu'aucune nouvelle donnée n'est disponible.
+
+        Comportement:
+        - Première exécution (pas de timestamp stocké): import exécuté
+        - Force import activé: import toujours exécuté
+        - Même timestamp: import ignoré
+        - Nouveau timestamp: import exécuté
+
+        Args:
+            current_finish: Timestamp finish retourné par l'API
+
+        Returns:
+            True si l'import doit être ignoré
+        """
+        # Option pour forcer l'import (utile pour debug ou réimport manuel)
+        force_import = VarMgr.get('amue_force_import', default='false').lower() == 'true'
+        if force_import:
+            logger.info("[POLLING] Force import activé (amue_force_import=true)")
+            logger.info("[POLLING] Import sera exécuté même si timestamp inchangé")
+            return False
+
+        # Valide le timestamp courant
+        if not self._validate_finish_timestamp(current_finish):
+            logger.warning("[POLLING] Finish invalide - import exécuté par précaution")
+            return False
+
+        # Récupère le timestamp précédent
+        stored_finish = VarMgr.get('amue_last_finish_timestamp', default='')
+
+        # Première exécution - pas de timestamp précédent
+        if not stored_finish or not stored_finish.strip():
+            logger.info("[POLLING] ═══════════════════════════════════════════")
+            logger.info("[POLLING] PREMIÈRE EXÉCUTION DÉTECTÉE")
+            logger.info("[POLLING] ═══════════════════════════════════════════")
+            logger.info("[POLLING] Aucun timestamp précédent enregistré")
+            logger.info(f"[POLLING] Timestamp actuel de l'API: {current_finish}")
+            logger.info("[POLLING] L'import sera exécuté et ce timestamp sera sauvegardé")
+            logger.info("[POLLING] Les prochaines exécutions compareront avec cette valeur")
+            return False
+
+        # Comparaison des timestamps
+        if stored_finish == current_finish:
+            logger.info("[POLLING] ═══════════════════════════════════════════")
+            logger.info("[POLLING] TIMESTAMP INCHANGÉ")
+            logger.info("[POLLING] ═══════════════════════════════════════════")
+            logger.info(f"[POLLING] Timestamp stocké:  {stored_finish}")
+            logger.info(f"[POLLING] Timestamp actuel:  {current_finish}")
+            logger.info("[POLLING] Pas de nouvelles données disponibles")
+            logger.info("[POLLING] Pour forcer l'import: amue_force_import=true")
+            return True
+
+        # Nouveau timestamp détecté
+        logger.info("[POLLING] ═══════════════════════════════════════════")
+        logger.info("[POLLING] NOUVEAU TIMESTAMP DÉTECTÉ")
+        logger.info("[POLLING] ═══════════════════════════════════════════")
+        logger.info(f"[POLLING] Timestamp précédent: {stored_finish}")
+        logger.info(f"[POLLING] Timestamp actuel:    {current_finish}")
+        logger.info("[POLLING] De nouvelles données sont disponibles")
+        return False
 
     def wait_for_ready(self) -> Dict:
         """
@@ -155,23 +246,32 @@ class AMUEPollingService:
             # Log de progression
             self._log_attempt(attempt, max_attempts)
 
-            # Vérification du statut
+            # Vérification du statut - UN SEUL appel API au lieu de 2
             try:
-                status_code = self.status_checker.check_status_code()
+                status_result = self.status_checker.fetch_full_status()
+
+                status_code = status_result['http_status']
+                finish_value = status_result.get('finish')
                 last_status_code = status_code
+                last_finish_value = finish_value
 
                 logger.info(f"[POLLING] Code HTTP reçu: {status_code}")
 
                 # Si code 200, vérifier la variable 'finish'
                 if status_code == 200:
-                    finish_value = self.status_checker.check_finish_status()
-                    last_finish_value = finish_value
-
                     logger.info(f"[POLLING] Variable 'finish' : {finish_value}")
 
                     if finish_value:
-                        logger.info("[POLLING] API prête (finish renseigné)")
-                        return self._build_success_result(attempt, finish_value)
+                        # Stocke les tables_status pour éviter l'appel supplémentaire
+                        self._cached_tables_status = status_result.get('tables_status', {})
+
+                        # Vérifie si le timestamp est nouveau
+                        if self._should_skip_import(finish_value):
+                            logger.info("[POLLING] Timestamp inchangé - on continue le polling...")
+                            # On continue la boucle au lieu de skip
+                        else:
+                            logger.info("[POLLING] API prête (finish renseigné, nouvelles données)")
+                            return self._build_success_result(attempt, finish_value)
                     else:
                         logger.info("[POLLING] Traitement en cours côté AMUE (finish non renseigné)")
                         logger.info("[POLLING] Attente de la fin du traitement...")
@@ -334,6 +434,8 @@ class AMUEPollingService:
         result_dict = self._result_to_dict(result)
         result_dict['finish'] = finish_value
         result_dict['start_time'] = self.start_time.isoformat()
+        # Inclut tables_status pour éviter appel API supplémentaire dans le DAG
+        result_dict['tables_status'] = self._cached_tables_status or {}
         return result_dict
 
     def _build_timeout_result(

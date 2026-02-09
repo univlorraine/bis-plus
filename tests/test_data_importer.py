@@ -50,7 +50,7 @@ class TestDataStreamer:
         assert 'q' not in params
 
     def test_build_query_params_differential(self):
-        """Test construction params pour import differentiel"""
+        """Test construction params pour import differentiel avec plage (>=)"""
         from amue.operators.data_streamer import AMUEDataStreamer
 
         mock_api_hook = MagicMock()
@@ -67,6 +67,8 @@ class TestDataStreamer:
         assert 'q' in params
         assert 'AEDAT' in params['q']
         assert '20240115' in params['q']
+        # Vérifie que c'est bien >= (plage) et pas = (égalité)
+        assert ">=" in params['q']
 
 
 class TestBatchInserter:

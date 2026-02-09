@@ -98,6 +98,111 @@ from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# CONSTANTES CENTRALISÉES
+# =============================================================================
+
+class Defaults:
+    """
+    Constantes par défaut centralisées pour tout le module AMUE.
+
+    Utilisation:
+        from amue.utils.settings import Defaults
+        batch_size = Defaults.IMPORT_BATCH_SIZE
+    """
+
+    # --- API ---
+    API_MAX_RETRIES: int = 3
+    API_RETRY_DELAY_SECONDS: int = 30
+    API_TIMEOUT_SECONDS: int = 60
+    API_CONNECTION_ID: str = "oauth_api"
+
+    # --- Polling ---
+    POLLING_INTERVAL_MINUTES: int = 10
+    POLLING_MAX_WAIT_HOURS: int = 6
+    POLLING_MAX_INTERVAL_MINUTES: int = 60
+    POLLING_BACKOFF_FACTOR: float = 1.5
+
+    # --- Import ---
+    IMPORT_BATCH_SIZE: int = 5000
+    IMPORT_BATCH_SIZE_MIN: int = 100
+    IMPORT_BATCH_SIZE_MAX: int = 50000
+    IMPORT_MAX_MEMORY_MB: int = 512
+    IMPORT_LOG_EVERY_N_BATCHES: int = 10  # Log tous les N batchs
+    IMPORT_MAX_PARALLEL_TABLES: int = 10
+
+    # --- Database ---
+    DB_CONNECTION_ID: str = "postgres_data"
+    DB_SCHEMA: str = "splus"
+    DB_SCHEMA_BLUE: str = "splus_blue"
+    DB_SCHEMA_GREEN: str = "splus_green"
+    DB_CONNECTION_TIMEOUT_SECONDS: int = 30
+
+    # --- Blue/Green ---
+    BLUEGREEN_ENABLED: bool = False
+    BLUEGREEN_DEFAULT_ACTIVE: str = "blue"
+    BLUEGREEN_LOCK_TIMEOUT_MINUTES: int = 120  # 2 heures max pour un import
+
+    # --- History ---
+    MAX_HISTORY_DAYS: int = 7
+
+    # --- Email ---
+    SMTP_HOST: str = "mailhog"
+    SMTP_PORT: int = 1025
+    SMTP_FROM: str = "airflow@amue.local"
+    SMTP_TIMEOUT_SECONDS: int = 30
+
+    # --- Data ---
+    DEFAULT_SOURCE: str = "sifac_plus"
+    META_COLUMN_SOURCE: str = "_source"
+    META_COLUMN_IMPORTED_AT: str = "_imported_at"
+
+    # --- Logging ---
+    LOG_PREFIX_IMPORT: str = "[IMPORT]"
+    LOG_PREFIX_BATCH: str = "[BATCH]"
+    LOG_PREFIX_API: str = "[API]"
+    LOG_PREFIX_BLUEGREEN: str = "[BLUEGREEN]"
+    LOG_PREFIX_SYNC: str = "[SYNC]"
+    LOG_PREFIX_SWITCH: str = "[SWITCH]"
+
+    # --- Validation ---
+    TABLE_NAME_MAX_LENGTH: int = 63  # PostgreSQL limit
+    COLUMN_NAME_MAX_LENGTH: int = 63
+    UNIVERSITE_MIN_LENGTH: int = 2
+    UNIVERSITE_MAX_LENGTH: int = 50
+
+    @classmethod
+    def calculate_batch_size(cls, column_count: int) -> int:
+        """
+        Calcule la taille de batch optimale selon le nombre de colonnes.
+
+        Args:
+            column_count: Nombre de colonnes dans la table
+
+        Returns:
+            Taille de batch recommandée
+        """
+        base_size = cls.IMPORT_BATCH_SIZE
+        if column_count > 100:
+            return max(cls.IMPORT_BATCH_SIZE_MIN, base_size // 4)
+        elif column_count > 50:
+            return max(cls.IMPORT_BATCH_SIZE_MIN, base_size // 2)
+        return base_size
+
+    @classmethod
+    def get_log_prefix(cls, component: str) -> str:
+        """Retourne le préfixe de log pour un composant"""
+        prefixes = {
+            'import': cls.LOG_PREFIX_IMPORT,
+            'batch': cls.LOG_PREFIX_BATCH,
+            'api': cls.LOG_PREFIX_API,
+            'bluegreen': cls.LOG_PREFIX_BLUEGREEN,
+            'sync': cls.LOG_PREFIX_SYNC,
+            'switch': cls.LOG_PREFIX_SWITCH,
+        }
+        return prefixes.get(component.lower(), f"[{component.upper()}]")
+
+
 @dataclass
 class AMUEConfig:
     """
@@ -111,27 +216,26 @@ class AMUEConfig:
     universite: str                     # Variable: universite (obligatoire)
     api_endpoint_admin: str             # Variable: api_endpoint_admin (obligatoire)
     api_endpoint_table: str             # Variable: api_endpoint_table (obligatoire)
-    api_max_retries: int = 3            # Variable: amue_api_max_retries
-    api_retry_delay_seconds: int = 30   # Variable: amue_api_retry_delay_seconds
+    api_max_retries: int = Defaults.API_MAX_RETRIES
+    api_retry_delay_seconds: int = Defaults.API_RETRY_DELAY_SECONDS
 
     # --- Polling ---
-    polling_interval_minutes: int = 10  # Variable: amue_polling_interval_minutes
-    polling_max_wait_hours: int = 6     # Variable: amue_max_wait_hours
-    polling_exponential_backoff: bool = False  # Variable: amue_polling_exponential_backoff
+    polling_interval_minutes: int = Defaults.POLLING_INTERVAL_MINUTES
+    polling_max_wait_hours: int = Defaults.POLLING_MAX_WAIT_HOURS
+    polling_exponential_backoff: bool = False
 
     # --- Import ---
-    import_batch_size: int = 5000       # Variable: amue_import_batch_size
-    import_max_memory_mb: int = 512     # Non configurable via variable
+    import_batch_size: int = Defaults.IMPORT_BATCH_SIZE
+    import_max_memory_mb: int = Defaults.IMPORT_MAX_MEMORY_MB
 
     # --- Historique ---
-    max_history_days: int = 7           # Variable: amue_max_history_days
+    max_history_days: int = Defaults.MAX_HISTORY_DAYS
 
     # --- Email ---
-    smtp_host: str = 'mailhog'          # Variable: smtp_host
-    smtp_port: int = 1025               # Variable: smtp_port
-    smtp_from: str = 'airflow@amue.local'  # Variable: smtp_mail_from
+    smtp_host: str = Defaults.SMTP_HOST
+    smtp_port: int = Defaults.SMTP_PORT
+    smtp_from: str = Defaults.SMTP_FROM
     report_recipients: List[str] = field(default_factory=lambda: ['admin@example.com'])
-                                        # Variable: amue_report_recipients
 
     # --- Environnement ---
     environment: str = 'production'     # Variable: environment ("dev" ou "production")
@@ -231,22 +335,22 @@ class AMUEConfig:
             api_endpoint_table=get_var('api_endpoint_table', required=True),
 
             # API
-            api_max_retries=int(get_var('amue_api_max_retries', 3)),
-            api_retry_delay_seconds=int(get_var('amue_api_retry_delay_seconds', 30)),
+            api_max_retries=int(get_var('amue_api_max_retries', Defaults.API_MAX_RETRIES)),
+            api_retry_delay_seconds=int(get_var('amue_api_retry_delay_seconds', Defaults.API_RETRY_DELAY_SECONDS)),
 
             # Polling
-            polling_interval_minutes=int(get_var('amue_polling_interval_minutes', 10)),
-            polling_max_wait_hours=int(get_var('amue_max_wait_hours', 6)),
+            polling_interval_minutes=int(get_var('amue_polling_interval_minutes', Defaults.POLLING_INTERVAL_MINUTES)),
+            polling_max_wait_hours=int(get_var('amue_max_wait_hours', Defaults.POLLING_MAX_WAIT_HOURS)),
             polling_exponential_backoff=get_var('amue_polling_exponential_backoff', 'false').lower() == 'true',
 
             # Import
-            import_batch_size=int(get_var('amue_import_batch_size', 5000)),
-            max_history_days=int(get_var('amue_max_history_days', 7)),
+            import_batch_size=int(get_var('amue_import_batch_size', Defaults.IMPORT_BATCH_SIZE)),
+            max_history_days=int(get_var('amue_max_history_days', Defaults.MAX_HISTORY_DAYS)),
 
             # Email
-            smtp_host=get_var('smtp_host', 'mailhog'),
-            smtp_port=int(get_var('smtp_port', 1025)),
-            smtp_from=get_var('smtp_mail_from', 'airflow@amue.local'),
+            smtp_host=get_var('smtp_host', Defaults.SMTP_HOST),
+            smtp_port=int(get_var('smtp_port', Defaults.SMTP_PORT)),
+            smtp_from=get_var('smtp_mail_from', Defaults.SMTP_FROM),
             report_recipients=recipients,
 
             # Environnement

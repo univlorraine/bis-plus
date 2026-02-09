@@ -8,7 +8,7 @@ RÔLE DU MODULE
 Ce module contient des fonctions utilitaires de trois catégories :
 
 1. VALIDATION (protection contre les injections SQL)
-2. TRANSFORMATION DE TYPES (Oracle/AMUE → PostgreSQL)
+2. TRANSFORMATION DE TYPES (SQLite/AMUE → PostgreSQL)
 3. FINGERPRINT (empreinte de structure pour détection des changements)
 
 ================================================================================
@@ -29,21 +29,36 @@ Règles appliquées :
 2. TRANSFORMATION DE TYPES
 ================================================================================
 
-L'API AMUE renvoie des types Oracle qu'il faut convertir en PostgreSQL :
+L'API AMUE renvoie des types SQLite qu'il faut convertir en PostgreSQL :
 
 ┌────────────────────┬────────────────────┬────────────────────────────────┐
-│ Type AMUE/Oracle   │ Type PostgreSQL    │ Notes                          │
+│ Type SQLite         │ Type PostgreSQL    │ Notes                          │
 ├────────────────────┼────────────────────┼────────────────────────────────┤
-│ VARCHAR2(50)       │ VARCHAR(50)        │ Chaîne variable                │
-│ NUMBER(10,2)       │ NUMERIC(10,2)      │ Nombre décimal                 │
-│ NUMBER(10)         │ NUMERIC(10)        │ Entier                         │
-│ CHAR(10)           │ BPCHAR(10)         │ Chaîne fixe (blank-padded)     │
-│ DATE               │ TIMESTAMP          │ Date+heure                     │
+│ TEXT               │ TEXT               │ Texte                          │
 │ CLOB               │ TEXT               │ Texte long                     │
-│ BLOB               │ BYTEA              │ Binaire                        │
+│ VARCHAR(50)        │ VARCHAR(50)        │ Chaîne variable                │
+│ NVARCHAR(50)       │ VARCHAR(50)        │ Chaîne variable unicode        │
+│ CHAR(10)           │ BPCHAR(10)         │ Chaîne fixe (blank-padded)     │
+│ CHARACTER(10)      │ BPCHAR(10)         │ Chaîne fixe                    │
+│ NCHAR(10)          │ BPCHAR(10)         │ Chaîne fixe unicode            │
 │ INTEGER(1)         │ SMALLINT           │ Petit entier                   │
 │ INTEGER(4)         │ INTEGER            │ Entier standard                │
 │ INTEGER(8)         │ BIGINT             │ Grand entier                   │
+│ TINYINT            │ SMALLINT           │ Petit entier                   │
+│ SMALLINT           │ SMALLINT           │ Petit entier                   │
+│ MEDIUMINT          │ INTEGER            │ Entier moyen                   │
+│ BIGINT             │ BIGINT             │ Grand entier                   │
+│ INT2               │ SMALLINT           │ Alias SMALLINT                 │
+│ INT8               │ BIGINT             │ Alias BIGINT                   │
+│ NUMERIC(10,2)      │ NUMERIC(10,2)      │ Nombre décimal                 │
+│ DECIMAL(10,2)      │ NUMERIC(10,2)      │ Nombre décimal                 │
+│ BOOLEAN            │ BOOLEAN            │ Booléen                        │
+│ REAL               │ DOUBLE PRECISION   │ Réel                           │
+│ DOUBLE             │ DOUBLE PRECISION   │ Réel double précision          │
+│ FLOAT              │ DOUBLE PRECISION   │ Réel                           │
+│ DATE               │ TIMESTAMP          │ Date+heure                     │
+│ DATETIME           │ TIMESTAMP          │ Date+heure                     │
+│ BLOB               │ BYTEA              │ Binaire                        │
 └────────────────────┴────────────────────┴────────────────────────────────┘
 
 ================================================================================
@@ -76,7 +91,7 @@ USAGE
     safe_col = validate_column_name('MY_COL')  # 'my_col'
 
     # Transformation de type
-    pg_type = parse_column_definition('VARCHAR2(50)')  # 'VARCHAR(50)'
+    pg_type = parse_column_definition('VARCHAR(50)')  # 'VARCHAR(50)'
 
     # Fingerprint
     hash = compute_structure_hash_with_pk(columns, 'id,code')
@@ -194,18 +209,18 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 
 def parse_column_definition(definition: str) -> str:
     """
-    Convertit une définition de colonne AMUE/Oracle en type PostgreSQL
+    Convertit une définition de colonne SQLite en type PostgreSQL
 
     Args:
-        definition: Type de colonne AMUE (ex: 'VARCHAR2(50)', 'NUMBER(10,2)', 'CHAR(10)')
+        definition: Type de colonne SQLite (ex: 'VARCHAR(50)', 'NUMERIC(10,2)', 'CHAR(10)')
 
     Returns:
         Type PostgreSQL équivalent (ex: 'VARCHAR(50)', 'NUMERIC(10,2)', 'BPCHAR(10)')
 
     Examples:
-        >>> parse_column_definition('VARCHAR2(50)')
+        >>> parse_column_definition('VARCHAR(50)')
         'VARCHAR(50)'
-        >>> parse_column_definition('NUMBER(10,2)')
+        >>> parse_column_definition('NUMERIC(10,2)')
         'NUMERIC(10,2)'
         >>> parse_column_definition('INTEGER(1)')
         'SMALLINT'
@@ -214,22 +229,38 @@ def parse_column_definition(definition: str) -> str:
     """
     definition = definition.strip()
 
-    # Mapping des types AMUE/Oracle vers PostgreSQL
+    # Mapping des types SQLite vers PostgreSQL
     type_mapping = {
-        'VARCHAR2': 'VARCHAR',
-        'NUMBER': 'NUMERIC',
-        'DATE': 'TIMESTAMP',
+        # Texte
+        'TEXT': 'TEXT',
         'CLOB': 'TEXT',
-        'BLOB': 'BYTEA',
         'CHAR': 'BPCHAR',
+        'CHARACTER': 'BPCHAR',
         'VARCHAR': 'VARCHAR',
+        'NCHAR': 'BPCHAR',
+        'NVARCHAR': 'VARCHAR',
+        # Entiers
         'INTEGER': 'INTEGER',
         'INT': 'INTEGER',
-        'FLOAT': 'DOUBLE PRECISION',
-        'DECIMAL': 'NUMERIC',
+        'TINYINT': 'SMALLINT',
         'SMALLINT': 'SMALLINT',
+        'MEDIUMINT': 'INTEGER',
         'BIGINT': 'BIGINT',
-        'DEC': 'NUMERIC',
+        'INT2': 'SMALLINT',
+        'INT8': 'BIGINT',
+        # Numériques
+        'NUMERIC': 'NUMERIC',
+        'DECIMAL': 'NUMERIC',
+        'BOOLEAN': 'BOOLEAN',
+        # Réels
+        'REAL': 'DOUBLE PRECISION',
+        'DOUBLE': 'DOUBLE PRECISION',
+        'FLOAT': 'DOUBLE PRECISION',
+        # Dates
+        'DATE': 'TIMESTAMP',
+        'DATETIME': 'TIMESTAMP',
+        # Binaires
+        'BLOB': 'BYTEA',
     }
 
     # Parse le type et ses paramètres (ex: VARCHAR2(50) -> VARCHAR2 + (50))
@@ -261,7 +292,8 @@ def parse_column_definition(definition: str) -> str:
     # Types sans paramètres en PostgreSQL
     types_without_params = (
         'INTEGER', 'SMALLINT', 'BIGINT',
-        'TIMESTAMP', 'TEXT', 'DOUBLE PRECISION'
+        'TIMESTAMP', 'TEXT', 'DOUBLE PRECISION',
+        'BYTEA', 'BOOLEAN'
     )
 
     if pg_type in types_without_params and params:

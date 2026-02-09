@@ -41,15 +41,26 @@ Variables Airflow utilisees :
 
 ================================================================================
 """
+import json
 import logging
+from datetime import datetime
 from string import Template
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple, Any
 
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from amue.exceptions import (
+    AMUEImportError,
+    AMUEDataError,
+    AMUEDatabaseError,
+    AMUEBatchError,
+)
 from amue.operators.data_streamer import AMUEDataStreamer
 from amue.operators.batch_inserter import AMUEBatchInserter
 from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.hooks import create_postgres_hook
+from amue.utils.tracing import generate_correlation_id, TracingContext
+from amue.types_amue import ImportResult, ImportConfig
 
 logger = logging.getLogger(__name__)
 
@@ -86,24 +97,32 @@ class AMUEDataImporter:
     # Taille de batch par defaut pour l'insertion
     DEFAULT_BATCH_SIZE = 5000
 
-    def __init__(self, api_hook, postgres_hook: PostgresHook = None):
+    def __init__(self, api_hook: Any, postgres_hook: Optional[PostgresHook] = None, target_schema: Optional[str] = None):
         """
         Initialise l'importeur de donnees AMUE.
 
         Args:
             api_hook: Instance de AMUEAPIHook pour les appels API
             postgres_hook: Hook PostgreSQL optionnel (cree si non fourni)
+            target_schema: Schéma cible pour blue/green (ex: 'splus_blue')
+                          Si None, utilise le schéma par défaut 'splus'
 
         Raises:
             AirflowException: Si les variables obligatoires sont manquantes
         """
         self.api_hook = api_hook
+        self.target_schema = target_schema
 
-        # Connexion PostgreSQL avec schema splus par defaut
-        self.postgres_hook = postgres_hook or PostgresHook(
-            postgres_conn_id='postgres_data',
-            options='-c search_path=splus'
-        )
+        # Connexion PostgreSQL avec schema cible ou splus par defaut
+        if postgres_hook:
+            self.postgres_hook = postgres_hook
+        elif target_schema:
+            self.postgres_hook = create_postgres_hook(bluegreen_schema=target_schema)
+        else:
+            self.postgres_hook = PostgresHook(
+                postgres_conn_id='postgres_data',
+                options='-c search_path=splus'
+            )
 
         # Chargement des variables obligatoires
         try:
@@ -127,17 +146,81 @@ class AMUEDataImporter:
         self.retry_delay = int(VarMgr.get('amue_api_retry_delay_seconds', default='30'))
         self.batch_size = int(VarMgr.get('amue_import_batch_size', default=str(self.DEFAULT_BATCH_SIZE)))
 
-        # Initialisation des sous-services
+        # Initialisation des sous-services avec le schéma cible
         self.streamer = AMUEDataStreamer(api_hook, self.endpoint)
-        self.inserter = AMUEBatchInserter(self.postgres_hook)
+        self.inserter = AMUEBatchInserter(self.postgres_hook, target_schema=target_schema)
+
+        # Source par défaut pour les meta colonnes
+        self.default_source = VarMgr.get('amue_default_source', default='sifac_plus')
+
+        if target_schema:
+            logger.info(f"[IMPORT] Schéma cible blue/green: {target_schema}")
+
+    def _get_primary_keys_from_config(self, table_name: str) -> List[str]:  # noqa: C901
+        """
+        Récupère les clés primaires depuis la variable Airflow.
+
+        Args:
+            table_name: Nom de la table
+
+        Returns:
+            Liste des colonnes formant la clé primaire
+        """
+        try:
+            tables_var = VarMgr.get('amue_tables_to_import', default='[]')
+            tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
+
+            for table in tables_config:
+                if table.get('name', '').upper() == table_name.upper():
+                    pk_str = table.get('primary_key', '')
+                    if pk_str:
+                        return [pk.strip().lower() for pk in pk_str.split(',') if pk.strip()]
+            return []
+        except Exception as e:
+            logger.warning(f"Erreur lecture PKs depuis config pour {table_name}: {e}")
+            return []
+
+    def _get_text_columns(self, table_name: str, columns: List[str]) -> set:
+        """
+        Récupère les colonnes de type texte depuis information_schema.
+
+        Les colonnes texte (character, character varying, text) acceptent
+        les chaînes vides comme valeurs valides. Les autres types (numeric,
+        integer, bytea, timestamp...) doivent recevoir NULL au lieu de ''.
+
+        Args:
+            table_name: Nom de la table
+            columns: Liste des colonnes à vérifier
+
+        Returns:
+            Set des noms de colonnes qui sont de type texte
+        """
+        schema = self.target_schema or 'splus'
+        try:
+            sql = """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                  AND table_name = %s
+                  AND data_type IN ('character', 'character varying', 'text')
+            """
+            rows = self.postgres_hook.get_records(sql, parameters=(schema, table_name.lower()))
+            text_cols = {row[0] for row in rows} if rows else set()
+            logger.info(f"[IMPORT] {table_name}: {len(text_cols)} colonnes texte sur {len(columns)}")
+            return text_cols
+        except Exception as e:
+            logger.warning(f"[IMPORT] Impossible de récupérer les types de colonnes pour {table_name}: {e}")
+            # En cas d'erreur, on considère toutes les colonnes comme texte
+            # pour ne pas casser l'import (pas de conversion '' -> NULL)
+            return set(columns)
 
     def import_table(
         self,
         table_name: str,
         columns: List[str],
         primary_keys: List[str],
-        import_config: Dict
-    ) -> Dict:
+        import_config: Dict[str, Any]
+    ) -> ImportResult:
         """
         Importe les donnees d'une table depuis l'API vers PostgreSQL.
 
@@ -166,36 +249,76 @@ class AMUEDataImporter:
             }
 
         Raises:
-            AirflowException: Si l'import echoue (erreur API, DB, doublons...)
+            AMUEImportError: Si l'import echoue (erreur API, DB, doublons...)
+            AMUEDataError: Si les données sont invalides (doublons, PKs manquantes)
         """
-        logger.info(f"Table: {table_name}, type: {import_config.get('import_type', 'full')}")
+        correlation_id = generate_correlation_id("import")
+        logger.info(f"[{correlation_id}] Table: {table_name}, type: {import_config.get('import_type', 'full')}")
 
         try:
-            # Determine la strategie d'insertion
-            import_type = import_config.get('import_type', 'full')
-            use_upsert = import_type == 'differential' and bool(primary_keys)
+            with TracingContext(f"import_{table_name}") as ctx:
+                # Récupère les PKs depuis la variable Airflow (prioritaire sur paramètre)
+                config_pks = self._get_primary_keys_from_config(table_name)
+                if config_pks:
+                    primary_keys = config_pks
+                    logger.info(f"[{correlation_id}] PKs depuis config Airflow: {primary_keys}")
+                elif primary_keys:
+                    logger.info(f"[{correlation_id}] PKs depuis paramètre: {primary_keys}")
 
-            # Lance le streaming et l'insertion par batch
-            rows_inserted, rows_fetched = self._stream_and_insert(
-                table_name,
-                columns,
-                primary_keys,
-                import_config,
-                use_upsert
-            )
+                # UPSERT obligatoire - vérifie la présence de PKs
+                if not primary_keys:
+                    raise AMUEDataError(
+                        f"Table {table_name.upper()} sans primary_key définie - UPSERT impossible. "
+                        f"Configurez primary_key dans amue_tables_to_import ou vérifiez l'API.",
+                        table_name=table_name,
+                        correlation_id=correlation_id
+                    )
 
-            return {
-                'table_name': table_name,
-                'rows_inserted': rows_inserted,
-                'rows_fetched': rows_fetched,
-                'import_type': import_type,
-                'finger_print': import_config.get('finger_print', ''),
-                'status': 'success'
-            }
+                import_type = import_config.get('import_type', 'full')
+                # UPSERT toujours activé (plus de TRUNCATE)
+                use_upsert = True
+                logger.info(f"[{correlation_id}] Mode UPSERT forcé pour {table_name}")
 
-        except Exception as e:
-            logger.error(f"Erreur import {table_name}: {e}")
+                # Ajoute les meta colonnes à la liste des colonnes
+                columns_with_meta = list(columns) + ['_source', '_imported_at']
+
+                # Lance le streaming et l'insertion par batch
+                rows_inserted, rows_fetched = self._stream_and_insert(
+                    table_name,
+                    columns_with_meta,
+                    primary_keys,
+                    import_config,
+                    use_upsert,
+                    correlation_id
+                )
+
+                # Ajoute les métriques au contexte de tracing
+                ctx.add_metadata('rows_inserted', rows_inserted)
+                ctx.add_metadata('rows_fetched', rows_fetched)
+
+                return {
+                    'table_name': table_name,
+                    'rows_inserted': rows_inserted,
+                    'rows_fetched': rows_fetched,
+                    'import_type': import_type,
+                    'finger_print': import_config.get('finger_print', ''),
+                    'status': 'success',
+                    'correlation_id': correlation_id
+                }
+
+        except (AMUEImportError, AMUEDataError, AMUEDatabaseError, AMUEBatchError):
+            # Les exceptions AMUE sont propagées telles quelles
             raise
+        except AirflowException:
+            # Les AirflowException sont propagées telles quelles
+            raise
+        except Exception as e:
+            logger.error(f"[{correlation_id}] Erreur import {table_name}: {e}")
+            raise AMUEImportError(
+                f"Erreur inattendue lors de l'import de {table_name}: {e}",
+                table_name=table_name,
+                correlation_id=correlation_id
+            ) from e
         finally:
             self.inserter.close_connection()
 
@@ -204,43 +327,45 @@ class AMUEDataImporter:
         table_name: str,
         columns: List[str],
         primary_keys: List[str],
-        import_config: Dict,
-        use_upsert: bool
-    ) -> tuple:
+        import_config: Dict[str, Any],
+        use_upsert: bool,
+        correlation_id: str = ""
+    ) -> Tuple[int, int]:
         """
         Orchestre le streaming des donnees et leur insertion par batch.
 
-        Cette methode implemente deux strategies transactionnelles :
-
-        IMPORT FULL (transaction atomique) :
-            BEGIN -> TRUNCATE -> INSERT batch 1 -> INSERT batch 2 -> ... -> COMMIT
-            En cas d'erreur : ROLLBACK -> donnees originales intactes
-
-        IMPORT DIFFERENTIAL (commits par batch) :
+        UPSERT UNIQUEMENT - Plus de TRUNCATE/INSERT :
             UPSERT batch 1 -> COMMIT -> UPSERT batch 2 -> COMMIT -> ...
-            Plus resilient : les batchs deja committes sont conserves
+            Resilient : les batchs deja committes sont conserves
+            Pas de perte de données : les données existantes sont préservées
 
         Args:
             table_name: Nom de la table cible
-            columns: Liste des colonnes
+            columns: Liste des colonnes (incluant _source et _imported_at)
             primary_keys: Cles primaires pour UPSERT
             import_config: Configuration d'import
-            use_upsert: True pour UPSERT, False pour INSERT simple
+            use_upsert: Toujours True (conservé pour compatibilité)
+            correlation_id: ID de corrélation pour le tracing
 
         Returns:
             Tuple (rows_inserted, rows_fetched)
+
+        Raises:
+            AMUEDatabaseError: En cas d'erreur de connexion DB
+            AMUEBatchError: En cas d'erreur d'insertion batch
+            AMUEDataError: En cas de données invalides
         """
         conn = self.inserter.get_connection()
         cursor = conn.cursor()
 
-        import_type = import_config.get('import_type', 'full')
-        is_full_import = import_type == 'full'
+        # Plus de TRUNCATE - UPSERT uniquement
+        # Les colonnes de données (sans _source et _imported_at)
+        data_columns = [c for c in columns if c not in ('_source', '_imported_at')]
 
-        # FULL IMPORT : TRUNCATE dans la meme transaction
-        if is_full_import:
-            self.inserter.truncate_table(cursor, table_name)
+        # Récupère les types des colonnes pour savoir où convertir '' en NULL
+        text_columns = self._get_text_columns(table_name, data_columns)
 
-        # Prepare la requete SQL
+        # Prepare la requete SQL avec meta colonnes
         insert_sql = self.inserter.build_insert_sql(
             table_name, columns, primary_keys, use_upsert, conn
         )
@@ -248,6 +373,7 @@ class AMUEDataImporter:
         total_inserted = 0
         total_fetched = 0
         batch = []
+        import_timestamp = datetime.now()
 
         try:
             # STREAMING : recupere les donnees ligne par ligne
@@ -257,19 +383,27 @@ class AMUEDataImporter:
                 # Normalise les cles en minuscules
                 row_lower = {k.lower(): v for k, v in row.items()} if isinstance(row, dict) else {}
 
-                # Construit le tuple dans l'ordre des colonnes attendues
-                record = tuple(row_lower.get(col, None) for col in columns)
+                # Construit le tuple dans l'ordre des colonnes attendues (données + meta)
+                # Convertit '' en NULL uniquement pour les colonnes non-texte
+                data_values = [
+                    None if row_lower.get(col, None) == '' and col not in text_columns
+                    else row_lower.get(col, None)
+                    for col in data_columns
+                ]
+                # Ajoute les valeurs des meta colonnes
+                meta_values = [self.default_source, import_timestamp]
+                record = tuple(data_values + meta_values)
                 batch.append(record)
 
-                # BATCH PLEIN : insertion immediate
+                # BATCH PLEIN : insertion immediate avec commit
                 if len(batch) >= self.batch_size:
                     self.inserter.execute_batch(
                         cursor, conn, insert_sql, batch,
                         table_name, columns, primary_keys,
-                        commit=not is_full_import
+                        commit=True  # Toujours commit par batch
                     )
                     total_inserted += len(batch)
-                    logger.info(f"{table_name}: {total_inserted:,} lignes inserees")
+                    logger.info(f"{table_name}: {total_inserted:,} lignes inserees (UPSERT)")
                     batch.clear()
 
             # RESTE DU BATCH : dernieres lignes
@@ -277,28 +411,30 @@ class AMUEDataImporter:
                 self.inserter.execute_batch(
                     cursor, conn, insert_sql, batch,
                     table_name, columns, primary_keys,
-                    commit=not is_full_import
+                    commit=True
                 )
                 total_inserted += len(batch)
 
-            # FULL IMPORT : commit final de toute la transaction
-            if is_full_import:
-                conn.commit()
-                logger.info(f"[FULL IMPORT] Transaction commitee pour {table_name}")
-
-            logger.info(f"{table_name}: Total {total_inserted:,}/{total_fetched:,} lignes")
+            logger.info(f"[{correlation_id}] {table_name}: Total {total_inserted:,}/{total_fetched:,} lignes (UPSERT)")
             return total_inserted, total_fetched
 
+        except (AMUEDatabaseError, AMUEBatchError, AMUEDataError):
+            # Les exceptions AMUE spécifiques sont propagées
+            conn.rollback()
+            logger.warning(f"[{correlation_id}] Rollback du batch en cours pour {table_name}")
+            raise
         except AirflowException:
             conn.rollback()
-            if is_full_import:
-                logger.warning(f"[FULL IMPORT] Rollback complet pour {table_name} - donnees originales preservees")
+            logger.warning(f"[{correlation_id}] Rollback du batch en cours pour {table_name}")
             raise
         except Exception as e:
             conn.rollback()
-            if is_full_import:
-                logger.warning(f"[FULL IMPORT] Rollback complet pour {table_name} - donnees originales preservees")
-            logger.error(f"Erreur insertion {table_name} apres {total_inserted} lignes: {e}")
-            raise AirflowException(f"Import error: {e}")
+            logger.warning(f"[{correlation_id}] Rollback du batch en cours pour {table_name}")
+            logger.error(f"[{correlation_id}] Erreur insertion {table_name} apres {total_inserted} lignes: {e}")
+            raise AMUEDatabaseError(
+                f"Erreur d'insertion pour {table_name} après {total_inserted} lignes: {e}",
+                table_name=table_name,
+                correlation_id=correlation_id
+            ) from e
         finally:
             cursor.close()

@@ -5,7 +5,6 @@ import pytest
 import sys
 import os
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
 
 # Ajoute le chemin des plugins au PYTHONPATH
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'plugins'))
@@ -113,38 +112,12 @@ class TestStatusCheckerGetCurrentStatus:
             checker.get_current_status()
 
 
-class TestStatusCheckerCheckStatusCode:
-    """Tests pour check_status_code"""
+class TestStatusCheckerFetchFullStatus:
+    """Tests pour fetch_full_status (méthode optimisée)"""
 
     @patch('amue.services.status_checker.VarMgr')
-    def test_check_status_code(self, mock_varmgr):
-        """Vérifie uniquement le code HTTP"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        mock_api_hook.call_api.return_value = 200
-
-        checker = AMUEStatusChecker(mock_api_hook)
-        result = checker.check_status_code()
-
-        assert result == 200
-        mock_api_hook.call_api.assert_called_once()
-        # Vérifie que check_status_only=True est passé
-        call_args = mock_api_hook.call_api.call_args
-        assert call_args[1]['check_status_only'] is True
-
-
-class TestStatusCheckerCheckFinishStatus:
-    """Tests pour check_finish_status"""
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_check_finish_status_present(self, mock_varmgr):
-        """Variable finish présente"""
+    def test_fetch_full_status_success(self, mock_varmgr):
+        """Récupération complète réussie en un seul appel"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
@@ -155,17 +128,27 @@ class TestStatusCheckerCheckFinishStatus:
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.return_value = {
             'finish': '2024-01-15T10:30:00',
-            'status': []
+            'status': [
+                {'name': 'CSKS', 'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100},
+                {'name': 'PRKS', 'status': 'OK', 'mode': 'DELTA', 'count': 500, 'row_size': 50}
+            ],
+            'nbtables': 2
         }
 
         checker = AMUEStatusChecker(mock_api_hook)
-        result = checker.check_finish_status()
+        result = checker.fetch_full_status()
 
-        assert result == '2024-01-15T10:30:00'
+        assert result['http_status'] == 200
+        assert result['finish'] == '2024-01-15T10:30:00'
+        assert 'CSKS' in result['tables_status']
+        assert 'PRKS' in result['tables_status']
+        assert result['tables_status']['CSKS']['status'] == 'OK'
+        # Un seul appel API
+        mock_api_hook.call_api.assert_called_once()
 
     @patch('amue.services.status_checker.VarMgr')
-    def test_check_finish_status_absent(self, mock_varmgr):
-        """Variable finish absente (traitement en cours)"""
+    def test_fetch_full_status_no_finish(self, mock_varmgr):
+        """Récupération sans finish (traitement en cours)"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
@@ -175,17 +158,44 @@ class TestStatusCheckerCheckFinishStatus:
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.return_value = {
-            'status': []
+            'status': [{'name': 'CSKS', 'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}]
         }
 
         checker = AMUEStatusChecker(mock_api_hook)
-        result = checker.check_finish_status()
+        result = checker.fetch_full_status()
 
-        assert result is None
+        assert result['http_status'] == 200
+        assert result['finish'] is None
+        assert 'CSKS' in result['tables_status']
 
     @patch('amue.services.status_checker.VarMgr')
-    def test_check_finish_status_non_dict_response(self, mock_varmgr):
-        """Réponse non-dict retourne None"""
+    def test_fetch_full_status_error(self, mock_varmgr):
+        """Gestion des erreurs API"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
+        }.get(key, default)
+
+        from amue.services.status_checker import AMUEStatusChecker
+
+        mock_api_hook = MagicMock()
+        error = Exception("Connection error")
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        error.response = mock_response
+        mock_api_hook.call_api.side_effect = error
+
+        checker = AMUEStatusChecker(mock_api_hook)
+        result = checker.fetch_full_status()
+
+        assert result['http_status'] == 503
+        assert result['finish'] is None
+        assert result['tables_status'] == {}
+        assert 'error' in result
+
+    @patch('amue.services.status_checker.VarMgr')
+    def test_fetch_full_status_non_dict_response(self, mock_varmgr):
+        """Réponse non-dict retourne valeurs par défaut"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
@@ -197,9 +207,11 @@ class TestStatusCheckerCheckFinishStatus:
         mock_api_hook.call_api.return_value = "not a dict"
 
         checker = AMUEStatusChecker(mock_api_hook)
-        result = checker.check_finish_status()
+        result = checker.fetch_full_status()
 
-        assert result is None
+        assert result['http_status'] == 200
+        assert result['finish'] is None
+        assert result['tables_status'] == {}
 
 
 class TestStatusCheckerParseTablesStatus:
@@ -287,119 +299,3 @@ class TestStatusCheckerParseTablesStatus:
 
         assert len(result) == 1
         assert 'CSKS' in result
-
-
-class TestStatusCheckerHistoricalStatus:
-    """Tests pour check_historical_status"""
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_check_historical_status(self, mock_varmgr):
-        """Vérification historique sur plusieurs jours"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'amue_last_successful_run': ''
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        mock_api_hook.call_api.return_value = {
-            'status': [{'name': 'CSKS', 'status': 'OK', 'mode': 'FULL', 'count': 1000, 'row_size': 100}],
-            'finish': '2024-01-15',
-            'nbtables': 1,
-            'nbtables_ko': 0
-        }
-
-        checker = AMUEStatusChecker(mock_api_hook)
-        result = checker.check_historical_status(max_days=3)
-
-        assert 'status_by_date' in result
-        assert 'dates_checked' in result
-
-
-class TestStatusCheckerHelperMethods:
-    """Tests pour les méthodes utilitaires"""
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_get_last_success_date_valid(self, mock_varmgr):
-        """Récupère une date de dernier succès valide"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'amue_last_successful_run': '2024-01-10'
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        checker = AMUEStatusChecker(mock_api_hook)
-
-        result = checker._get_last_success_date()
-
-        assert result == datetime(2024, 1, 10).date()
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_get_last_success_date_invalid(self, mock_varmgr):
-        """Date invalide retourne hier"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'amue_last_successful_run': 'invalid-date'
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        checker = AMUEStatusChecker(mock_api_hook)
-
-        result = checker._get_last_success_date()
-        expected = (datetime.now() - timedelta(days=1)).date()
-
-        assert result == expected
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_compute_days_to_check(self, mock_varmgr):
-        """Calcul des jours à vérifier"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        checker = AMUEStatusChecker(mock_api_hook)
-
-        today = datetime.now().date()
-        last_success = today - timedelta(days=3)
-
-        result = checker._compute_days_to_check(last_success, max_days=7)
-
-        # Devrait inclure aujourd'hui et les 2 jours précédents (jusqu'à last_success exclus)
-        assert len(result) == 3
-        assert today in result
-
-    @patch('amue.services.status_checker.VarMgr')
-    def test_serialize_dates(self, mock_varmgr):
-        """Sérialisation des dates pour JSON"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
-
-        from amue.services.status_checker import AMUEStatusChecker
-
-        mock_api_hook = MagicMock()
-        checker = AMUEStatusChecker(mock_api_hook)
-
-        status_by_date = {
-            '20240115': {
-                'date': datetime(2024, 1, 15).date(),
-                'tables_status': {'CSKS': {'status': 'OK'}}
-            }
-        }
-
-        result = checker._serialize_dates(status_by_date)
-
-        assert result['20240115']['date'] == '2024-01-15'

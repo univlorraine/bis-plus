@@ -23,6 +23,7 @@ class TestMetadataManagerInit:
 
         assert manager.tables_var_name == 'amue_tables_to_import'
         assert manager.last_success_var_name == 'amue_last_successful_run'
+        assert manager.last_finish_var_name == 'amue_last_finish_timestamp'
         assert manager.MAX_RETRIES == 3
         assert manager.RETRY_DELAY_SECONDS == 2
 
@@ -385,6 +386,55 @@ class TestMetadataManagerResetTable:
         result = manager.reset_table_metadata('CSKS')
 
         assert result is False
+
+
+class TestMetadataManagerFinishTimestamp:
+    """Tests pour la sauvegarde du finish timestamp"""
+
+    @patch('amue.services.metadata_manager.VarMgr')
+    def test_save_finish_timestamp(self, mock_varmgr):
+        """Sauvegarde du finish timestamp"""
+        mock_varmgr.get.return_value = ''
+        mock_varmgr.set.return_value = True
+
+        from amue.services.metadata_manager import AMUEMetadataManager
+
+        manager = AMUEMetadataManager()
+        manager._save_finish_timestamp('2024-01-15T10:00:00')
+
+        # Vérifie que set a été appelé avec la bonne variable
+        mock_varmgr.set.assert_called_with('amue_last_finish_timestamp', '2024-01-15T10:00:00')
+
+    @patch('amue.services.metadata_manager.VarMgr')
+    def test_update_metadata_with_finish_timestamp(self, mock_varmgr):
+        """update_metadata sauvegarde le finish_timestamp"""
+        tables_config = json.dumps([
+            {'name': 'CSKS', 'finger_print': '', 'last_import': '', 'primary_key': ''}
+        ])
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'amue_tables_to_import': tables_config,
+            'amue_last_finish_timestamp': ''
+        }.get(key, default) if key != 'amue_tables_to_import' else tables_config
+        mock_varmgr.set.return_value = True
+
+        from amue.services.metadata_manager import AMUEMetadataManager
+
+        manager = AMUEMetadataManager()
+
+        import_results = [
+            {
+                'table_name': 'csks',
+                'status': 'success',
+                'finger_print': 'new_fingerprint_123'
+            }
+        ]
+
+        manager.update_metadata(import_results, finish_timestamp='2024-01-15T10:00:00')
+
+        # Vérifie que set a été appelé pour le finish timestamp
+        calls = mock_varmgr.set.call_args_list
+        finish_call = [c for c in calls if 'amue_last_finish_timestamp' in str(c)]
+        assert len(finish_call) > 0
 
 
 class TestTableMetadata:

@@ -73,6 +73,10 @@ POSTGRES_DEFAULT_CONN_ID = 'postgres_data'   # ID de connexion Airflow
 POSTGRES_DEFAULT_SCHEMA = 'splus'             # Schéma PostgreSQL pour les données AMUE
 POSTGRES_DEFAULT_OPTIONS = f'-c search_path={POSTGRES_DEFAULT_SCHEMA}'
 
+# Schémas Blue/Green
+SCHEMA_BLUE = 'splus_blue'
+SCHEMA_GREEN = 'splus_green'
+
 
 # ============================================================================
 # FACTORY FUNCTIONS
@@ -80,7 +84,8 @@ POSTGRES_DEFAULT_OPTIONS = f'-c search_path={POSTGRES_DEFAULT_SCHEMA}'
 
 def create_postgres_hook(
     conn_id: str = POSTGRES_DEFAULT_CONN_ID,
-    schema: str = POSTGRES_DEFAULT_SCHEMA
+    schema: str = POSTGRES_DEFAULT_SCHEMA,
+    bluegreen_schema: str = None
 ) -> PostgresHook:
     """
     Factory pour créer un hook PostgreSQL avec configuration standard
@@ -88,6 +93,8 @@ def create_postgres_hook(
     Args:
         conn_id: ID de connexion Airflow (défaut: 'postgres_data')
         schema: Schéma PostgreSQL (défaut: 'splus')
+        bluegreen_schema: Schéma blue/green spécifique (prioritaire sur schema)
+            Valeurs: 'splus_blue', 'splus_green', ou None
 
     Returns:
         PostgresHook configuré
@@ -95,11 +102,34 @@ def create_postgres_hook(
     Example:
         >>> hook = create_postgres_hook()
         >>> hook = create_postgres_hook(conn_id='autre_db', schema='public')
+        >>> hook = create_postgres_hook(bluegreen_schema='splus_blue')
     """
+    # Le schéma blue/green a priorité s'il est spécifié
+    effective_schema = bluegreen_schema if bluegreen_schema else schema
+
     return PostgresHook(
         postgres_conn_id=conn_id,
-        options=f'-c search_path={schema}'
+        options=f'-c search_path={effective_schema}'
     )
+
+
+def create_bluegreen_hook(target_schema: str) -> PostgresHook:
+    """
+    Factory pour créer un hook PostgreSQL pour un schéma blue/green spécifique.
+
+    Args:
+        target_schema: Schéma cible ('splus_blue' ou 'splus_green')
+
+    Returns:
+        PostgresHook configuré pour le schéma cible
+
+    Example:
+        >>> hook = create_bluegreen_hook('splus_blue')
+    """
+    if target_schema not in (SCHEMA_BLUE, SCHEMA_GREEN):
+        raise ValueError(f"Schéma invalide: {target_schema}. Attendu: {SCHEMA_BLUE} ou {SCHEMA_GREEN}")
+
+    return create_postgres_hook(bluegreen_schema=target_schema)
 
 
 def create_api_hook() -> AMUEAPIHook:
