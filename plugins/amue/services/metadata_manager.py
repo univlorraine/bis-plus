@@ -73,7 +73,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 from airflow.exceptions import AirflowException
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

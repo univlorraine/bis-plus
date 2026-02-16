@@ -80,7 +80,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict
 
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)

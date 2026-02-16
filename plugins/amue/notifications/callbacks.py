@@ -60,7 +60,7 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
 
     # Libere le verrou blue/green si actif
     try:
-        from amue.services.bluegreen_manager import BlueGreenManager
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         if manager.is_enabled() and manager.is_import_in_progress():
