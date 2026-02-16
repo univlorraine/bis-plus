@@ -51,16 +51,16 @@ from amue.notifications import (
 )
 from amue.notifications.report_generator import AMUEReportGenerator
 # Operators - Import de donnees
-from amue.operators.data_importer import AMUEDataImporter
-from amue.operators.data_streamer import AMUEDataStreamer
-from amue.operators.batch_inserter import AMUEBatchInserter
-from amue.operators.duplicate_detector import DuplicateDetector
-from amue.operators.table_filter import AMUETableFilter
-from amue.operators.table_manager import AMUETableManager
-from amue.operators.table_verifier import AMUETableVerifier
+from amue.operators.pipeline.data_importer import AMUEDataImporter
+from amue.operators.pipeline.data_streamer import AMUEDataStreamer
+from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+from amue.operators.table_management.table_filter import AMUETableFilter
+from amue.operators.table_management.table_manager import AMUETableManager
+from amue.operators.table_management.table_verifier import AMUETableVerifier
 # Services
 from amue.services.metadata_manager import AMUEMetadataManager
-from amue.services.polling_service import AMUEPollingService
+from amue.services.api.polling_service import AMUEPollingService
 from amue.services.retry_service import (
     RetryService,
     RetryConfig,
@@ -69,18 +69,18 @@ from amue.services.retry_service import (
     ErrorCategory,
     get_retry_service,
 )
-from amue.services.status_checker import AMUEStatusChecker
+from amue.services.api.status_checker import AMUEStatusChecker
 # Services Blue/Green
-from amue.services.bluegreen_manager import BlueGreenManager, BlueGreenState
-from amue.services.view_switcher import ViewSwitcher
-from amue.services.schema_synchronizer import SchemaSynchronizer
-from amue.services.rollback_manager import RollbackManager
+from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+from amue.services.bluegreen.view_switcher import ViewSwitcher
+from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+from amue.services.bluegreen.rollback_manager import RollbackManager
 # Utils
-from amue.utils.airflow_helpers import AirflowVariableManager
-from amue.utils.hooks import HookManager, create_postgres_hook, create_api_hook, create_bluegreen_hook
-from amue.utils.settings import AMUEConfig, get_config, reload_config, Defaults
-from amue.utils.schema_utils import SchemaQualifier
-from amue.utils.connection_manager import PostgresConnectionManager
+from amue.utils.config.airflow_helpers import AirflowVariableManager
+from amue.utils.database.hooks import HookManager, create_postgres_hook, create_api_hook, create_bluegreen_hook
+from amue.utils.config.settings import AMUEConfig, get_config, reload_config, Defaults
+from amue.utils.database.schema_utils import SchemaQualifier
+from amue.utils.database.connection_manager import PostgresConnectionManager
 from amue.utils.tracing import (
     generate_correlation_id,
     generate_run_id,

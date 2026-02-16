@@ -17,18 +17,21 @@ MÉTADONNÉES GÉRÉES
 
 Pour chaque table importée, le gestionnaire sauvegarde :
 
-┌────────────────┬────────────────────────────────────────────────────────────┐
-│ Métadonnée     │ Description                                                │
-├────────────────┼────────────────────────────────────────────────────────────┤
-│ finger_print   │ Hash SHA256 de la structure (colonnes + types + PKs)       │
-│                │ → Permet de détecter les changements de structure          │
-├────────────────┼────────────────────────────────────────────────────────────┤
-│ last_import    │ Date ISO du dernier import réussi de cette table          │
-│                │ → Utilisé pour filtrer les données en import différentiel  │
-├────────────────┼────────────────────────────────────────────────────────────┤
-│ primary_key    │ Liste des colonnes formant la clé primaire (CSV)           │
-│                │ → Utilisé pour construire les UPSERT                       │
-└────────────────┴────────────────────────────────────────────────────────────┘
+┌─────────────────┬────────────────────────────────────────────────────────────┐
+│ Métadonnée      │ Description                                                │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ fingerprint_API │ Hash MD5 structure originale API + PKs API                  │
+│                 │ → Détecte les changements côté fournisseur                 │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ fingerprint_UL  │ Hash MD5 structure transformée PG + PKs config             │
+│                 │ → Détecte les changements côté local                       │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ last_import     │ Date ISO du dernier import réussi de cette table           │
+│                 │ → Utilisé pour filtrer les données en import différentiel  │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ primary_key     │ Liste des colonnes formant la clé primaire (CSV)           │
+│                 │ → Utilisé pour construire les UPSERT                       │
+└─────────────────┴────────────────────────────────────────────────────────────┘
 
 ================================================================================
 STOCKAGE
@@ -43,7 +46,8 @@ au format JSON :
         "primary_key": "BUKRS,KOSTL",
         "delta": "AEDAT",
         "last_import": "2024-01-15T10:30:00",
-        "finger_print": "abc123def456..."
+        "fingerprint_API": "abc123...",
+        "fingerprint_UL": "def456..."
     },
     ...
 ]
@@ -67,13 +71,14 @@ Pourquoi ? Si les métadonnées ne sont pas sauvegardées :
 """
 import json
 import logging
+import pprint
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Optional
 
 from airflow.exceptions import AirflowException
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +87,8 @@ logger = logging.getLogger(__name__)
 class TableMetadata:
     """Métadonnées d'une table importée"""
     name: str
-    finger_print: str
+    fingerprint_API: str
+    fingerprint_UL: str
     last_import: str
     primary_key: str = ''
     delta: str = ''
@@ -145,6 +151,8 @@ class AMUEMetadataManager:
                 # Met à jour chaque table
                 updated_count = 0
                 for result in import_results:
+                    pprint.pp(result)
+
                     if self._should_update_metadata(result):
                         if self._update_table_metadata(tables_config, result):
                             updated_count += 1
@@ -249,21 +257,26 @@ class AMUEMetadataManager:
 
             if config_name == table_name:
                 # Mise à jour des métadonnées
-                old_fingerprint = table.get('finger_print', 'none')
-                new_fingerprint = result.get('finger_print', '')
+                old_fp_api = table.get('fingerprint_API', 'none')
+                old_fp_ul = table.get('fingerprint_UL', 'none')
+                new_fp_api = result.get('fingerprint_API', '')
+                new_fp_ul = result.get('fingerprint_UL', '')
 
-                table['finger_print'] = new_fingerprint
-                table['last_import'] = datetime.now().isoformat()
+                table['fingerprint_API'] = new_fp_api
+                table['fingerprint_UL'] = new_fp_ul
+                # Supprimer l'ancien champ s'il existe
+                table.pop('finger_print', None)
+                # Utilise la date finish de la table côté API (fallback: datetime.now())
+                table['last_import'] = result.get('table_finish') or datetime.now().isoformat()
 
                 # Mise à jour des clés primaires uniquement si pas déjà définies
                 if result.get('primary_keys') and not table.get('primary_key'):
                     table['primary_key'] = result['primary_keys']
                     logger.info(f"{table_name}: Clés primaires initialisées: {result['primary_keys']}")
 
-                fp_old_short = old_fingerprint[:8] if old_fingerprint else 'none'
-                fp_new_short = new_fingerprint[:8] if new_fingerprint else 'none'
                 logger.info(f"{table_name}:")
-                logger.info(f"  - Fingerprint: {fp_old_short}... -> {fp_new_short}...")
+                logger.info(f"  - fingerprint_API: {old_fp_api[:8] if old_fp_api else 'none'}... -> {new_fp_api[:8] if new_fp_api else 'none'}...")
+                logger.info(f"  - fingerprint_UL: {old_fp_ul[:8] if old_fp_ul else 'none'}... -> {new_fp_ul[:8] if new_fp_ul else 'none'}...")
                 logger.info(f"  - Last import: {table['last_import']}")
 
                 return True
@@ -361,7 +374,8 @@ class AMUEMetadataManager:
                 if table.get('name', '').upper() == table_name_upper:
                     return TableMetadata(
                         name=table.get('name', ''),
-                        finger_print=table.get('finger_print', ''),
+                        fingerprint_API=table.get('fingerprint_API', ''),
+                        fingerprint_UL=table.get('fingerprint_UL', ''),
                         last_import=table.get('last_import', ''),
                         primary_key=table.get('primary_key', ''),
                         delta=table.get('delta', '')
@@ -390,7 +404,9 @@ class AMUEMetadataManager:
 
             for table in tables_config:
                 if table.get('name', '').upper() == table_name_upper:
-                    table['finger_print'] = ''
+                    table['fingerprint_API'] = ''
+                    table['fingerprint_UL'] = ''
+                    table.pop('finger_print', None)
                     table['last_import'] = ''
 
                     self._save_tables_config(tables_config)

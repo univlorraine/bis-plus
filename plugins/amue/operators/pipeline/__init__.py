@@ -1,0 +1,16 @@
+"""
+Pipeline operators - Import de données AMUE
+
+Operators pour le streaming, l'insertion par batch et la détection de doublons.
+"""
+from amue.operators.pipeline.data_importer import AMUEDataImporter
+from amue.operators.pipeline.data_streamer import AMUEDataStreamer
+from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+
+__all__ = [
+    'AMUEDataImporter',
+    'AMUEDataStreamer',
+    'AMUEBatchInserter',
+    'DuplicateDetector',
+]

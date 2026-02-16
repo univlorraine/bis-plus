@@ -64,7 +64,7 @@ class TableInfoPartial(TypedDict, total=False):
     delta: Optional[str]
 
 
-class ImportResult(TypedDict):
+class ImportResult(TypedDict, total=False):
     """
     Résultat d'une opération d'import.
 
@@ -75,7 +75,12 @@ class ImportResult(TypedDict):
         import_type: Type d'import ('full' ou 'differential')
         status: Statut de l'import ('success' ou 'error')
         correlation_id: ID de corrélation pour le tracing
-        finger_print: Empreinte de structure de la table
+        fingerprint_API: Empreinte de structure originale API
+        fingerprint_UL: Empreinte de structure transformée PG
+        table_finish: Date finish de la table côté API AMUE (pour last_import)
+        batch_count: Nombre de batches traités
+        total_duration_seconds: Durée totale d'insertion en secondes
+        avg_batch_duration: Durée moyenne par batch en secondes
     """
     table_name: str
     rows_inserted: int
@@ -83,18 +88,27 @@ class ImportResult(TypedDict):
     import_type: str
     status: str
     correlation_id: str
-    finger_print: str
+    fingerprint_API: str
+    fingerprint_UL: str
+    table_finish: str
+    batch_count: int
+    total_duration_seconds: float
+    avg_batch_duration: float
 
 
 class ImportResultPartial(TypedDict, total=False):
-    """Version partielle d'ImportResult pour les créations."""
+    """Version partielle d'ImportResult pour les créations (compat)."""
     table_name: str
     rows_inserted: int
     rows_fetched: int
     import_type: str
     status: str
     correlation_id: str
-    finger_print: str
+    fingerprint_API: str
+    fingerprint_UL: str
+    batch_count: int
+    total_duration_seconds: float
+    avg_batch_duration: float
 
 
 class BlueGreenStateDict(TypedDict):
@@ -169,12 +183,16 @@ class ImportConfig(TypedDict, total=False):
         import_type: Type d'import ('full' ou 'differential')
         delta: Nom de la colonne de date pour le différentiel
         last_import: Date ISO du dernier import
-        finger_print: Empreinte de structure
+        fingerprint_API: Empreinte de structure originale API
+        fingerprint_UL: Empreinte de structure transformée PG
+        table_finish: Date finish de la table côté API AMUE
     """
     import_type: Literal['full', 'differential']
     delta: Optional[str]
     last_import: Optional[str]
-    finger_print: Optional[str]
+    fingerprint_API: Optional[str]
+    fingerprint_UL: Optional[str]
+    table_finish: Optional[str]
 
 
 class BatchResult(TypedDict):

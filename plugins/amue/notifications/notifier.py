@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from amue.notifications.email_service import EmailService, Email
 from amue.notifications.templates import NotificationTemplates
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

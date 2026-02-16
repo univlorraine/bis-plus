@@ -308,37 +308,36 @@ def parse_column_definition(definition: str) -> str:
 # FINGERPRINT / HASH
 # ============================================================================
 
-def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: str = '') -> str:
+def compute_structure_hash_with_pk(columns: List[Dict[str, str]], primary_keys: str = '',
+                                   type_key: str = 'type_postgres') -> str:
     """
     Calcule un hash MD5 de la structure d'une table incluant les clés primaires
 
-    Le fingerprint inclut maintenant :
-    - Les colonnes avec leurs types
+    Le fingerprint inclut :
+    - Les colonnes avec leurs types (selon type_key)
     - Les clés primaires (ordre important)
 
-    Cela permet de détecter les changements de clés primaires en plus des changements
-    de colonnes/types.
-
     Args:
-        columns: Liste de dicts avec clés 'name' et 'type_postgres'
+        columns: Liste de dicts avec clés 'name' et le type spécifié par type_key
         primary_keys: Chaîne avec clés primaires séparées par virgules (ex: "id,code")
+        type_key: Clé du dict colonne à utiliser pour le type ('type_postgres' ou 'type_original')
 
     Returns:
         Hash MD5 hexadécimal (32 caractères)
 
     Examples:
         >>> columns = [
-        ...     {'name': 'id', 'type_postgres': 'INTEGER'},
-        ...     {'name': 'name', 'type_postgres': 'VARCHAR(50)'}
+        ...     {'name': 'id', 'type_original': 'INTEGER(10)', 'type_postgres': 'BIGINT'},
+        ...     {'name': 'name', 'type_original': 'VARCHAR(50)', 'type_postgres': 'VARCHAR(50)'}
         ... ]
-        >>> compute_structure_hash_with_pk(columns, 'id')
+        >>> compute_structure_hash_with_pk(columns, 'id', type_key='type_postgres')
         'b2c3d4e5f6a7...'
-        >>> compute_structure_hash_with_pk(columns, 'id,name')
-        'c3d4e5f6a7b8...'  # Hash différent car PK différente
+        >>> compute_structure_hash_with_pk(columns, 'id', type_key='type_original')
+        'a1b2c3d4e5f6...'  # Hash différent car types différents
     """
     # Partie 1 : Structure des colonnes
     columns_str = ','.join([
-        f"{col['name']}:{col['type_postgres']}"
+        f"{col['name']}:{col[type_key]}"
         for col in columns
     ])
 

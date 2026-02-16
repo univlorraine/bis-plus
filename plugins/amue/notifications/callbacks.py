@@ -58,9 +58,26 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f"Erreur dans le callback de notification: {e}")
 
+    # Tente de générer un rapport partiel si des résultats d'import existent
+    try:
+        task_instance = context.get('task_instance')
+        if task_instance:
+            import_results = task_instance.xcom_pull(
+                task_ids='import_data',
+                key='return_value'
+            )
+            if import_results and isinstance(import_results, list) and len(import_results) > 0:
+                from amue.notifications.report_generator import AMUEReportGenerator
+                generator = AMUEReportGenerator()
+                report = generator.generate_report(import_results, {})
+                report['status'] = 'partial_failure'
+                logger.info(f"Rapport partiel généré ({len(import_results)} table(s) traitée(s) avant échec)")
+    except Exception as report_err:
+        logger.warning(f"Impossible de générer le rapport partiel: {report_err}")
+
     # Libere le verrou blue/green si actif
     try:
-        from amue.services.bluegreen_manager import BlueGreenManager
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         if manager.is_enabled() and manager.is_import_in_progress():
@@ -118,8 +135,8 @@ def send_success_notification(context: Dict[str, Any]) -> None:
                 )
                 if import_results:
                     data['tables_imported'] = import_results
-            except Exception:
-                pass
+            except Exception as xcom_err:
+                logger.warning(f"Impossible de récupérer les résultats XCom: {xcom_err}")
 
         success = service.notify_success(data)
 

@@ -78,9 +78,10 @@ au format JSON. Cela permet :
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict
 
-from amue.utils.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,8 @@ class AMUEReportGenerator:
                 'rows_inserted': r.get('rows_inserted', 0),
                 'import_type': r.get('import_type', 'full'),
                 'status': r.get('status', 'success'),
-                'finger_print': r.get('finger_print', '')[:16] + '...' if r.get('finger_print') else ''
+                'fingerprint_API': r.get('fingerprint_API', '')[:16] + '...' if r.get('fingerprint_API') else '',
+                'fingerprint_UL': r.get('fingerprint_UL', '')[:16] + '...' if r.get('fingerprint_UL') else ''
             })
 
         report = {
@@ -253,12 +255,23 @@ class AMUEReportGenerator:
         logger.info("")
 
     def _save_report(self, report: Dict) -> None:
-        """Sauvegarde le rapport dans les variables"""
+        """Sauvegarde le rapport dans les variables et en fichier JSON."""
         try:
             VarMgr.set('last_import_report', json.dumps(report, default=str))
             logger.info("[REPORT] Rapport sauvegardé dans les variables Airflow")
         except Exception as e:
             logger.warning(f"[REPORT] Impossible de sauvegarder le rapport: {e}")
+
+        # Archivage en fichier JSON
+        try:
+            reports_dir = Path('/opt/airflow/logs/reports')
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filepath = reports_dir / f"import_report_{timestamp}.json"
+            filepath.write_text(json.dumps(report, default=str, indent=2), encoding='utf-8')
+            logger.info(f"[REPORT] Rapport archivé: {filepath}")
+        except Exception as e:
+            logger.warning(f"[REPORT] Impossible d'archiver le rapport en fichier: {e}")
 
     def generate_and_send(self, import_results: List[Dict], polling_result: Dict) -> Dict:
         """
