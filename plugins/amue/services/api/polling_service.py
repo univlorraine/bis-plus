@@ -121,6 +121,7 @@ class AMUEPollingService:
         self.config = config or self._load_default_config()
         self.start_time = None
         self._cached_tables_status = None  # Cache pour éviter appel API supplémentaire
+        self._cached_report_start = None   # Date start du rapport API AMUE
 
     def _load_default_config(self) -> PollingConfig:
         """Charge la configuration depuis les variables Airflow"""
@@ -277,6 +278,9 @@ class AMUEPollingService:
                     if finish_value:
                         # Stocke les tables_status pour éviter l'appel supplémentaire
                         self._cached_tables_status = status_result.get('tables_status', {})
+                        # Stocke le start du rapport API pour last_import
+                        raw = status_result.get('raw_response') or {}
+                        self._cached_report_start = raw.get('start', '')
 
                         # Vérifie si le timestamp est nouveau
                         if self._should_skip_import(finish_value):
@@ -446,6 +450,7 @@ class AMUEPollingService:
 
         result_dict = self._result_to_dict(result)
         result_dict['finish'] = finish_value
+        result_dict['report_start'] = self._cached_report_start or ''
         result_dict['start_time'] = self.start_time.isoformat()
         # Inclut tables_status pour éviter appel API supplémentaire dans le DAG
         result_dict['tables_status'] = self._cached_tables_status or {}

@@ -202,6 +202,7 @@ class TestMetadataManagerUpdateTable:
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
+        manager._report_start = '2024-01-15T10:08:19+00:00'
 
         tables_config = [
             {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': ''}
@@ -211,8 +212,7 @@ class TestMetadataManagerUpdateTable:
             'table_name': 'CSKS',
             'fingerprint_API': 'new_api',
             'fingerprint_UL': 'new_ul',
-            'primary_keys': 'id',
-            'table_finish': '2024-01-15 03:45:00'
+            'primary_keys': 'id'
         }
 
         updated = manager._update_table_metadata(tables_config, result)
@@ -222,35 +222,15 @@ class TestMetadataManagerUpdateTable:
         assert tables_config[0]['fingerprint_UL'] == 'new_ul'
         assert 'finger_print' not in tables_config[0]
         assert tables_config[0]['primary_key'] == 'id'
-        # last_import doit utiliser table_finish (date finish API) et non datetime.now()
-        assert tables_config[0]['last_import'] == '2024-01-15 03:45:00'
+        # last_import doit utiliser report_start (date start du rapport API)
+        assert tables_config[0]['last_import'] == '2024-01-15T10:08:19+00:00'
 
-    def test_update_table_uses_table_finish(self):
-        """last_import utilise table_finish de l'API plutôt que datetime.now()"""
+    def test_update_table_uses_report_start(self):
+        """last_import utilise report_start (date start du rapport API) et non datetime.now()"""
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
-
-        tables_config = [
-            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
-        ]
-
-        result = {
-            'table_name': 'CSKS',
-            'fingerprint_API': 'new_api',
-            'fingerprint_UL': 'new_ul',
-            'table_finish': '2024-06-20 04:30:00'
-        }
-
-        manager._update_table_metadata(tables_config, result)
-
-        assert tables_config[0]['last_import'] == '2024-06-20 04:30:00'
-
-    def test_update_table_fallback_datetime_now_when_no_table_finish(self):
-        """last_import utilise datetime.now() si table_finish absent"""
-        from amue.services.metadata_manager import AMUEMetadataManager
-
-        manager = AMUEMetadataManager()
+        manager._report_start = '2026-02-17T10:08:19+00:00'
 
         tables_config = [
             {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
@@ -260,7 +240,27 @@ class TestMetadataManagerUpdateTable:
             'table_name': 'CSKS',
             'fingerprint_API': 'new_api',
             'fingerprint_UL': 'new_ul'
-            # Pas de table_finish
+        }
+
+        manager._update_table_metadata(tables_config, result)
+
+        assert tables_config[0]['last_import'] == '2026-02-17T10:08:19+00:00'
+
+    def test_update_table_fallback_datetime_now_when_no_report_start(self):
+        """last_import utilise datetime.now() si report_start absent"""
+        from amue.services.metadata_manager import AMUEMetadataManager
+
+        manager = AMUEMetadataManager()
+        manager._report_start = ''  # Pas de report_start
+
+        tables_config = [
+            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
+        ]
+
+        result = {
+            'table_name': 'CSKS',
+            'fingerprint_API': 'new_api',
+            'fingerprint_UL': 'new_ul'
         }
 
         manager._update_table_metadata(tables_config, result)

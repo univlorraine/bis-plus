@@ -44,7 +44,14 @@ def validate_tables(verification_results: List[Dict]) -> List[Dict]:
         logger.error(f"[VALIDATE] {len(errors)} erreur(s) détectée(s)")
         for err in errors:
             logger.error(f"  {err['table']} ({err['phase']}): {err['error']}")
-        raise AirflowException(f"Validation échouée: {len(errors)} table(s) en erreur")
+        detail_lines = [
+            f"- {err['table']} ({err['phase']}): {err['error']}"
+            for err in errors
+        ]
+        details = "\n".join(detail_lines)
+        raise AirflowException(
+            f"Validation echouee: {len(errors)} table(s) en erreur\n{details}"
+        )
 
     logger.info(f"[VALIDATE] {len(validated)} table(s) validée(s)")
     return validated

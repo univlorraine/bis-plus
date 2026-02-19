@@ -115,7 +115,7 @@ class AMUEMetadataManager:
         self.last_success_var_name = 'amue_last_successful_run'
         self.last_finish_var_name = 'amue_last_finish_timestamp'
 
-    def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None) -> None:
+    def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None, report_start: str = None) -> None:
         """
         Met à jour les métadonnées après des imports réussis
 
@@ -126,12 +126,16 @@ class AMUEMetadataManager:
         Args:
             import_results: Liste des résultats d'import
             finish_timestamp: Timestamp finish de l'API (pour le polling)
+            report_start: Date start du rapport API AMUE (pour last_import)
 
         Raises:
             AirflowException: Si mise à jour échoue après tous les retries
         """
         logger.info("Début mise à jour des métadonnées")
         logger.info(f"{len(import_results)} résultats à traiter")
+
+        # Stocke le report_start pour l'utiliser dans _update_table_metadata
+        self._report_start = report_start or ''
 
         # Sauvegarde le finish timestamp pour le prochain polling
         if finish_timestamp:
@@ -266,8 +270,8 @@ class AMUEMetadataManager:
                 table['fingerprint_UL'] = new_fp_ul
                 # Supprimer l'ancien champ s'il existe
                 table.pop('finger_print', None)
-                # Utilise la date finish de la table côté API (fallback: datetime.now())
-                table['last_import'] = result.get('table_finish') or datetime.now().isoformat()
+                # Utilise la date start du rapport API AMUE (fallback: datetime.now())
+                table['last_import'] = self._report_start or datetime.now().isoformat()
 
                 # Mise à jour des clés primaires uniquement si pas déjà définies
                 if result.get('primary_keys') and not table.get('primary_key'):

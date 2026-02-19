@@ -27,9 +27,10 @@ def save_metadata(import_results: List[Dict], polling_result: Dict) -> Dict:
         Contexte pour les phases suivantes (blue/green, etc.)
     """
     finish_timestamp = polling_result.get('finish', '') if polling_result else ''
+    report_start = polling_result.get('report_start', '') if polling_result else ''
 
     manager = AMUEMetadataManager()
-    manager.update_metadata(import_results, finish_timestamp=finish_timestamp)
+    manager.update_metadata(import_results, finish_timestamp=finish_timestamp, report_start=report_start)
     logger.info(f"[METADATA] Métadonnées mises à jour pour {len(import_results)} table(s)")
 
     target_schema = None

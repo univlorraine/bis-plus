@@ -170,7 +170,8 @@ class AMUETableVerifier:
         status = current_status.get('status', 'UNKNOWN')
 
         if status != 'OK':
-            error_msg = f"Table {table_name} status={status} (attendu: OK)"
+            status_details = json.dumps(current_status, ensure_ascii=False, default=str)
+            error_msg = f"Table {table_name} status={status} (attendu: OK). Details: {status_details}"
             logger.error(f"[ERROR] {error_msg}")
             return {
                 'table_name': table_name,
@@ -248,7 +249,11 @@ class AMUETableVerifier:
                 return _error_result(table_name, error_msg, columns, fingerprint_API, fingerprint_UL, primary_keys, exists, True)
 
             if not exists and self.environment == 'production':
-                error_msg = f"Table {table_name} n'existe pas en production"
+                schema_name = self.target_schema or 'splus'
+                error_msg = (
+                    f"Table {table_name} n'existe pas dans le schema '{schema_name}' en production. "
+                    f"Action requise: Creer la table ou passer en mode 'dev' pour creation automatique."
+                )
                 logger.error(f"[ERROR] {error_msg}")
                 return _error_result(table_name, error_msg, columns, fingerprint_API, fingerprint_UL, primary_keys, exists, False)
 
@@ -267,7 +272,7 @@ class AMUETableVerifier:
             }
 
         except Exception as e:
-            error_msg = f"Erreur vérification structure {table_name}: {e}"
+            error_msg = f"Erreur vérification structure {table_name} [{type(e).__name__}]: {e}"
             logger.error(f"[ERROR] {error_msg}")
             return _error_result(table_name, error_msg, [], '', '', '', False, False)
 
@@ -419,6 +424,110 @@ class AMUETableVerifier:
         result = self.postgres_hook.get_first(check_sql, parameters=(schema_to_check, table_name.lower(),))
         return result[0] if result else False
 
+    def _fetch_existing_columns(self, table_name: str) -> List[Dict]:
+        """
+        Récupère les colonnes existantes en base via information_schema.
+
+        Returns:
+            Liste de dicts {'name': col_name, 'type_postgres': pg_type}
+        """
+        schema_to_check = self.target_schema if self.target_schema else 'splus'
+
+        sql = """
+            SELECT column_name, data_type,
+                   character_maximum_length,
+                   numeric_precision, numeric_scale
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+        """
+        rows = self.postgres_hook.get_records(
+            sql, parameters=(schema_to_check, table_name.lower())
+        )
+        return [
+            {
+                'name': row[0].upper(),
+                'type_postgres': self._format_pg_type(row[1], row[2], row[3], row[4])
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _format_pg_type(data_type: str, char_len, num_prec, num_scale) -> str:
+        """
+        Reconstruit un type PG lisible depuis les champs information_schema.
+
+        Args:
+            data_type: Type de données brut (ex: 'character varying')
+            char_len: character_maximum_length
+            num_prec: numeric_precision
+            num_scale: numeric_scale
+
+        Returns:
+            Type formaté (ex: 'VARCHAR(50)', 'NUMERIC(10,2)', 'TIMESTAMP')
+        """
+        dt = data_type.upper()
+
+        if dt == 'CHARACTER VARYING':
+            return f"VARCHAR({char_len})" if char_len else "VARCHAR"
+        if dt == 'CHARACTER':
+            return f"BPCHAR({char_len})" if char_len else "BPCHAR"
+        if dt == 'NUMERIC':
+            if num_prec is not None and num_scale is not None:
+                return f"NUMERIC({num_prec},{num_scale})"
+            if num_prec is not None:
+                return f"NUMERIC({num_prec})"
+            return "NUMERIC"
+        if dt == 'TIMESTAMP WITHOUT TIME ZONE':
+            return "TIMESTAMP"
+        if dt == 'TIMESTAMP WITH TIME ZONE':
+            return "TIMESTAMPTZ"
+        if dt == 'DOUBLE PRECISION':
+            return "DOUBLE PRECISION"
+
+        return dt
+
+    def _compute_structure_diff(self, table_name: str, new_columns: List[Dict]) -> str:
+        """
+        Compare colonnes existantes PG vs nouvelles colonnes API et produit un diff lisible.
+
+        Symboles :
+            + col_name (TYPE)           -> colonne ajoutée
+            - col_name (TYPE)           -> colonne supprimée
+            ~ col_name: OLD -> NEW      -> changement de type
+
+        Returns:
+            Texte du diff multi-lignes, ou message indiquant un changement de PKs
+        """
+        try:
+            existing = self._fetch_existing_columns(table_name)
+        except Exception as e:
+            return f"(impossible de calculer le diff: {e})"
+
+        existing_map = {col['name']: col['type_postgres'] for col in existing}
+        new_map = {col['name']: col['type_postgres'] for col in new_columns}
+
+        diff_lines = []
+
+        # Colonnes ajoutées (dans new mais pas dans existing)
+        for name in new_map:
+            if name not in existing_map:
+                diff_lines.append(f"  + {name} ({new_map[name]})")
+
+        # Colonnes supprimées (dans existing mais pas dans new)
+        for name in existing_map:
+            if name not in new_map:
+                diff_lines.append(f"  - {name} ({existing_map[name]})")
+
+        # Changements de type
+        for name in new_map:
+            if name in existing_map and new_map[name] != existing_map[name]:
+                diff_lines.append(f"  ~ {name}: {existing_map[name]} -> {new_map[name]}")
+
+        if diff_lines:
+            return "Differences:\n" + "\n".join(diff_lines)
+        return "Aucune difference de colonnes detectee; le changement provient probablement des cles primaires."
+
     def verify_table(self, table_info: Dict) -> Dict:
         """
         Vérifie une table : statut + structure + fingerprint
@@ -465,9 +574,18 @@ class AMUETableVerifier:
 
         changes = []
         if old_fp_api and new_fp_api and old_fp_api != new_fp_api:
-            changes.append(f"fingerprint_API: {old_fp_api[:16]}... -> {new_fp_api[:16]}...")
+            changes.append(
+                f"fingerprint_API: {old_fp_api[:16]}... -> {new_fp_api[:16]}...\n"
+                f"  Cause: L'AMUE a modifie la structure source de la table."
+            )
         if old_fp_ul and new_fp_ul and old_fp_ul != new_fp_ul:
-            changes.append(f"fingerprint_UL: {old_fp_ul[:16]}... -> {new_fp_ul[:16]}...")
+            diff_detail = self._compute_structure_diff(
+                table_name, structure_result.get('columns', [])
+            )
+            changes.append(
+                f"fingerprint_UL: {old_fp_ul[:16]}... -> {new_fp_ul[:16]}...\n"
+                f"  {diff_detail}"
+            )
 
         if changes:
             error_msg = (

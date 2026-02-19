@@ -212,7 +212,8 @@ class TestTableVerifierVerifyStructure:
         result = verifier.verify_structure(table_info)
 
         assert result['status'] == 'error'
-        assert "n'existe pas en production" in result['error']
+        assert "n'existe pas dans le schema" in result['error']
+        assert "en production" in result['error']
 
 
 class TestTableVerifierVerifyTable:
@@ -836,3 +837,411 @@ class TestCheckFingerprintChanges:
 
         assert result['api_changed'] is False
         assert result['ul_changed'] is False
+
+
+class TestFormatPgType:
+    """Tests pour _format_pg_type"""
+
+    def test_varchar_with_length(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('character varying', 50, None, None) == 'VARCHAR(50)'
+
+    def test_varchar_without_length(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('character varying', None, None, None) == 'VARCHAR'
+
+    def test_bpchar_with_length(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('character', 10, None, None) == 'BPCHAR(10)'
+
+    def test_bpchar_without_length(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('character', None, None, None) == 'BPCHAR'
+
+    def test_numeric_with_precision_and_scale(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('numeric', None, 10, 2) == 'NUMERIC(10,2)'
+
+    def test_numeric_with_precision_only(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('numeric', None, 10, None) == 'NUMERIC(10)'
+
+    def test_numeric_without_precision(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('numeric', None, None, None) == 'NUMERIC'
+
+    def test_timestamp_without_tz(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('timestamp without time zone', None, None, None) == 'TIMESTAMP'
+
+    def test_timestamp_with_tz(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('timestamp with time zone', None, None, None) == 'TIMESTAMPTZ'
+
+    def test_double_precision(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('double precision', None, None, None) == 'DOUBLE PRECISION'
+
+    def test_integer(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('integer', None, None, None) == 'INTEGER'
+
+    def test_bigint(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('bigint', None, None, None) == 'BIGINT'
+
+    def test_text(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('text', None, None, None) == 'TEXT'
+
+    def test_smallint(self):
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        assert AMUETableVerifier._format_pg_type('smallint', None, None, None) == 'SMALLINT'
+
+
+class TestComputeStructureDiff:
+    """Tests pour _compute_structure_diff"""
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_added_column(self, mock_varmgr, mock_create_hook):
+        """Colonne ajoutée détectée"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        # Existing columns in DB: only ID
+        mock_postgres_hook.get_records.return_value = [
+            ('id', 'bigint', None, None, None),
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        new_columns = [
+            {'name': 'ID', 'type_postgres': 'BIGINT'},
+            {'name': 'NAME', 'type_postgres': 'VARCHAR(50)'},
+        ]
+
+        result = verifier._compute_structure_diff('CSKS', new_columns)
+
+        assert '+ NAME (VARCHAR(50))' in result
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_removed_column(self, mock_varmgr, mock_create_hook):
+        """Colonne supprimée détectée"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        # Existing columns: ID and OLD_COL
+        mock_postgres_hook.get_records.return_value = [
+            ('id', 'bigint', None, None, None),
+            ('old_col', 'text', None, None, None),
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        new_columns = [
+            {'name': 'ID', 'type_postgres': 'BIGINT'},
+        ]
+
+        result = verifier._compute_structure_diff('CSKS', new_columns)
+
+        assert '- OLD_COL (TEXT)' in result
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_type_changed(self, mock_varmgr, mock_create_hook):
+        """Changement de type détecté"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.return_value = [
+            ('id', 'integer', None, None, None),
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        new_columns = [
+            {'name': 'ID', 'type_postgres': 'BIGINT'},
+        ]
+
+        result = verifier._compute_structure_diff('CSKS', new_columns)
+
+        assert '~ ID: INTEGER -> BIGINT' in result
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_pk_only_change(self, mock_varmgr, mock_create_hook):
+        """Aucune différence de colonnes -> changement de PKs probable"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.return_value = [
+            ('id', 'bigint', None, None, None),
+            ('name', 'character varying', 50, None, None),
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        new_columns = [
+            {'name': 'ID', 'type_postgres': 'BIGINT'},
+            {'name': 'NAME', 'type_postgres': 'VARCHAR(50)'},
+        ]
+
+        result = verifier._compute_structure_diff('CSKS', new_columns)
+
+        assert 'cles primaires' in result
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_diff_fetch_error(self, mock_varmgr, mock_create_hook):
+        """Erreur lors du fetch des colonnes existantes"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.side_effect = Exception("Connection lost")
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        result = verifier._compute_structure_diff('CSKS', [])
+
+        assert 'impossible de calculer le diff' in result
+
+
+class TestFingerprintErrorIncludesDiff:
+    """Tests pour le diff dans les erreurs de fingerprint"""
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_fingerprint_api_error_includes_cause(self, mock_varmgr, mock_create_hook):
+        """Erreur fingerprint_API inclut la cause AMUE"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (True,)
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        from amue.utils.transformers import compute_structure_hash_with_pk
+
+        mock_api_hook = MagicMock()
+        mock_api_hook.call_api.side_effect = [
+            'ID INTEGER(10), NAME VARCHAR(50)',
+            'ID'
+        ]
+
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        # Compute correct UL fingerprint so only API changes
+        columns = [
+            {'name': 'ID', 'type_original': 'INTEGER(10)', 'type_postgres': 'BIGINT'},
+            {'name': 'NAME', 'type_original': 'VARCHAR(50)', 'type_postgres': 'VARCHAR(50)'}
+        ]
+        correct_fp_ul = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
+
+        table_info = {
+            'name': 'CSKS',
+            'current_status': {'status': 'OK'},
+            'primary_key': 'ID',
+            'fingerprint_API': 'old_api_fingerprint_12345',
+            'fingerprint_UL': correct_fp_ul
+        }
+
+        result = verifier.verify_table(table_info)
+
+        assert result['status'] == 'error'
+        assert 'AMUE a modifie la structure source' in result['error']
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_fingerprint_ul_error_includes_diff(self, mock_varmgr, mock_create_hook):
+        """Erreur fingerprint_UL inclut le diff structurel"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (True,)
+        # _compute_structure_diff will call get_records
+        mock_postgres_hook.get_records.return_value = [
+            ('id', 'integer', None, None, None),  # Different type than new BIGINT
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+        from amue.utils.transformers import compute_structure_hash_with_pk
+
+        mock_api_hook = MagicMock()
+        mock_api_hook.call_api.side_effect = [
+            'ID INTEGER(10), NAME VARCHAR(50)',
+            'ID'
+        ]
+
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        # Compute correct API fingerprint so only UL changes
+        columns = [
+            {'name': 'ID', 'type_original': 'INTEGER(10)', 'type_postgres': 'BIGINT'},
+            {'name': 'NAME', 'type_original': 'VARCHAR(50)', 'type_postgres': 'VARCHAR(50)'}
+        ]
+        correct_fp_api = compute_structure_hash_with_pk(columns, 'ID', type_key='type_original')
+
+        table_info = {
+            'name': 'CSKS',
+            'current_status': {'status': 'OK'},
+            'primary_key': 'ID',
+            'fingerprint_API': correct_fp_api,
+            'fingerprint_UL': 'old_ul_fingerprint_12345'
+        }
+
+        result = verifier.verify_table(table_info)
+
+        assert result['status'] == 'error'
+        assert 'Differences:' in result['error'] or 'cles primaires' in result['error']
+
+
+class TestVerifyStatusErrorDetails:
+    """Tests pour les détails dans verify_status"""
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_status_error_includes_details(self, mock_varmgr, mock_create_hook):
+        """Le message d'erreur inclut les détails du statut"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        table_info = {
+            'name': 'CSKS',
+            'current_status': {'status': 'KO', 'mode': 'FULL', 'message': 'erreur sync'}
+        }
+
+        result = verifier.verify_status(table_info)
+
+        assert result['status'] == 'error'
+        assert 'Details:' in result['error']
+        assert 'erreur sync' in result['error']
+        assert 'FULL' in result['error']
+
+
+class TestVerifyStructureErrorMessages:
+    """Tests pour les messages d'erreur enrichis de verify_structure"""
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_table_not_found_includes_schema(self, mock_varmgr, mock_create_hook):
+        """Table manquante inclut le nom du schéma et l'action"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'production'
+        }.get(key, default)
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (False,)
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        mock_api_hook.call_api.side_effect = [
+            'ID INTEGER(10)',
+            'ID'
+        ]
+
+        verifier = AMUETableVerifier(mock_api_hook, target_schema='splus_blue')
+
+        table_info = {
+            'name': 'CSKS',
+            'primary_key': 'ID',
+            'fingerprint_API': '',
+            'fingerprint_UL': ''
+        }
+
+        result = verifier.verify_structure(table_info)
+
+        assert result['status'] == 'error'
+        assert "splus_blue" in result['error']
+        assert "Action requise" in result['error']
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_generic_error_includes_exception_type(self, mock_varmgr, mock_create_hook):
+        """Le catch générique inclut le type d'exception"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        mock_api_hook.call_api.side_effect = ConnectionError("timeout")
+
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        table_info = {
+            'name': 'CSKS',
+            'primary_key': 'ID',
+            'fingerprint_API': '',
+            'fingerprint_UL': ''
+        }
+
+        result = verifier.verify_structure(table_info)
+
+        assert result['status'] == 'error'
+        assert '[ConnectionError]' in result['error']
