@@ -316,7 +316,6 @@ class TestQueueBasedInsertion:
         }.get(key, default)
 
         from amue.operators.pipeline.data_importer import AMUEDataImporter
-        AMUEDataImporter.clear_text_columns_cache()
         mock_api_hook = MagicMock()
         importer = AMUEDataImporter(mock_api_hook)
         return importer
@@ -339,9 +338,6 @@ class TestQueueBasedInsertion:
 
         # Mock streamer
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-
-        # Mock text_columns (aucune colonne texte -> '' sera converti en NULL)
-        importer._get_text_columns = MagicMock(return_value=set())
 
         # Mock inserter
         mock_conn = MagicMock()
@@ -378,7 +374,6 @@ class TestQueueBasedInsertion:
         rows = self._make_rows(12, columns)
 
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-        importer._get_text_columns = MagicMock(return_value=set())
 
         # Mock pour les workers crees dynamiquement
         mock_worker_hook = MagicMock()
@@ -422,7 +417,6 @@ class TestQueueBasedInsertion:
         rows = self._make_rows(12, columns)
 
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-        importer._get_text_columns = MagicMock(return_value=set())
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -460,7 +454,6 @@ class TestQueueBasedInsertion:
             raise RuntimeError("API connection lost")
 
         importer.streamer.stream_data = MagicMock(side_effect=failing_stream)
-        importer._get_text_columns = MagicMock(return_value=set())
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -482,7 +475,6 @@ class TestQueueBasedInsertion:
         importer = self._make_importer(mock_varmgr, mock_postgres, parallel_workers=1, batch_size=5)
 
         importer.streamer.stream_data = MagicMock(return_value=iter([]))
-        importer._get_text_columns = MagicMock(return_value=set())
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -509,7 +501,6 @@ class TestQueueBasedInsertion:
         rows = [{'col_a': 'val1'}, {'col_a': 'val2'}]
 
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-        importer._get_text_columns = MagicMock(return_value=set())
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -531,35 +522,6 @@ class TestQueueBasedInsertion:
             assert record[1] == 'sifac_plus'  # default_source
             assert isinstance(record[2], datetime)  # _imported_at
 
-    @patch('amue.operators.pipeline.data_importer.VarMgr')
-    @patch('amue.operators.pipeline.data_importer.PostgresHook')
-    def test_empty_string_to_null(self, mock_postgres, mock_varmgr):
-        """'' -> None pour non-texte, '' preserve pour texte."""
-        importer = self._make_importer(mock_varmgr, mock_postgres, parallel_workers=1, batch_size=10)
-
-        rows = [{'col_text': '', 'col_num': ''}]
-
-        importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-        # col_text est une colonne texte, col_num ne l'est pas
-        importer._get_text_columns = MagicMock(return_value={'col_text'})
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_conn.cursor.return_value = mock_cursor
-        importer.inserter.get_connection = MagicMock(return_value=mock_conn)
-        importer.inserter.build_insert_sql_for_values = MagicMock(return_value='INSERT SQL')
-        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.01})
-
-        importer._stream_and_insert(
-            'test_table', ['col_text', 'col_num', '_source', '_imported_at'],
-            ['col_text'], {'import_type': 'full'}, True, 'corr-7'
-        )
-
-        batch_arg = importer.inserter.execute_batch.call_args[0][3]
-        record = batch_arg[0]
-        assert record[0] == ''    # col_text: '' preserve (colonne texte)
-        assert record[1] is None  # col_num: '' -> None (colonne non-texte)
-
     @patch('amue.operators.pipeline.data_importer.create_postgres_hook')
     @patch('amue.operators.pipeline.data_importer.VarMgr')
     @patch('amue.operators.pipeline.data_importer.PostgresHook')
@@ -571,7 +533,6 @@ class TestQueueBasedInsertion:
         rows = self._make_rows(3, columns)
 
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
-        importer._get_text_columns = MagicMock(return_value=set())
 
         mock_workers = []
 

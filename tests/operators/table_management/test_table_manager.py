@@ -9,10 +9,8 @@ class TestTableManagerInit:
     """Tests pour l'initialisation de AMUETableManager"""
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_init_default_hook(self, mock_varmgr, mock_create_hook):
+    def test_init_default_hook(self, mock_create_hook):
         """Utilise le hook par défaut si non fourni"""
-        mock_varmgr.get.return_value = 'dev'
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
 
@@ -23,10 +21,8 @@ class TestTableManagerInit:
         assert manager.postgres_hook == mock_postgres_hook
         mock_create_hook.assert_called_once()
 
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_init_custom_hook(self, mock_varmgr):
+    def test_init_custom_hook(self):
         """Utilise le hook personnalisé si fourni"""
-        mock_varmgr.get.return_value = 'dev'
         mock_postgres_hook = MagicMock()
 
         from amue.operators.table_management.table_manager import AMUETableManager
@@ -40,11 +36,8 @@ class TestTableManagerValidation:
     """Tests pour la validation de structure"""
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_validate_structure_info_valid(self, mock_varmgr, mock_create_hook):
+    def test_validate_structure_info_valid(self, mock_create_hook):
         """Structure valide ne lève pas d'erreur"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -60,10 +53,8 @@ class TestTableManagerValidation:
         manager._validate_structure_info(structure_info)
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_validate_structure_info_missing_fields(self, mock_varmgr, mock_create_hook):
+    def test_validate_structure_info_missing_fields(self, mock_create_hook):
         """Champs manquants lèvent une erreur"""
-        mock_varmgr.get.return_value = 'dev'
         from amue.exceptions import AMUESchemaError
 
         from amue.operators.table_management.table_manager import AMUETableManager
@@ -79,10 +70,8 @@ class TestTableManagerValidation:
             manager._validate_structure_info(structure_info)
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_validate_structure_info_empty_columns(self, mock_varmgr, mock_create_hook):
+    def test_validate_structure_info_empty_columns(self, mock_create_hook):
         """Colonnes vides lèvent une erreur"""
-        mock_varmgr.get.return_value = 'dev'
         from amue.exceptions import AMUESchemaError
 
         from amue.operators.table_management.table_manager import AMUETableManager
@@ -100,15 +89,12 @@ class TestTableManagerValidation:
             manager._validate_structure_info(structure_info)
 
 
-class TestTableManagerProduction:
-    """Tests pour l'environnement de production"""
+class TestTableManagerManageTable:
+    """Tests pour manage_table (basé uniquement sur l'existence en base)"""
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_production_table_exists(self, mock_varmgr, mock_create_hook):
-        """En production, table existante OK"""
-        mock_varmgr.get.return_value = 'production'
-
+    def test_table_exists_uses_existing(self, mock_create_hook):
+        """Table existante est réutilisée"""
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -126,57 +112,8 @@ class TestTableManagerProduction:
         assert result['created'] is False
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_production_table_missing(self, mock_varmgr, mock_create_hook):
-        """En production, table manquante lève une erreur"""
-        mock_varmgr.get.return_value = 'production'
-        from amue.exceptions import AMUETableNotFoundError
-
-        from amue.operators.table_management.table_manager import AMUETableManager
-
-        manager = AMUETableManager()
-
-        structure_info = {
-            'table_name': 'CSKS',
-            'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
-            'primary_keys': 'id',
-            'exists': False
-        }
-
-        with pytest.raises(AMUETableNotFoundError, match="PRODUCTION.*Création interdite"):
-            manager.manage_table(structure_info)
-
-
-class TestTableManagerDevelopment:
-    """Tests pour l'environnement de développement"""
-
-    @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_dev_table_exists(self, mock_varmgr, mock_create_hook):
-        """En dev, table existante OK"""
-        mock_varmgr.get.return_value = 'dev'
-
-        from amue.operators.table_management.table_manager import AMUETableManager
-
-        manager = AMUETableManager()
-
-        structure_info = {
-            'table_name': 'CSKS',
-            'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
-            'primary_keys': 'id',
-            'exists': True
-        }
-
-        result = manager.manage_table(structure_info)
-
-        assert result['status'] == 'success'
-        assert result['created'] is False
-
-    @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_dev_table_created(self, mock_varmgr, mock_create_hook):
-        """En dev, table manquante est créée"""
-        mock_varmgr.get.return_value = 'dev'
+    def test_table_missing_is_created(self, mock_create_hook):
+        """Table absente est créée automatiquement"""
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
 
@@ -200,16 +137,36 @@ class TestTableManagerDevelopment:
         assert result['created'] is True
         mock_postgres_hook.run.assert_called_once()
 
+    @patch('amue.operators.table_management.table_manager.create_postgres_hook')
+    def test_table_exists_calls_ensure_meta(self, mock_create_hook):
+        """Table existante appelle ensure_meta_columns"""
+        mock_postgres_hook = MagicMock()
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.operators.table_management.table_manager import AMUETableManager
+
+        manager = AMUETableManager()
+
+        structure_info = {
+            'table_name': 'CSKS',
+            'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
+            'primary_keys': 'id',
+            'exists': True
+        }
+
+        result = manager.manage_table(structure_info)
+
+        assert result['status'] == 'success'
+        # Vérifie que ensure_meta_columns a été appelé
+        mock_postgres_hook.run.assert_called()
+
 
 class TestTableManagerSQLGeneration:
     """Tests pour la génération SQL"""
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_create_table_sql(self, mock_varmgr, mock_create_hook):
+    def test_build_create_table_sql(self, mock_create_hook):
         """Génération du SQL CREATE TABLE"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -230,11 +187,8 @@ class TestTableManagerSQLGeneration:
         assert 'PRIMARY KEY (id)' in sql
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_create_table_sql_composite_pk(self, mock_varmgr, mock_create_hook):
+    def test_build_create_table_sql_composite_pk(self, mock_create_hook):
         """Génération SQL avec clé primaire composite"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -250,11 +204,8 @@ class TestTableManagerSQLGeneration:
         assert 'PRIMARY KEY (id1, id2)' in sql
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_create_table_sql_no_pk(self, mock_varmgr, mock_create_hook):
+    def test_build_create_table_sql_no_pk(self, mock_create_hook):
         """Génération SQL sans clé primaire"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -269,11 +220,8 @@ class TestTableManagerSQLGeneration:
         assert 'PRIMARY KEY' not in sql
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_primary_key_constraint_single(self, mock_varmgr, mock_create_hook):
+    def test_build_primary_key_constraint_single(self, mock_create_hook):
         """Contrainte PK simple"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -283,11 +231,8 @@ class TestTableManagerSQLGeneration:
         assert 'PRIMARY KEY (id)' in result
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_primary_key_constraint_composite(self, mock_varmgr, mock_create_hook):
+    def test_build_primary_key_constraint_composite(self, mock_create_hook):
         """Contrainte PK composite"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -297,11 +242,8 @@ class TestTableManagerSQLGeneration:
         assert 'PRIMARY KEY (id, name, date)' in result
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_primary_key_constraint_empty(self, mock_varmgr, mock_create_hook):
+    def test_build_primary_key_constraint_empty(self, mock_create_hook):
         """Contrainte PK vide"""
-        mock_varmgr.get.return_value = 'dev'
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -315,14 +257,8 @@ class TestTableManagerMetaColumns:
     """Tests pour les meta colonnes _source et _imported_at"""
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_ensure_meta_columns(self, mock_varmgr, mock_create_hook):
+    def test_ensure_meta_columns(self, mock_create_hook):
         """ensure_meta_columns ajoute les colonnes"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'environment': 'dev',
-            'amue_default_source': 'sifac_plus'
-        }.get(key, default)
-
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
 
@@ -339,14 +275,8 @@ class TestTableManagerMetaColumns:
         assert 'ADD COLUMN IF NOT EXISTS' in sql_called
 
     @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_build_create_table_sql_includes_meta_columns(self, mock_varmgr, mock_create_hook):
+    def test_build_create_table_sql_includes_meta_columns(self, mock_create_hook):
         """DDL inclut les meta colonnes"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'environment': 'dev',
-            'amue_default_source': 'sifac_plus'
-        }.get(key, default)
-
         from amue.operators.table_management.table_manager import AMUETableManager
 
         manager = AMUETableManager()
@@ -361,35 +291,6 @@ class TestTableManagerMetaColumns:
         assert '_source VARCHAR(50)' in sql
         assert '_imported_at TIMESTAMP' in sql
         assert "DEFAULT 'sifac_plus'" in sql
-
-    @patch('amue.operators.table_management.table_manager.create_postgres_hook')
-    @patch('amue.operators.table_management.table_manager.VarMgr')
-    def test_handle_dev_table_existing_calls_ensure_meta(self, mock_varmgr, mock_create_hook):
-        """En dev, table existante appelle ensure_meta_columns"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'environment': 'dev',
-            'amue_default_source': 'sifac_plus'
-        }.get(key, default)
-
-        mock_postgres_hook = MagicMock()
-        mock_create_hook.return_value = mock_postgres_hook
-
-        from amue.operators.table_management.table_manager import AMUETableManager
-
-        manager = AMUETableManager()
-
-        structure_info = {
-            'table_name': 'CSKS',
-            'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
-            'primary_keys': 'id',
-            'exists': True
-        }
-
-        result = manager.manage_table(structure_info)
-
-        assert result['status'] == 'success'
-        # Vérifie que ensure_meta_columns a été appelé
-        mock_postgres_hook.run.assert_called()
 
 
 class TestTableManagementResult:

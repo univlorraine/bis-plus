@@ -19,12 +19,7 @@ OBLIGATOIRES :
 
 OPTIONNELLES (avec valeurs par défaut) :
 ----------------------------------------
-  environment                   Environnement d'exécution
-                                Valeurs: "dev" | "production"
-                                Défaut: "production"
-                                Impact: En production, création de tables interdite
-
-  amue_tables_to_import         Liste JSON des tables à importer
+  amue_tables_to_import         Liste JSON des tables à importer (OBLIGATOIRE)
                                 Format: [{"name": "CSKS", "enable": true, ...}, ...]
                                 Attributs par table:
                                   - name: Nom de la table (obligatoire)
@@ -58,10 +53,6 @@ OPTIONNELLES (avec valeurs par défaut) :
   amue_import_batch_size        Nombre de lignes par batch d'import
                                 Valeurs: 100-50000
                                 Défaut: 5000
-
-  amue_max_history_days         Nombre de jours d'historique à vérifier
-                                Valeurs: 1-30
-                                Défaut: 7
 
   smtp_host                     Serveur SMTP pour les notifications
                                 Défaut: "mailhog"
@@ -143,9 +134,6 @@ class Defaults:
     BLUEGREEN_ENABLED: bool = False
     BLUEGREEN_DEFAULT_ACTIVE: str = "blue"
     BLUEGREEN_LOCK_TIMEOUT_MINUTES: int = 120  # 2 heures max pour un import
-
-    # --- History ---
-    MAX_HISTORY_DAYS: int = 7
 
     # --- Email ---
     SMTP_HOST: str = "mailhog"
@@ -229,17 +217,11 @@ class AMUEConfig:
     import_batch_size: int = Defaults.IMPORT_BATCH_SIZE
     import_max_memory_mb: int = Defaults.IMPORT_MAX_MEMORY_MB
 
-    # --- Historique ---
-    max_history_days: int = Defaults.MAX_HISTORY_DAYS
-
     # --- Email ---
     smtp_host: str = Defaults.SMTP_HOST
     smtp_port: int = Defaults.SMTP_PORT
     smtp_from: str = Defaults.SMTP_FROM
     report_recipients: List[str] = field(default_factory=lambda: ['admin@example.com'])
-
-    # --- Environnement ---
-    environment: str = 'production'     # Variable: environment ("dev" ou "production")
 
     def __post_init__(self):
         """Valide la configuration après création"""
@@ -346,25 +328,13 @@ class AMUEConfig:
 
             # Import
             import_batch_size=int(get_var('amue_import_batch_size', Defaults.IMPORT_BATCH_SIZE)),
-            max_history_days=int(get_var('amue_max_history_days', Defaults.MAX_HISTORY_DAYS)),
 
             # Email
             smtp_host=get_var('smtp_host', Defaults.SMTP_HOST),
             smtp_port=int(get_var('smtp_port', Defaults.SMTP_PORT)),
             smtp_from=get_var('smtp_mail_from', Defaults.SMTP_FROM),
             report_recipients=recipients,
-
-            # Environnement
-            environment=get_var('environment', 'production')
         )
-
-    def is_production(self) -> bool:
-        """Vérifie si environment == 'production'"""
-        return self.environment.lower() == 'production'
-
-    def is_development(self) -> bool:
-        """Vérifie si environment == 'dev' ou 'development'"""
-        return self.environment.lower() in ('dev', 'development')
 
 
 # Instance globale (lazy loading avec thread-safety)

@@ -65,7 +65,6 @@ CONFIGURATION
 Variables Airflow :
     - universite : Code université pour l'endpoint API
     - api_endpoint_admin : Template d'URL admin avec $univ
-    - environment : "dev" ou "production"
 
 ================================================================================
 """
@@ -76,7 +75,7 @@ from typing import Dict, List
 from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import json
-from amue.exceptions import AMUESchemaError, AMUEStructureChangedError, AMUETableNotFoundError
+from amue.exceptions import AMUESchemaError
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
@@ -143,7 +142,6 @@ class AMUETableVerifier:
         else:
             self.postgres_hook = create_postgres_hook()
 
-        self.environment = VarMgr.get('environment', default='production')
         try:
             univ = VarMgr.get('universite')
         except KeyError:
@@ -243,19 +241,8 @@ class AMUETableVerifier:
             )
             structure_changed = fp_changes['api_changed'] or fp_changes['ul_changed']
 
-            if structure_changed and self.environment == 'production':
-                error_msg = f"Changement structure détecté en production"
-                logger.error(f"[ERROR] {error_msg}")
-                return _error_result(table_name, error_msg, columns, fingerprint_API, fingerprint_UL, primary_keys, exists, True)
-
-            if not exists and self.environment == 'production':
-                schema_name = self.target_schema or 'splus'
-                error_msg = (
-                    f"Table {table_name} n'existe pas dans le schema '{schema_name}' en production. "
-                    f"Action requise: Creer la table ou passer en mode 'dev' pour creation automatique."
-                )
-                logger.error(f"[ERROR] {error_msg}")
-                return _error_result(table_name, error_msg, columns, fingerprint_API, fingerprint_UL, primary_keys, exists, False)
+            if not exists:
+                logger.info(f"[STRUCTURE_CHECK] {table_name}: table absente, sera creee automatiquement")
 
             logger.info(f"[STRUCTURE_CHECK] {table_name}: OK")
             return {
@@ -365,7 +352,7 @@ class AMUETableVerifier:
             return
 
         try:
-            tables_var = VarMgr.get('amue_tables_to_import', default='[]')
+            tables_var = VarMgr.get('amue_tables_to_import')
             logger.info(f"[SAVE_PK] Variable chargée, type={type(tables_var).__name__}")
 
             tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var

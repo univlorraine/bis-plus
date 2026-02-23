@@ -6,7 +6,7 @@ ARCHITECTURE BLUE/GREEN
 ================================================================================
 
 Ce module gère l'alternance entre deux schémas identiques (blue et green)
-pour permettre des imports atomiques avec possibilité de rollback.
+pour permettre des imports atomiques.
 
 SCHÉMAS :
     - splus_blue  : Tables blue
@@ -14,11 +14,10 @@ SCHÉMAS :
     - splus       : Vues pointant vers le schéma actif
 
 WORKFLOW :
-    1. Déterminer le schéma cible (opposé de l'actif)
+    1. Déterminer le schéma cible (opposé de l'actif lu depuis les vues)
     2. Synchroniser si nécessaire (copie schéma actif -> cible)
     3. Importer les données dans le schéma cible
     4. Switcher les vues vers le nouveau schéma
-    5. L'ancien schéma devient le snapshot pour rollback
 
 ================================================================================
 ÉTAT BLUE/GREEN
@@ -26,22 +25,24 @@ WORKFLOW :
 
 L'état est stocké dans la variable Airflow 'amue_bluegreen_state' :
     {
-        "active_schema": "blue",           # Schéma actuellement exposé
-        "inactive_schema": "green",        # Schéma contenant le snapshot
         "last_import_schema": "blue",      # Dernier schéma importé
         "last_switch_timestamp": "...",    # Date du dernier switch
         "last_sync_timestamp": "...",      # Date de la dernière sync
-        "import_in_progress": false,       # Flag d'import en cours
-        "rollback_available": true,        # Rollback possible
-        "rollback_schema": "green"         # Schéma de rollback
+        "import_in_progress": false,       # Flag d'import en cours (verrou concurrent)
+        "import_started_at": "...",        # Timestamp ISO du début de l'import
+        "import_correlation_id": "...",    # ID de corrélation de l'import en cours
     }
+
+NOTE : Le schéma actif n'est PAS stocké ici. Il est lu dynamiquement
+       depuis les vues PostgreSQL (splus.*) via ViewSwitcher.
+       Cela évite toute désynchronisation lors d'une restauration de base.
 
 ================================================================================
 """
 import json
 import logging
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Dict, Optional
 
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -53,47 +54,35 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BlueGreenState:
-    """État du déploiement blue/green"""
-    active_schema: str = "blue"
-    inactive_schema: str = "green"
+    """État du déploiement blue/green (verrou d'import + audit)"""
     last_import_schema: str = ""
     last_switch_timestamp: str = ""
     last_sync_timestamp: str = ""
     import_in_progress: bool = False
     import_started_at: str = ""  # Timestamp ISO du début de l'import
     import_correlation_id: str = ""  # ID de corrélation de l'import en cours
-    rollback_available: bool = False
-    rollback_schema: str = ""
 
     def to_dict(self) -> Dict:
         """Convertit l'état en dictionnaire"""
         return {
-            "active_schema": self.active_schema,
-            "inactive_schema": self.inactive_schema,
             "last_import_schema": self.last_import_schema,
             "last_switch_timestamp": self.last_switch_timestamp,
             "last_sync_timestamp": self.last_sync_timestamp,
             "import_in_progress": self.import_in_progress,
             "import_started_at": self.import_started_at,
             "import_correlation_id": self.import_correlation_id,
-            "rollback_available": self.rollback_available,
-            "rollback_schema": self.rollback_schema
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'BlueGreenState':
-        """Crée un état depuis un dictionnaire"""
+        """Crée un état depuis un dictionnaire (ignore les champs inconnus)"""
         return cls(
-            active_schema=data.get("active_schema", "blue"),
-            inactive_schema=data.get("inactive_schema", "green"),
             last_import_schema=data.get("last_import_schema", ""),
             last_switch_timestamp=data.get("last_switch_timestamp", ""),
             last_sync_timestamp=data.get("last_sync_timestamp", ""),
             import_in_progress=data.get("import_in_progress", False),
             import_started_at=data.get("import_started_at", ""),
             import_correlation_id=data.get("import_correlation_id", ""),
-            rollback_available=data.get("rollback_available", False),
-            rollback_schema=data.get("rollback_schema", "")
         )
 
 
@@ -102,10 +91,13 @@ class BlueGreenManager:
     Gestionnaire de l'état blue/green.
 
     Responsabilités :
-        - Lecture/écriture de l'état
-        - Détermination du schéma cible
+        - Lecture/écriture de l'état opérationnel (verrou, audit)
+        - Détermination du schéma cible via lecture des vues PostgreSQL
         - Gestion des flags d'import
-        - Calcul des noms de schémas complets
+
+    Le schéma actif est toujours lu depuis les vues PostgreSQL, jamais
+    depuis un état Airflow — ce qui évite les désynchronisations après
+    une restauration de base de données.
 
     Example:
         >>> manager = BlueGreenManager()
@@ -126,9 +118,32 @@ class BlueGreenManager:
     STATE_VAR_NAME = "amue_bluegreen_state"
     ENABLED_VAR_NAME = "amue_bluegreen_enabled"
 
-    def __init__(self):
-        """Initialise le gestionnaire"""
+    def __init__(self, view_switcher=None):
+        """
+        Initialise le gestionnaire.
+
+        Args:
+            view_switcher: ViewSwitcher injectable (créé lazy si non fourni)
+        """
         self._state: Optional[BlueGreenState] = None
+        self._view_switcher = view_switcher  # Injectable pour les tests
+
+    @property
+    def _vs(self):
+        """ViewSwitcher lazy — importé ici pour éviter les imports circulaires."""
+        if self._view_switcher is None:
+            from amue.services.bluegreen.view_switcher import ViewSwitcher
+            self._view_switcher = ViewSwitcher()
+        return self._view_switcher
+
+    def _get_active_schema_from_views(self) -> Optional[str]:
+        """
+        Lit le schéma actif directement depuis les vues PostgreSQL.
+
+        Returns:
+            'splus_blue', 'splus_green', ou None si aucune vue n'existe
+        """
+        return self._vs.get_current_target_schema()
 
     def is_enabled(self) -> bool:
         """
@@ -188,34 +203,47 @@ class BlueGreenManager:
         """
         Retourne le nom complet du schéma cible pour l'import.
 
-        Le schéma cible est toujours l'opposé du schéma actif.
+        Le schéma cible est toujours l'opposé du schéma actif lu depuis les vues.
+        Si aucune vue n'existe (premier import), retourne splus_blue.
 
         Returns:
             Nom du schéma cible (ex: 'splus_green')
         """
-        state = self.get_state()
-        target = self.SCHEMA_GREEN if state.active_schema == self.SCHEMA_BLUE else self.SCHEMA_BLUE
-        return f"{self.SCHEMA_PREFIX}{target}"
+        active = self._get_active_schema_from_views()
+        if active is None:
+            # Aucune vue → premier import → blue est la cible
+            return f"{self.SCHEMA_PREFIX}{self.SCHEMA_BLUE}"
+        if active == f"{self.SCHEMA_PREFIX}{self.SCHEMA_BLUE}":
+            return f"{self.SCHEMA_PREFIX}{self.SCHEMA_GREEN}"
+        return f"{self.SCHEMA_PREFIX}{self.SCHEMA_BLUE}"
 
     def get_active_schema(self) -> str:
         """
-        Retourne le nom complet du schéma actif.
+        Retourne le nom complet du schéma actif (lu depuis les vues PostgreSQL).
+
+        Si aucune vue n'existe, retourne splus_green (virtuel) afin que
+        get_target_schema() retourne splus_blue pour le premier import.
 
         Returns:
             Nom du schéma actif (ex: 'splus_blue')
         """
-        state = self.get_state()
-        return f"{self.SCHEMA_PREFIX}{state.active_schema}"
+        active = self._get_active_schema_from_views()
+        if active is None:
+            # Pas de vues → on retourne green (virtuel) pour que target = blue
+            return f"{self.SCHEMA_PREFIX}{self.SCHEMA_GREEN}"
+        return active
 
     def get_inactive_schema(self) -> str:
         """
-        Retourne le nom complet du schéma inactif.
+        Retourne le nom complet du schéma inactif (opposé de l'actif).
 
         Returns:
             Nom du schéma inactif (ex: 'splus_green')
         """
-        state = self.get_state()
-        return f"{self.SCHEMA_PREFIX}{state.inactive_schema}"
+        active = self.get_active_schema()
+        if active == f"{self.SCHEMA_PREFIX}{self.SCHEMA_BLUE}":
+            return f"{self.SCHEMA_PREFIX}{self.SCHEMA_GREEN}"
+        return f"{self.SCHEMA_PREFIX}{self.SCHEMA_BLUE}"
 
     def get_view_schema(self) -> str:
         """
@@ -238,7 +266,6 @@ class BlueGreenManager:
             - import_in_progress = True
             - import_started_at = maintenant
             - import_correlation_id = correlation_id
-            - rollback_available = False (sera True après switch)
 
         Args:
             correlation_id: ID de corrélation pour tracer l'import
@@ -273,30 +300,19 @@ class BlueGreenManager:
         """
         Marque la fin d'un switch de vues.
 
-        Met à jour les flags :
-            - active_schema <-> inactive_schema (inversion)
-            - rollback_available = True
-            - rollback_schema = ancien schéma actif
+        Les vues ont déjà été basculées par ViewSwitcher.
+        Met uniquement à jour les flags opérationnels :
             - last_switch_timestamp = maintenant
 
         Returns:
             True si mise à jour réussie
         """
         state = self.get_state()
-
-        # Inversion des schémas
-        old_active = state.active_schema
         new_state = replace(
             state,
-            active_schema=state.inactive_schema,
-            inactive_schema=old_active,
-            rollback_available=True,
-            rollback_schema=old_active,
             last_switch_timestamp=datetime.now().isoformat()
         )
-
-        logger.info(f"[BLUEGREEN] Switch effectué: {old_active} -> {new_state.active_schema}")
-        logger.info(f"[BLUEGREEN] Rollback disponible vers {old_active}")
+        logger.info("[BLUEGREEN] Switch effectué")
         return self._save_state(new_state)
 
     def mark_sync_completed(self) -> bool:
@@ -305,7 +321,6 @@ class BlueGreenManager:
 
         Met à jour les flags :
             - last_sync_timestamp = maintenant
-            - rollback_available = False (sync écrase le snapshot)
 
         Returns:
             True si mise à jour réussie
@@ -314,35 +329,8 @@ class BlueGreenManager:
         new_state = replace(
             state,
             last_sync_timestamp=datetime.now().isoformat(),
-            rollback_available=False
         )
-        logger.info(f"[BLUEGREEN] Sync terminée, rollback désactivé")
-        return self._save_state(new_state)
-
-    def mark_rollback_completed(self) -> bool:
-        """
-        Marque la fin d'un rollback.
-
-        Met à jour les flags :
-            - active_schema <-> inactive_schema (inversion)
-            - rollback_available = False
-
-        Returns:
-            True si mise à jour réussie
-        """
-        state = self.get_state()
-
-        # Inversion des schémas
-        old_active = state.active_schema
-        new_state = replace(
-            state,
-            active_schema=state.inactive_schema,
-            inactive_schema=old_active,
-            rollback_available=False,
-            rollback_schema=""
-        )
-
-        logger.info(f"[BLUEGREEN] Rollback effectué: {old_active} -> {new_state.active_schema}")
+        logger.info("[BLUEGREEN] Sync terminée")
         return self._save_state(new_state)
 
     def is_import_in_progress(self) -> bool:
@@ -353,15 +341,6 @@ class BlueGreenManager:
             True si import_in_progress est True
         """
         return self.get_state().import_in_progress
-
-    def is_rollback_available(self) -> bool:
-        """
-        Vérifie si un rollback est disponible.
-
-        Returns:
-            True si rollback_available est True
-        """
-        return self.get_state().rollback_available
 
     def get_schema_for_table(self, table_name: str) -> str:
         """
@@ -379,17 +358,14 @@ class BlueGreenManager:
         """
         Vérifie si une synchronisation est nécessaire avant import.
 
-        La sync est nécessaire si :
-            - Le rollback était disponible (données différentes entre schémas)
-            - Ou si c'est le premier import après activation
+        La sync est nécessaire si c'est le premier import après activation
+        (pas encore de sync enregistrée).
 
         Returns:
             True si sync nécessaire
         """
         state = self.get_state()
-        # Sync nécessaire si rollback était disponible (schémas divergents)
-        # ou si pas encore de sync enregistrée
-        return state.rollback_available or not state.last_sync_timestamp
+        return not state.last_sync_timestamp
 
     def reset_state(self) -> bool:
         """
@@ -488,7 +464,9 @@ class BlueGreenManager:
 
         last_import = state.last_import_schema
         if mark_completed:
-            last_import = self.SCHEMA_GREEN if state.active_schema == self.SCHEMA_BLUE else self.SCHEMA_BLUE
+            # À ce stade les vues pointent encore vers l'ancien actif
+            # → get_target_schema() retourne le schéma qui vient d'être importé
+            last_import = self.get_target_schema().replace(self.SCHEMA_PREFIX, "")
 
         new_state = replace(
             state,

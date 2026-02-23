@@ -22,12 +22,10 @@ class TestAMUEConfigValidation:
             'polling_exponential_backoff': False,
             'import_batch_size': 5000,
             'import_max_memory_mb': 512,
-            'max_history_days': 7,
             'smtp_host': 'mailhog',
             'smtp_port': 1025,
             'smtp_from': 'airflow@amue.local',
             'report_recipients': ['admin@example.com'],
-            'environment': 'dev',
         }
         defaults.update(overrides)
         return AMUEConfig(**defaults)
@@ -107,18 +105,3 @@ class TestAMUEConfigValidation:
         with pytest.raises(ValueError, match="smtp_from"):
             self._create_valid_config(smtp_from='')
 
-    def test_is_production(self):
-        """Test de la méthode is_production"""
-        config_prod = self._create_valid_config(environment='production')
-        config_dev = self._create_valid_config(environment='dev')
-
-        assert config_prod.is_production() is True
-        assert config_dev.is_production() is False
-
-    def test_is_development(self):
-        """Test de la méthode is_development"""
-        config_prod = self._create_valid_config(environment='production')
-        config_dev = self._create_valid_config(environment='development')
-
-        assert config_prod.is_development() is False
-        assert config_dev.is_development() is True

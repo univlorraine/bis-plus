@@ -100,9 +100,6 @@ class AMUEDataImporter:
     # Taille de batch par defaut pour l'insertion
     DEFAULT_BATCH_SIZE = 5000
 
-    # Cache des colonnes texte par (schema, table)
-    _text_columns_cache: Dict[tuple, set] = {}
-
     def __init__(self, api_hook: Any, postgres_hook: Optional[PostgresHook] = None, target_schema: Optional[str] = None):
         """
         Initialise l'importeur de donnees AMUE.
@@ -176,7 +173,7 @@ class AMUEDataImporter:
             Liste des colonnes formant la clé primaire
         """
         try:
-            tables_var = VarMgr.get('amue_tables_to_import', default='[]')
+            tables_var = VarMgr.get('amue_tables_to_import')
             tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
 
             for table in tables_config:
@@ -188,55 +185,6 @@ class AMUEDataImporter:
         except Exception as e:
             logger.warning(f"Erreur lecture PKs depuis config pour {table_name}: {e}")
             return []
-
-    @classmethod
-    def clear_text_columns_cache(cls) -> None:
-        """Vide le cache des colonnes texte (utile pour les tests)."""
-        cls._text_columns_cache.clear()
-
-    def _get_text_columns(self, table_name: str, columns: List[str]) -> set:
-        """
-        Récupère les colonnes de type texte depuis information_schema.
-
-        Utilise un cache par (schema, table) pour éviter les requêtes
-        répétées à information_schema.
-
-        Les colonnes texte (character, character varying, text) acceptent
-        les chaînes vides comme valeurs valides. Les autres types (numeric,
-        integer, bytea, timestamp...) doivent recevoir NULL au lieu de ''.
-
-        Args:
-            table_name: Nom de la table
-            columns: Liste des colonnes à vérifier
-
-        Returns:
-            Set des noms de colonnes qui sont de type texte
-        """
-        schema = self.target_schema or 'splus'
-        cache_key = (schema, table_name.lower())
-
-        if cache_key in self._text_columns_cache:
-            logger.info(f"[IMPORT] {table_name}: colonnes texte depuis le cache")
-            return self._text_columns_cache[cache_key]
-
-        try:
-            sql = """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = %s
-                  AND table_name = %s
-                  AND data_type IN ('character', 'character varying', 'text')
-            """
-            rows = self.postgres_hook.get_records(sql, parameters=(schema, table_name.lower()))
-            text_cols = {row[0] for row in rows} if rows else set()
-            logger.info(f"[IMPORT] {table_name}: {len(text_cols)} colonnes texte sur {len(columns)}")
-            self._text_columns_cache[cache_key] = text_cols
-            return text_cols
-        except Exception as e:
-            logger.warning(f"[IMPORT] Impossible de récupérer les types de colonnes pour {table_name}: {e}")
-            # En cas d'erreur, on considère toutes les colonnes comme texte
-            # pour ne pas casser l'import (pas de conversion '' -> NULL)
-            return set(columns)
 
     @staticmethod
     def _queue_put_safe(batch_queue, item, error_event, timeout=1.0):
@@ -422,7 +370,6 @@ class AMUEDataImporter:
         """
         num_workers = self.parallel_workers
         data_columns = [c for c in columns if c not in ('_source', '_imported_at')]
-        text_columns = self._get_text_columns(table_name, data_columns)
         import_timestamp = datetime.now()
 
         # Setup des workers
@@ -506,11 +453,7 @@ class AMUEDataImporter:
                         total_fetched += 1
 
                         row_lower = {k.lower(): v for k, v in row.items()} if isinstance(row, dict) else {}
-                        data_values = [
-                            None if row_lower.get(col, None) == '' and col not in text_columns
-                            else row_lower.get(col, None)
-                            for col in data_columns
-                        ]
+                        data_values = [row_lower.get(col, None) for col in data_columns]
                         meta_values = [self.default_source, import_timestamp]
                         record = tuple(data_values + meta_values)
                         batch.append(record)
