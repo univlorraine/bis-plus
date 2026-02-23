@@ -16,47 +16,54 @@ class TestBlueGreenState:
 
         state = BlueGreenState()
 
-        assert state.active_schema == "blue"
-        assert state.inactive_schema == "green"
         assert state.last_import_schema == ""
         assert state.import_in_progress is False
-        assert state.rollback_available is False
 
     def test_to_dict(self):
         """Conversion en dictionnaire"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenState
 
-        state = BlueGreenState(
-            active_schema="green",
-            inactive_schema="blue",
-            rollback_available=True
-        )
+        state = BlueGreenState(last_import_schema="green")
 
         result = state.to_dict()
 
-        assert result["active_schema"] == "green"
-        assert result["inactive_schema"] == "blue"
-        assert result["rollback_available"] is True
+        assert result["last_import_schema"] == "green"
+        assert "rollback_available" not in result
+        assert "active_schema" not in result
+        assert "inactive_schema" not in result
+        assert "rollback_schema" not in result
 
     def test_from_dict(self):
         """Création depuis un dictionnaire"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenState
 
         data = {
-            "active_schema": "green",
-            "inactive_schema": "blue",
             "last_import_schema": "green",
             "import_in_progress": True,
-            "rollback_available": True,
-            "rollback_schema": "blue"
         }
 
         state = BlueGreenState.from_dict(data)
 
-        assert state.active_schema == "green"
-        assert state.inactive_schema == "blue"
+        assert state.last_import_schema == "green"
         assert state.import_in_progress is True
-        assert state.rollback_available is True
+
+    def test_from_dict_ignores_old_schema_fields(self):
+        """from_dict ignore silencieusement les anciens champs schema"""
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+
+        # Ancien format avec les champs supprimés
+        data = {
+            "active_schema": "blue",
+            "inactive_schema": "green",
+            "rollback_schema": "green",
+            "rollback_available": True,
+        }
+
+        state = BlueGreenState.from_dict(data)
+
+        # Les anciens champs ne doivent pas exister sur la dataclass
+        assert not hasattr(state, 'active_schema')
+        assert not hasattr(state, 'rollback_available')
 
     def test_frozen_state_is_immutable(self):
         """BlueGreenState est frozen - mutation directe impossible."""
@@ -65,17 +72,17 @@ class TestBlueGreenState:
         state = BlueGreenState()
 
         with pytest.raises(AttributeError):
-            state.active_schema = "green"
+            state.import_in_progress = True
 
     def test_frozen_state_replace_creates_new_instance(self):
         """replace() crée une nouvelle instance sans modifier l'originale."""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenState
 
-        state = BlueGreenState(active_schema="blue")
-        new_state = replace(state, active_schema="green")
+        state = BlueGreenState(import_in_progress=False)
+        new_state = replace(state, import_in_progress=True)
 
-        assert state.active_schema == "blue"  # Original inchangé
-        assert new_state.active_schema == "green"  # Nouvelle instance
+        assert state.import_in_progress is False  # Original inchangé
+        assert new_state.import_in_progress is True  # Nouvelle instance
         assert state is not new_state
 
 
@@ -126,16 +133,13 @@ class TestBlueGreenManagerState:
         manager = BlueGreenManager()
         state = manager.get_state()
 
-        assert state.active_schema == "blue"
-        assert state.inactive_schema == "green"
+        assert state.import_in_progress is False
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_get_state_from_json(self, mock_varmgr):
         """État chargé depuis JSON"""
         state_json = json.dumps({
-            "active_schema": "green",
-            "inactive_schema": "blue",
-            "rollback_available": True
+            "last_import_schema": "green",
         })
         mock_varmgr.get.return_value = state_json
 
@@ -144,31 +148,52 @@ class TestBlueGreenManagerState:
         manager = BlueGreenManager()
         state = manager.get_state()
 
-        assert state.active_schema == "green"
-        assert state.inactive_schema == "blue"
+        assert state.last_import_schema == "green"
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_get_target_schema_blue_active(self, mock_varmgr):
-        """Schéma cible = green si blue actif"""
-        state_json = json.dumps({"active_schema": "blue"})
-        mock_varmgr.get.return_value = state_json
+        """Schéma cible = green si views pointent vers blue"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_blue"
+        manager._view_switcher = mock_vs
+
         target = manager.get_target_schema()
 
         assert target == "splus_green"
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_get_target_schema_green_active(self, mock_varmgr):
-        """Schéma cible = blue si green actif"""
-        state_json = json.dumps({"active_schema": "green"})
-        mock_varmgr.get.return_value = state_json
+        """Schéma cible = blue si views pointent vers green"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_green"
+        manager._view_switcher = mock_vs
+
+        target = manager.get_target_schema()
+
+        assert target == "splus_blue"
+
+    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
+    def test_get_target_schema_no_views(self, mock_varmgr):
+        """Schéma cible = blue si aucune vue (premier import)"""
+        mock_varmgr.get.return_value = "{}"
+
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+
+        manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = None
+        manager._view_switcher = mock_vs
+
         target = manager.get_target_schema()
 
         assert target == "splus_blue"
@@ -194,16 +219,18 @@ class TestBlueGreenManagerMarkers:
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_mark_import_completed(self, mock_varmgr):
         """Marque la fin de l'import"""
-        state_json = json.dumps({
-            "active_schema": "blue",
-            "import_in_progress": True
-        })
+        state_json = json.dumps({"import_in_progress": True})
         mock_varmgr.get.return_value = state_json
         mock_varmgr.set.return_value = True
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        # Views pointent vers blue → target = green → last_import = "green"
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_blue"
+        manager._view_switcher = mock_vs
+
         result = manager.mark_import_completed()
 
         assert result is True
@@ -214,11 +241,7 @@ class TestBlueGreenManagerMarkers:
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_mark_switch_completed(self, mock_varmgr):
         """Marque la fin du switch"""
-        state_json = json.dumps({
-            "active_schema": "blue",
-            "inactive_schema": "green"
-        })
-        mock_varmgr.get.return_value = state_json
+        mock_varmgr.get.return_value = "{}"
         mock_varmgr.set.return_value = True
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
@@ -228,16 +251,12 @@ class TestBlueGreenManagerMarkers:
 
         assert result is True
         state = manager.get_state()
-        assert state.active_schema == "green"
-        assert state.inactive_schema == "blue"
-        assert state.rollback_available is True
-        assert state.rollback_schema == "blue"
+        assert state.last_switch_timestamp != ""
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_mark_sync_completed(self, mock_varmgr):
         """Marque la fin de la sync"""
-        state_json = json.dumps({"rollback_available": True})
-        mock_varmgr.get.return_value = state_json
+        mock_varmgr.get.return_value = "{}"
         mock_varmgr.set.return_value = True
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
@@ -247,35 +266,55 @@ class TestBlueGreenManagerMarkers:
 
         assert result is True
         state = manager.get_state()
-        assert state.rollback_available is False
         assert state.last_sync_timestamp != ""
-
 
 class TestBlueGreenManagerHelpers:
     """Tests pour les méthodes utilitaires"""
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_active_schema(self, mock_varmgr):
-        """Retourne le schéma actif complet"""
-        state_json = json.dumps({"active_schema": "blue"})
-        mock_varmgr.get.return_value = state_json
+    def test_get_active_schema_blue(self, mock_varmgr):
+        """Retourne le schéma actif complet quand views pointent vers blue"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_blue"
+        manager._view_switcher = mock_vs
+
         result = manager.get_active_schema()
 
         assert result == "splus_blue"
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_inactive_schema(self, mock_varmgr):
-        """Retourne le schéma inactif complet"""
-        state_json = json.dumps({"inactive_schema": "green"})
-        mock_varmgr.get.return_value = state_json
+    def test_get_active_schema_no_views(self, mock_varmgr):
+        """Retourne splus_green si aucune vue (premier import)"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = None
+        manager._view_switcher = mock_vs
+
+        result = manager.get_active_schema()
+
+        assert result == "splus_green"
+
+    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
+    def test_get_inactive_schema(self, mock_varmgr):
+        """Retourne le schéma inactif complet (opposé de l'actif)"""
+        mock_varmgr.get.return_value = "{}"
+
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+
+        manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_blue"  # active=blue → inactive=green
+        manager._view_switcher = mock_vs
+
         result = manager.get_inactive_schema()
 
         assert result == "splus_green"
@@ -294,22 +333,24 @@ class TestBlueGreenManagerHelpers:
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
     def test_get_schema_for_table(self, mock_varmgr):
-        """Retourne le nom qualifié de la table"""
-        state_json = json.dumps({"active_schema": "blue"})
-        mock_varmgr.get.return_value = state_json
+        """Retourne le nom qualifié de la table dans le schéma cible"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = "splus_blue"  # active=blue → target=green
+        manager._view_switcher = mock_vs
+
         result = manager.get_schema_for_table("CSKS")
 
         assert result == "splus_green.csks"
 
     @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_needs_sync_true_if_rollback_available(self, mock_varmgr):
-        """Sync nécessaire si rollback disponible"""
-        state_json = json.dumps({"rollback_available": True})
-        mock_varmgr.get.return_value = state_json
+    def test_needs_sync_true_if_no_sync(self, mock_varmgr):
+        """Sync nécessaire si pas de last_sync_timestamp"""
+        mock_varmgr.get.return_value = "{}"
 
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -322,7 +363,6 @@ class TestBlueGreenManagerHelpers:
     def test_needs_sync_false_after_sync(self, mock_varmgr):
         """Sync pas nécessaire si déjà sync"""
         state_json = json.dumps({
-            "rollback_available": False,
             "last_sync_timestamp": "2024-01-15T10:00:00"
         })
         mock_varmgr.get.return_value = state_json

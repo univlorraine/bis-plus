@@ -180,8 +180,8 @@ class TestTableVerifierVerifyStructure:
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_verify_structure_production_table_missing(self, mock_varmgr, mock_create_hook):
-        """En production, table manquante = erreur"""
+    def test_verify_structure_table_missing_returns_success(self, mock_varmgr, mock_create_hook):
+        """Table manquante retourne success avec exists=False (sera creee par table_manager)"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
@@ -211,9 +211,8 @@ class TestTableVerifierVerifyStructure:
 
         result = verifier.verify_structure(table_info)
 
-        assert result['status'] == 'error'
-        assert "n'existe pas dans le schema" in result['error']
-        assert "en production" in result['error']
+        assert result['status'] == 'success'
+        assert result['exists'] is False
 
 
 class TestTableVerifierVerifyTable:
@@ -1182,8 +1181,8 @@ class TestVerifyStructureErrorMessages:
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_table_not_found_includes_schema(self, mock_varmgr, mock_create_hook):
-        """Table manquante inclut le nom du schéma et l'action"""
+    def test_table_missing_returns_success_with_exists_false(self, mock_varmgr, mock_create_hook):
+        """Table manquante retourne success avec exists=False"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
@@ -1213,9 +1212,8 @@ class TestVerifyStructureErrorMessages:
 
         result = verifier.verify_structure(table_info)
 
-        assert result['status'] == 'error'
-        assert "splus_blue" in result['error']
-        assert "Action requise" in result['error']
+        assert result['status'] == 'success'
+        assert result['exists'] is False
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')

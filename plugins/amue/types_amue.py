@@ -116,27 +116,19 @@ class BlueGreenStateDict(TypedDict):
     État du déploiement blue/green sous forme de dictionnaire.
 
     Attributes:
-        active_schema: Schéma actuellement actif ('blue' ou 'green')
-        inactive_schema: Schéma inactif
         last_import_schema: Dernier schéma où un import a été effectué
         last_switch_timestamp: Timestamp ISO du dernier switch
         last_sync_timestamp: Timestamp ISO de la dernière synchronisation
         import_in_progress: True si un import est en cours
         import_started_at: Timestamp ISO du début de l'import en cours
         import_correlation_id: ID de corrélation de l'import en cours
-        rollback_available: True si un rollback est possible
-        rollback_schema: Schéma vers lequel un rollback est possible
     """
-    active_schema: str
-    inactive_schema: str
     last_import_schema: str
     last_switch_timestamp: str
     last_sync_timestamp: str
     import_in_progress: bool
     import_started_at: str
     import_correlation_id: str
-    rollback_available: bool
-    rollback_schema: str
 
 
 class TableManagementResultDict(TypedDict):

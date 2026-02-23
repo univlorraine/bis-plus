@@ -6,36 +6,30 @@ RÔLE DU MODULE
 ================================================================================
 
 Ce module gère le schéma DDL (Data Definition Language) des tables AMUE dans
-PostgreSQL. Il est responsable de la création des tables en développement
-et de la validation de leur existence en production.
+PostgreSQL. La décision de créer ou réutiliser une table se base uniquement
+sur son existence en base :
 
-RÈGLES DE GESTION SELON L'ENVIRONNEMENT :
-
-┌─────────────────┬────────────────────┬────────────────────────────────────┐
-│ Environnement   │ Table existe       │ Action                             │
-├─────────────────┼────────────────────┼────────────────────────────────────┤
-│ PRODUCTION      │ Oui                │ Utilisation de la table existante  │
-│ PRODUCTION      │ Non                │ ERREUR - Création interdite        │
-│ DÉVELOPPEMENT   │ Oui                │ Utilisation de la table existante  │
-│ DÉVELOPPEMENT   │ Non                │ Création automatique (DROP IF + CREATE) │
-└─────────────────┴────────────────────┴────────────────────────────────────┘
+┌────────────────────┬────────────────────────────────────┐
+│ Table existe       │ Action                             │
+├────────────────────┼────────────────────────────────────┤
+│ Oui                │ Utilisation de la table existante  │
+│ Non                │ Création automatique               │
+└────────────────────┴────────────────────────────────────┘
 
 PHILOSOPHIE :
-    - En PRODUCTION : lecture seule du schéma (sécurité maximale)
-    - En DEV : création automatique pour faciliter le développement
     - La structure est toujours validée avant toute opération
+    - Si la table n'existe pas, elle est créée automatiquement
+    - Support blue/green : création dans le schéma cible spécifié
 
 ================================================================================
 GÉNÉRATION DDL
 ================================================================================
 
 Le DDL généré inclut :
-    - DROP TABLE IF EXISTS ... CASCADE (en dev uniquement)
     - CREATE TABLE avec colonnes typées
     - Contrainte PRIMARY KEY si clés définies
 
 Exemple de DDL généré :
-    DROP TABLE IF EXISTS csks CASCADE;
     CREATE TABLE csks (
         bukrs VARCHAR(4),
         kostl VARCHAR(10),
@@ -47,9 +41,6 @@ Exemple de DDL généré :
 CONFIGURATION
 ================================================================================
 
-Variable Airflow :
-    - environment : "dev" ou "production" (défaut: "production")
-
 Connexion PostgreSQL :
     - postgres_conn_id : "postgres_data"
     - schema : "splus"
@@ -58,13 +49,11 @@ Connexion PostgreSQL :
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
-from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
-from amue.exceptions import AMUESchemaError, AMUETableNotFoundError, AMUEDatabaseError
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.exceptions import AMUESchemaError, AMUEDatabaseError
 from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.database.schema_utils import SchemaQualifier
 
@@ -87,8 +76,8 @@ class AMUETableManager:
     Gère la création et la structure des tables PostgreSQL.
 
     Règles de gestion :
-    - En production : Aucune création de table (lecture seule)
-    - En développement : Création automatique si table absente
+    - Si la table existe : utilisation de la table existante
+    - Si la table n'existe pas : création automatique
     - Validation systématique de la structure avant opération
     - Support blue/green : création dans le schéma cible spécifié
     """
@@ -104,7 +93,6 @@ class AMUETableManager:
         """
         self._schema_qualifier = SchemaQualifier(target_schema)
         self.postgres_hook = postgres_hook or self._create_default_hook()
-        self.environment = VarMgr.get('environment', default='production')
         self.default_source = 'sifac_plus'
 
     @property
@@ -164,32 +152,37 @@ class AMUETableManager:
 
     def manage_table(self, structure_info: Dict) -> Dict:
         """
-        Point d'entrée principal pour la gestion d'une table
+        Point d'entrée principal pour la gestion d'une table.
+
+        Décision basée uniquement sur l'existence de la table en base :
+        - Table existe : utilisation + vérification meta colonnes
+        - Table absente : création automatique
 
         Args:
             structure_info: Informations de structure de la table
 
         Returns:
             Dictionnaire avec résultat de l'opération
-
-        Raises:
-            AirflowException: Si opération échoue en production
         """
         table_name = structure_info['table_name']
         exists = structure_info['exists']
 
         logger.info(f"[TABLE_MGT] Table: {table_name}")
-        logger.info(f"[TABLE_MGT] Environment: {self.environment}")
         logger.info(f"[TABLE_MGT] Exists: {exists}")
 
         # Validation de la structure
         self._validate_structure_info(structure_info)
 
-        # Décision selon l'environnement
-        if self.environment == 'production':
-            return self._handle_production_table(structure_info, exists)
+        table_name_lower = table_name.lower()
+        qualified_name = self._get_qualified_table_name(table_name_lower)
 
-        return self._handle_dev_table(structure_info, exists)
+        if exists:
+            logger.info(f"[TABLE_MGT] Utilisation table existante: {qualified_name}")
+            self.ensure_meta_columns(table_name_lower)
+            return self._build_existing_table_result(structure_info)
+
+        logger.info(f"[TABLE_MGT] Création de la table: {qualified_name}")
+        return self._create_table(structure_info)
 
     def _validate_structure_info(self, structure_info: Dict) -> None:
         """
@@ -212,42 +205,6 @@ class AMUETableManager:
                 f"Table {structure_info['table_name']}: aucune colonne définie",
                 table_name=structure_info['table_name']
             )
-
-    def _handle_production_table(self, structure_info: Dict, exists: bool) -> Dict:
-        """
-        Gère une table en environnement de production
-
-        En production, on refuse catégoriquement toute création.
-        L'ajout de meta colonnes est autorisé (opération non destructive).
-        """
-        table_name = structure_info['table_name'].lower()
-        qualified_name = self._get_qualified_table_name(table_name)
-
-        if not exists:
-            raise AMUETableNotFoundError(
-                f"[PRODUCTION] Table {qualified_name} inexistante. "
-                "Création interdite en production. Créez la table manuellement.",
-                table_name=table_name
-            )
-
-        logger.info(f"[PRODUCTION] Utilisation table existante: {qualified_name}")
-        # S'assure que les meta colonnes existent (ADD COLUMN IF NOT EXISTS est safe)
-        self.ensure_meta_columns(table_name)
-        return self._build_existing_table_result(structure_info)
-
-    def _handle_dev_table(self, structure_info: Dict, exists: bool) -> Dict:
-        """Gère une table en environnement de développement"""
-        table_name = structure_info['table_name'].lower()
-        qualified_name = self._get_qualified_table_name(table_name)
-
-        if exists:
-            logger.info(f"[DEV] Utilisation table existante: {qualified_name}")
-            # S'assure que les meta colonnes existent
-            self.ensure_meta_columns(table_name)
-            return self._build_existing_table_result(structure_info)
-
-        logger.info(f"[DEV] Création de la table: {qualified_name}")
-        return self._create_table(structure_info)
 
     def _build_existing_table_result(self, structure_info: Dict) -> Dict:
         """
@@ -277,7 +234,8 @@ class AMUETableManager:
             Résultat de la création
 
         Raises:
-            AirflowException: Si création échoue
+            AMUEDatabaseError: Si création échoue (erreur SQL)
+            AMUESchemaError: Si paramètres invalides
         """
         table_name = structure_info['table_name'].lower()
         qualified_name = self._get_qualified_table_name(table_name)
@@ -293,9 +251,9 @@ class AMUETableManager:
             )
 
             # Exécute la création
-            logger.info(f"[DEV] Exécution CREATE TABLE {qualified_name}")
+            logger.info(f"[TABLE_MGT] Exécution CREATE TABLE {qualified_name}")
             self.postgres_hook.run(create_sql)
-            logger.info(f"[DEV] Table {qualified_name} créée avec succès")
+            logger.info(f"[TABLE_MGT] Table {qualified_name} créée avec succès")
 
             # Construit le résultat
             result = TableManagementResult(

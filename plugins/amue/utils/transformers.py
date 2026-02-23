@@ -32,7 +32,7 @@ Règles appliquées :
 L'API AMUE renvoie des types SQLite qu'il faut convertir en PostgreSQL :
 
 ┌────────────────────┬────────────────────┬────────────────────────────────┐
-│ Type SQLite         │ Type PostgreSQL    │ Notes                          │
+│ Type SQLite        │ Type PostgreSQL    │ Notes                          │
 ├────────────────────┼────────────────────┼────────────────────────────────┤
 │ TEXT               │ TEXT               │ Texte                          │
 │ CLOB               │ TEXT               │ Texte long                     │
@@ -99,9 +99,12 @@ USAGE
 ================================================================================
 """
 import hashlib
+import json
 import logging
 import re
 from typing import Any, List, Dict
+
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +210,35 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 # ============================================================================
 
 
+_type_mapping_cache = None
+
+
+def _get_type_mapping() -> dict:
+    """
+    Charge le mapping SQLite -> PostgreSQL depuis la variable Airflow
+    TYPE_MAPPING_SQLITE_TO_POSTGRES.
+
+    Le résultat est mis en cache pour la durée du processus.
+    Les clés sont normalisées en majuscules.
+
+    Returns:
+        Dict {TYPE_SQLITE: TYPE_POSTGRES}
+
+    Raises:
+        KeyError: Si la variable Airflow n'existe pas
+    """
+    global _type_mapping_cache
+    if _type_mapping_cache is not None:
+        return _type_mapping_cache
+
+    raw = VarMgr.get('TYPE_MAPPING_SQLITE_TO_POSTGRES')
+    mapping = json.loads(raw) if isinstance(raw, str) else raw
+    # Normalise les clés en majuscules
+    _type_mapping_cache = {k.upper(): v for k, v in mapping.items()}
+    logger.info(f"[TRANSFORMERS] Type mapping charge: {len(_type_mapping_cache)} types")
+    return _type_mapping_cache
+
+
 def parse_column_definition(definition: str) -> str:
     """
     Convertit une définition de colonne SQLite en type PostgreSQL
@@ -229,39 +261,8 @@ def parse_column_definition(definition: str) -> str:
     """
     definition = definition.strip()
 
-    # Mapping des types SQLite vers PostgreSQL
-    type_mapping = {
-        # Texte
-        'TEXT': 'TEXT',
-        'CLOB': 'TEXT',
-        'CHAR': 'BPCHAR',
-        'CHARACTER': 'BPCHAR',
-        'VARCHAR': 'VARCHAR',
-        'NCHAR': 'BPCHAR',
-        'NVARCHAR': 'VARCHAR',
-        # Entiers
-        'INTEGER': 'INTEGER',
-        'INT': 'INTEGER',
-        'TINYINT': 'SMALLINT',
-        'SMALLINT': 'SMALLINT',
-        'MEDIUMINT': 'INTEGER',
-        'BIGINT': 'BIGINT',
-        'INT2': 'SMALLINT',
-        'INT8': 'BIGINT',
-        # Numériques
-        'NUMERIC': 'NUMERIC',
-        'DECIMAL': 'NUMERIC',
-        'BOOLEAN': 'BOOLEAN',
-        # Réels
-        'REAL': 'DOUBLE PRECISION',
-        'DOUBLE': 'DOUBLE PRECISION',
-        'FLOAT': 'DOUBLE PRECISION',
-        # Dates
-        'DATE': 'TIMESTAMP',
-        'DATETIME': 'TIMESTAMP',
-        # Binaires
-        'BLOB': 'BYTEA',
-    }
+    # Mapping chargé depuis la variable Airflow TYPE_MAPPING_SQLITE_TO_POSTGRES
+    type_mapping = _get_type_mapping()
 
     # Parse le type et ses paramètres (ex: VARCHAR2(50) -> VARCHAR2 + (50))
     match = re.match(r'(\w+)(\(.*?\))?', definition, re.IGNORECASE)

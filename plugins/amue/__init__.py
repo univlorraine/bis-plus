@@ -33,7 +33,6 @@ from amue.exceptions import (
     AMUEStructureChangedError,
     AMUEBlueGreenError,
     ConcurrentImportError,
-    RollbackNotAvailableError,
     ViewSwitchError,
     is_retryable_error,
     get_error_category,
@@ -74,7 +73,6 @@ from amue.services.api.status_checker import AMUEStatusChecker
 from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
 from amue.services.bluegreen.view_switcher import ViewSwitcher
 from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
-from amue.services.bluegreen.rollback_manager import RollbackManager
 # Utils
 from amue.utils.config.airflow_helpers import AirflowVariableManager
 from amue.utils.database.hooks import HookManager, create_postgres_hook, create_api_hook, create_bluegreen_hook
@@ -131,7 +129,6 @@ __all__ = [
     "AMUEStructureChangedError",
     "AMUEBlueGreenError",
     "ConcurrentImportError",
-    "RollbackNotAvailableError",
     "ViewSwitchError",
     "is_retryable_error",
     "get_error_category",
@@ -146,7 +143,6 @@ __all__ = [
     "BlueGreenState",
     "ViewSwitcher",
     "SchemaSynchronizer",
-    "RollbackManager",
     # Retry
     "RetryService",
     "RetryConfig",

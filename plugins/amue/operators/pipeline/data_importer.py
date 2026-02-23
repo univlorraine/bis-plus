@@ -176,7 +176,7 @@ class AMUEDataImporter:
             Liste des colonnes formant la clé primaire
         """
         try:
-            tables_var = VarMgr.get('amue_tables_to_import', default='[]')
+            tables_var = VarMgr.get('amue_tables_to_import')
             tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
 
             for table in tables_config:

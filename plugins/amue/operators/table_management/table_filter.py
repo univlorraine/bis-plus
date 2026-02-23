@@ -383,17 +383,7 @@ class AMUETableFilter:
 
     def _load_config(self) -> List[Dict]:
         """Charge la configuration des tables depuis les variables"""
-        default_config = json.dumps([{
-            "name": "CSKS",
-            "enable": True,
-            "primary_key": "",
-            "delta": "",
-            "last_import": "",
-            "fingerprint_API": "",
-            "fingerprint_UL": ""
-        }])
-
-        tables_var = VarMgr.get('amue_tables_to_import', default=default_config)
+        tables_var = VarMgr.get('amue_tables_to_import')
         tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
 
         # DEBUG: Afficher les PKs chargées depuis la variable Airflow

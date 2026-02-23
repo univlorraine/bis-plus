@@ -17,7 +17,7 @@ AMUEError (base)
 │   └── AMUEStructureChangedError # Changement de structure détecté
 └── AMUEBlueGreenError     # Erreurs Blue/Green
     ├── ConcurrentImportError     # Import concurrent détecté
-    └── RollbackNotAvailableError # Rollback non disponible
+    └── ViewSwitchError           # Erreur lors du switch des vues
 
 ================================================================================
 USAGE
@@ -322,25 +322,6 @@ class ConcurrentImportError(AMUEBlueGreenError):
         self.import_started_at = import_started_at
         super().__init__(message, **kwargs)
         self.context['import_started_at'] = import_started_at
-
-
-class RollbackNotAvailableError(AMUEBlueGreenError):
-    """
-    Rollback non disponible.
-
-    Levée quand un rollback est demandé mais n'est pas possible
-    (sync déjà effectuée, pas d'import précédent, etc.)
-    """
-
-    def __init__(
-        self,
-        message: str = "Rollback non disponible",
-        reason: Optional[str] = None,
-        **kwargs
-    ):
-        self.reason = reason
-        super().__init__(message, **kwargs)
-        self.context['reason'] = reason
 
 
 class ViewSwitchError(AMUEBlueGreenError):
