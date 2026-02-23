@@ -189,8 +189,9 @@ class AMUEPollingService:
             logger.warning("[POLLING] Finish invalide - import exécuté par précaution")
             return False
 
-        # Récupère le timestamp précédent
-        stored_finish = VarMgr.get('amue_last_finish_timestamp', default='')
+        # Récupère le timestamp précédent depuis la BDD
+        from amue.services.admin_state_manager import AdminStateManager
+        stored_finish = AdminStateManager().get_last_finish_timestamp() or ''
 
         # Première exécution - pas de timestamp précédent
         if not stored_finish or not stored_finish.strip():

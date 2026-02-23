@@ -50,31 +50,18 @@ DIFFERENTIAL (import incrémental) :
 CONFIGURATION
 ================================================================================
 
-Variable Airflow : amue_tables_to_import
-Format JSON :
-[
-    {
-        "name": "CSKS",              # Nom de la table (obligatoire)
-        "enable": true,              # Activer/désactiver (défaut: true)
-        "primary_key": "BUKRS,KOSTL", # Clés primaires pour UPSERT
-        "delta": "AEDAT",            # Colonne de date de modification
-        "last_import": "2024-01-15", # Date ISO du dernier import
-        "fingerprint_API": "abc123...",  # Empreinte structure API
-        "fingerprint_UL": "def456..."   # Empreinte structure PG
-    },
-    ...
-]
+Table PostgreSQL : splus_admin.amue_tables
+Colonnes : table_name, enabled, primary_key, delta,
+           fingerprint_api, fingerprint_ul
 
 ================================================================================
 """
-import json
 import logging
 from datetime import datetime
 from typing import Dict, List
 
 from airflow.exceptions import AirflowException
 from amue.notifications import NotificationService, send_failure_notification
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +129,8 @@ class AMUETableFilter:
             tables_config: Configuration des tables (optionnel).
                           Si non fourni, chargé depuis la variable Airflow.
         """
+        self._last_report_start = ''
+
         # Charge la config depuis Airflow si non fournie
         if tables_config is None:
             tables_config = self._load_config()
@@ -382,17 +371,28 @@ class AMUETableFilter:
         return "\n".join(message_lines)
 
     def _load_config(self) -> List[Dict]:
-        """Charge la configuration des tables depuis les variables"""
-        tables_var = VarMgr.get('amue_tables_to_import')
-        tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
+        """Charge la configuration des tables et le last_report_start depuis la BDD."""
+        from amue.services.table_config_manager import TableConfigManager
+        tables_config = TableConfigManager().get_tables_config()
 
-        # DEBUG: Afficher les PKs chargées depuis la variable Airflow
-        logger.info(f"[LOAD_CONFIG] Chargé depuis amue_tables_to_import: {len(tables_config) if isinstance(tables_config, list) else 0} tables")
-        if isinstance(tables_config, list):
-            for t in tables_config[:5]:  # Limite aux 5 premières pour les logs
-                logger.info(f"[LOAD_CONFIG] - {t.get('name', 'NO_NAME')}: primary_key='{t.get('primary_key', 'NOT_SET')}'")
+        self._last_report_start = self._load_last_report_start()
 
-        return tables_config if isinstance(tables_config, list) else []
+        logger.info(f"[LOAD_CONFIG] {len(tables_config)} tables chargées depuis la BDD")
+        logger.info(f"[LOAD_CONFIG] last_report_start: {self._last_report_start or '(aucun)'}")
+        for t in tables_config[:5]:
+            logger.info(f"[LOAD_CONFIG] - {t.get('name', 'NO_NAME')}: primary_key='{t.get('primary_key', 'NOT_SET')}'")
+
+        return tables_config
+
+    def _load_last_report_start(self) -> str:
+        """Charge le timestamp de début du dernier rapport depuis AdminStateManager."""
+        from amue.services.admin_state_manager import AdminStateManager
+        try:
+            ts = AdminStateManager().get_last_report_start()
+            return ts or ''
+        except Exception as e:
+            logger.warning(f"[LOAD_CONFIG] Impossible de charger last_report_start: {e}")
+            return ''
 
     def _enrich_table_config(self, table_config: Dict, current_status: Dict) -> Dict:
         """
@@ -408,7 +408,6 @@ class AMUETableFilter:
         # Ajoute les valeurs par défaut
         enriched.setdefault('primary_key', '')
         enriched.setdefault('delta', '')
-        enriched.setdefault('last_import', '')
         enriched.setdefault('fingerprint_API', '')
         enriched.setdefault('fingerprint_UL', '')
 
@@ -426,7 +425,7 @@ class AMUETableFilter:
         # Ajoute le statut actuel
         enriched['current_status'] = current_status
 
-        # Extrait le finish de la table côté API (pour last_import dans les métadonnées)
+        # Extrait le finish de la table côté API (pour les métadonnées)
         enriched['table_finish'] = current_status.get('finish', '')
 
         return enriched
@@ -438,11 +437,14 @@ class AMUETableFilter:
         if current_status != 'OK':
             return False
 
-        # Détermine le type d'import
-        has_last_import = bool(table_config.get('last_import'))
+        # Détermine le type d'import selon le timestamp global et la colonne delta
         has_delta = bool(table_config.get('delta'))
+        is_differential = bool(self._last_report_start) and has_delta
 
-        table_config['import_type'] = 'differential' if (has_last_import and has_delta) else 'full'
+        table_config['import_type'] = 'differential' if is_differential else 'full'
+        if is_differential:
+            # Injecte last_import pour que data_streamer puisse filtrer les données
+            table_config['last_import'] = self._last_report_start
         table_config['to_process'] = True
 
         return True

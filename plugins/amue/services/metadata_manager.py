@@ -8,7 +8,7 @@ RÔLE DU MODULE
 Ce module persiste les métadonnées d'import dans les variables Airflow.
 Ces métadonnées sont ESSENTIELLES pour :
     - Détecter les changements de structure (fingerprint)
-    - Permettre l'import différentiel (last_import)
+    - Permettre l'import différentiel (last_report_start global dans amue_state)
     - Tracer l'historique des imports
 
 ================================================================================
@@ -26,34 +26,22 @@ Pour chaque table importée, le gestionnaire sauvegarde :
 │ fingerprint_UL  │ Hash MD5 structure transformée PG + PKs config             │
 │                 │ → Détecte les changements côté local                       │
 ├─────────────────┼────────────────────────────────────────────────────────────┤
-│ last_import     │ Date ISO du dernier import réussi de cette table           │
-│                 │ → Utilisé pour filtrer les données en import différentiel  │
-├─────────────────┼────────────────────────────────────────────────────────────┤
 │ primary_key     │ Liste des colonnes formant la clé primaire (CSV)           │
 │                 │ → Utilisé pour construire les UPSERT                       │
 └─────────────────┴────────────────────────────────────────────────────────────┘
+
+NOTE : La référence temporelle pour l'import différentiel (last_report_start) est
+stockée globalement dans splus_admin.amue_state, pas par table.
 
 ================================================================================
 STOCKAGE
 ================================================================================
 
-Les métadonnées sont stockées dans la variable Airflow 'amue_tables_to_import'
-au format JSON :
+Les métadonnées sont stockées dans la table PostgreSQL splus_admin.amue_tables
+via TableConfigManager.
 
-[
-    {
-        "name": "CSKS",
-        "primary_key": "BUKRS,KOSTL",
-        "delta": "AEDAT",
-        "last_import": "2024-01-15T10:30:00",
-        "fingerprint_API": "abc123...",
-        "fingerprint_UL": "def456..."
-    },
-    ...
-]
-
-Une variable séparée 'amue_last_successful_run' stocke la date du dernier
-succès GLOBAL du DAG (toutes tables importées avec succès).
+Les timestamps de synchro (last_finish_timestamp, last_successful_run) sont
+stockés dans la table PostgreSQL splus_admin.amue_state via AdminStateManager.
 
 ================================================================================
 GESTION DES ERREURS
@@ -69,7 +57,6 @@ Pourquoi ? Si les métadonnées ne sont pas sauvegardées :
 
 ================================================================================
 """
-import json
 import logging
 import pprint
 import time
@@ -78,7 +65,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 from airflow.exceptions import AirflowException
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +75,6 @@ class TableMetadata:
     name: str
     fingerprint_API: str
     fingerprint_UL: str
-    last_import: str
     primary_key: str = ''
     delta: str = ''
 
@@ -111,9 +96,6 @@ class AMUEMetadataManager:
 
     def __init__(self):
         """Initialise le gestionnaire de métadonnées"""
-        self.tables_var_name = 'amue_tables_to_import'
-        self.last_success_var_name = 'amue_last_successful_run'
-        self.last_finish_var_name = 'amue_last_finish_timestamp'
 
     def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None, report_start: str = None) -> None:
         """
@@ -126,7 +108,7 @@ class AMUEMetadataManager:
         Args:
             import_results: Liste des résultats d'import
             finish_timestamp: Timestamp finish de l'API (pour le polling)
-            report_start: Date start du rapport API AMUE (pour last_import)
+            report_start: Date start du rapport API AMUE (référence globale pour le mode différentiel)
 
         Raises:
             AirflowException: Si mise à jour échoue après tous les retries
@@ -140,6 +122,10 @@ class AMUEMetadataManager:
         # Sauvegarde le finish timestamp pour le prochain polling
         if finish_timestamp:
             self._save_finish_timestamp(finish_timestamp)
+
+        # Sauvegarde le report_start comme référence globale pour les imports différentiels
+        if report_start:
+            self._save_report_start(report_start)
 
         if not import_results:
             logger.info("Aucun résultat à traiter")
@@ -174,7 +160,7 @@ class AMUEMetadataManager:
                 logger.info("Mise à jour terminée avec succès")
                 return
 
-            except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+            except Exception as e:
                 last_error = e
                 logger.warning(f"[{type(e).__name__}] Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
 
@@ -210,34 +196,16 @@ class AMUEMetadataManager:
 
     def _load_tables_config(self) -> List[Dict]:
         """
-        Charge la configuration des tables depuis les variables Airflow
+        Charge la configuration des tables depuis splus_admin.amue_tables.
 
         Returns:
             Liste des configurations de tables
 
         Raises:
-            AirflowException: Si chargement échoue
+            Exception: Si chargement échoue (pour déclencher le retry du caller)
         """
-        try:
-            tables_var = VarMgr.get(self.tables_var_name)
-
-            # Parse si c'est une chaîne JSON
-            if isinstance(tables_var, str):
-                tables_config = json.loads(tables_var)
-            else:
-                tables_config = tables_var
-
-            # Valide que c'est bien une liste
-            if not isinstance(tables_config, list):
-                raise ValueError("Configuration doit être une liste")
-
-            logger.info(f"{len(tables_config)} tables chargées")
-            return tables_config
-
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            error_msg = f"Impossible de charger la configuration des tables: {str(e)}"
-            logger.error(f"[{type(e).__name__}] {error_msg}")
-            raise AirflowException(error_msg) from e
+        from amue.services.table_config_manager import TableConfigManager
+        return TableConfigManager().get_tables_config()
 
     def _update_table_metadata(self, tables_config: List[Dict], result: Dict) -> bool:
         """
@@ -270,8 +238,6 @@ class AMUEMetadataManager:
                 table['fingerprint_UL'] = new_fp_ul
                 # Supprimer l'ancien champ s'il existe
                 table.pop('finger_print', None)
-                # Utilise la date start du rapport API AMUE (fallback: datetime.now())
-                table['last_import'] = self._report_start or datetime.now().isoformat()
 
                 # Mise à jour des clés primaires uniquement si pas déjà définies
                 if result.get('primary_keys') and not table.get('primary_key'):
@@ -281,7 +247,6 @@ class AMUEMetadataManager:
                 logger.info(f"{table_name}:")
                 logger.info(f"  - fingerprint_API: {old_fp_api[:8] if old_fp_api else 'none'}... -> {new_fp_api[:8] if new_fp_api else 'none'}...")
                 logger.info(f"  - fingerprint_UL: {old_fp_ul[:8] if old_fp_ul else 'none'}... -> {new_fp_ul[:8] if new_fp_ul else 'none'}...")
-                logger.info(f"  - Last import: {table['last_import']}")
 
                 return True
 
@@ -290,38 +255,47 @@ class AMUEMetadataManager:
 
     def _save_tables_config(self, tables_config: List[Dict]) -> None:
         """
-        Sauvegarde la configuration des tables
+        Sauvegarde la configuration des tables dans splus_admin.amue_tables.
 
         Args:
             tables_config: Configuration à sauvegarder
 
         Raises:
-            AirflowException: Si sauvegarde échoue
+            Exception: Si sauvegarde échoue (pour déclencher le retry du caller)
         """
-        success = VarMgr.set(self.tables_var_name, json.dumps(tables_config))
-        if not success:
-            raise AirflowException("Échec de la sauvegarde de la configuration")
-
+        from amue.services.table_config_manager import TableConfigManager
+        TableConfigManager().save_tables_config(tables_config)
         logger.info("Configuration sauvegardée")
 
     def _save_last_success(self) -> None:
         """
-        Enregistre la date du dernier succès global
+        Enregistre la date du dernier succès global dans la BDD.
 
         Cette date est utilisée pour déterminer l'historique à vérifier
         lors de la prochaine exécution.
         """
+        from amue.services.admin_state_manager import AdminStateManager
         success_date = datetime.now().isoformat()
+        AdminStateManager().set_last_successful_run(success_date)
+        logger.info(f"Dernier succès: {success_date}")
 
-        success = VarMgr.set(self.last_success_var_name, success_date)
-        if success:
-            logger.info(f"Dernier succès: {success_date}")
-        else:
-            logger.warning("Impossible de sauvegarder la date du dernier succès")
+    def _save_report_start(self, report_start: str) -> None:
+        """
+        Sauvegarde le timestamp de début du rapport AMUE dans la BDD.
+
+        Ce timestamp est utilisé pour les imports différentiels : toutes les
+        tables delta filtrent leurs données avec delta_column >= last_report_start.
+
+        Args:
+            report_start: Valeur ISO 8601 du champ 'start' retourné par l'API AMUE
+        """
+        from amue.services.admin_state_manager import AdminStateManager
+        AdminStateManager().set_last_report_start(report_start)
+        logger.info(f"Report start enregistré: {report_start}")
 
     def _save_finish_timestamp(self, finish_timestamp: str) -> None:
         """
-        Sauvegarde le timestamp finish de l'API.
+        Sauvegarde le timestamp finish de l'API dans la BDD.
 
         Ce timestamp est utilisé par le polling pour détecter si de nouvelles
         données sont disponibles. Si le timestamp est identique au précédent,
@@ -330,33 +304,29 @@ class AMUEMetadataManager:
         Args:
             finish_timestamp: Valeur du timestamp finish retourné par l'API
         """
-        old_timestamp = VarMgr.get(self.last_finish_var_name, default='')
-
-        success = VarMgr.set(self.last_finish_var_name, finish_timestamp)
-        if success:
-            if old_timestamp:
-                logger.info(f"Finish timestamp mis à jour: {old_timestamp} -> {finish_timestamp}")
-            else:
-                logger.info(f"Finish timestamp enregistré: {finish_timestamp}")
+        from amue.services.admin_state_manager import AdminStateManager
+        mgr = AdminStateManager()
+        old_timestamp = mgr.get_last_finish_timestamp()
+        mgr.set_last_finish_timestamp(finish_timestamp)
+        if old_timestamp:
+            logger.info(f"Finish timestamp mis à jour: {old_timestamp} -> {finish_timestamp}")
         else:
-            logger.warning(f"Impossible de sauvegarder le finish timestamp: {finish_timestamp}")
+            logger.info(f"Finish timestamp enregistré: {finish_timestamp}")
 
     def get_last_success_date(self) -> Optional[datetime]:
         """
-        Récupère la date du dernier succès
+        Récupère la date du dernier succès depuis la BDD.
 
         Returns:
             Date du dernier succès ou None si jamais exécuté
         """
+        from amue.services.admin_state_manager import AdminStateManager
         try:
-            last_success_str = VarMgr.get(self.last_success_var_name, default='')
-
+            last_success_str = AdminStateManager().get_last_successful_run()
             if last_success_str:
                 return datetime.fromisoformat(last_success_str)
-
         except (ValueError, TypeError, AttributeError) as e:
             logger.warning(f"[{type(e).__name__}] Impossible de récupérer dernier succès: {str(e)}")
-
         return None
 
     def get_table_metadata(self, table_name: str) -> Optional[TableMetadata]:
@@ -369,26 +339,21 @@ class AMUEMetadataManager:
         Returns:
             Métadonnées de la table ou None si non trouvée
         """
-        table_name_upper = table_name.upper()
-
+        from amue.services.table_config_manager import TableConfigManager
         try:
-            tables_config = self._load_tables_config()
-
-            for table in tables_config:
-                if table.get('name', '').upper() == table_name_upper:
-                    return TableMetadata(
-                        name=table.get('name', ''),
-                        fingerprint_API=table.get('fingerprint_API', ''),
-                        fingerprint_UL=table.get('fingerprint_UL', ''),
-                        last_import=table.get('last_import', ''),
-                        primary_key=table.get('primary_key', ''),
-                        delta=table.get('delta', '')
-                    )
-
-        except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
+            table = TableConfigManager().get_table_metadata(table_name)
+            if table is None:
+                return None
+            return TableMetadata(
+                name=table.get('name', ''),
+                fingerprint_API=table.get('fingerprint_API', ''),
+                fingerprint_UL=table.get('fingerprint_UL', ''),
+                primary_key=table.get('primary_key', ''),
+                delta=table.get('delta', '')
+            )
+        except Exception as e:
             logger.warning(f"[{type(e).__name__}] Erreur récupération métadonnées {table_name}: {str(e)}")
-
-        return None
+            return None
 
     def reset_table_metadata(self, table_name: str) -> bool:
         """
@@ -402,25 +367,5 @@ class AMUEMetadataManager:
         Returns:
             True si réinitialisation réussie
         """
-        try:
-            tables_config = self._load_tables_config()
-            table_name_upper = table_name.upper()
-
-            for table in tables_config:
-                if table.get('name', '').upper() == table_name_upper:
-                    table['fingerprint_API'] = ''
-                    table['fingerprint_UL'] = ''
-                    table.pop('finger_print', None)
-                    table['last_import'] = ''
-
-                    self._save_tables_config(tables_config)
-
-                    logger.info(f"Table {table_name} réinitialisée")
-                    return True
-
-            logger.warning(f"Table {table_name} non trouvée")
-            return False
-
-        except (json.JSONDecodeError, ValueError, TypeError, KeyError) as e:
-            logger.error(f"[{type(e).__name__}] Échec réinitialisation {table_name}: {str(e)}")
-            return False
+        from amue.services.table_config_manager import TableConfigManager
+        return TableConfigManager().reset_table_metadata(table_name)

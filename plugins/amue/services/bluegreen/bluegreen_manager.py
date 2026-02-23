@@ -23,23 +23,20 @@ WORKFLOW :
 ÉTAT BLUE/GREEN
 ================================================================================
 
-L'état est stocké dans la variable Airflow 'amue_bluegreen_state' :
-    {
-        "last_import_schema": "blue",      # Dernier schéma importé
-        "last_switch_timestamp": "...",    # Date du dernier switch
-        "last_sync_timestamp": "...",      # Date de la dernière sync
-        "import_in_progress": false,       # Flag d'import en cours (verrou concurrent)
-        "import_started_at": "...",        # Timestamp ISO du début de l'import
-        "import_correlation_id": "...",    # ID de corrélation de l'import en cours
-    }
+L'état est stocké dans la table PostgreSQL splus_admin.amue_state :
+    last_import_schema    (active_schema)
+    last_switch_timestamp
+    last_sync_timestamp
+    import_in_progress    (verrou concurrent)
+    import_started_at
+    import_correlation_id
 
-NOTE : Le schéma actif n'est PAS stocké ici. Il est lu dynamiquement
-       depuis les vues PostgreSQL (splus.*) via ViewSwitcher.
+NOTE : Le schéma actif n'est PAS l'unique source de vérité ici. Il est lu
+       dynamiquement depuis les vues PostgreSQL (splus.*) via ViewSwitcher.
        Cela évite toute désynchronisation lors d'une restauration de base.
 
 ================================================================================
 """
-import json
 import logging
 from datetime import datetime, timedelta
 from dataclasses import dataclass, replace
@@ -114,8 +111,7 @@ class BlueGreenManager:
     SCHEMA_PREFIX = "splus_"
     VIEW_SCHEMA = "splus"
 
-    # Variable Airflow pour l'état
-    STATE_VAR_NAME = "amue_bluegreen_state"
+    # Variable Airflow pour la configuration (lecture seule)
     ENABLED_VAR_NAME = "amue_bluegreen_enabled"
 
     def __init__(self, view_switcher=None):
@@ -169,18 +165,18 @@ class BlueGreenManager:
         return self._state
 
     def _load_state(self) -> BlueGreenState:
-        """Charge l'état depuis la variable Airflow"""
+        """Charge l'état depuis la BDD (splus_admin.amue_state)"""
+        from amue.services.admin_state_manager import AdminStateManager
         try:
-            state_json = VarMgr.get(self.STATE_VAR_NAME, default="{}")
-            state_dict = json.loads(state_json) if isinstance(state_json, str) else state_json
-            return BlueGreenState.from_dict(state_dict)
+            state = AdminStateManager().get_bluegreen_state()
+            return state if state is not None else BlueGreenState()
         except Exception as e:
             logger.warning(f"[BLUEGREEN] Erreur chargement état: {e}, utilisation état par défaut")
             return BlueGreenState()
 
     def _save_state(self, state: BlueGreenState) -> bool:
         """
-        Sauvegarde l'état dans la variable Airflow.
+        Sauvegarde l'état dans la BDD (splus_admin.amue_state).
 
         Args:
             state: État à sauvegarder
@@ -188,9 +184,9 @@ class BlueGreenManager:
         Returns:
             True si sauvegarde réussie
         """
+        from amue.services.admin_state_manager import AdminStateManager
         try:
-            state_json = json.dumps(state.to_dict())
-            success = VarMgr.set(self.STATE_VAR_NAME, state_json)
+            success = AdminStateManager().save_bluegreen_state(state)
             if success:
                 self._state = state
                 logger.info(f"[BLUEGREEN] État sauvegardé: {state.to_dict()}")
@@ -301,37 +297,35 @@ class BlueGreenManager:
         Marque la fin d'un switch de vues.
 
         Les vues ont déjà été basculées par ViewSwitcher.
-        Met uniquement à jour les flags opérationnels :
-            - last_switch_timestamp = maintenant
+        Met à jour last_switch_timestamp et active_schema en BDD.
 
         Returns:
             True si mise à jour réussie
         """
-        state = self.get_state()
-        new_state = replace(
-            state,
-            last_switch_timestamp=datetime.now().isoformat()
-        )
+        from amue.services.admin_state_manager import AdminStateManager
+        # Le schéma actif est maintenant le cible (les vues viennent d'être basculées)
+        new_active = self.get_active_schema().replace(self.SCHEMA_PREFIX, "")
         logger.info("[BLUEGREEN] Switch effectué")
-        return self._save_state(new_state)
+        success = AdminStateManager().mark_switch_completed(new_active)
+        if success:
+            self._state = None
+        return success
 
     def mark_sync_completed(self) -> bool:
         """
         Marque la fin d'une synchronisation.
 
-        Met à jour les flags :
-            - last_sync_timestamp = maintenant
+        Met à jour last_sync_timestamp en BDD.
 
         Returns:
             True si mise à jour réussie
         """
-        state = self.get_state()
-        new_state = replace(
-            state,
-            last_sync_timestamp=datetime.now().isoformat(),
-        )
+        from amue.services.admin_state_manager import AdminStateManager
         logger.info("[BLUEGREEN] Sync terminée")
-        return self._save_state(new_state)
+        success = AdminStateManager().mark_sync_completed()
+        if success:
+            self._state = None
+        return success
 
     def is_import_in_progress(self) -> bool:
         """
@@ -387,8 +381,8 @@ class BlueGreenManager:
         """
         Acquiert un verrou exclusif pour l'import.
 
-        Cette méthode vérifie qu'aucun autre import n'est en cours avant
-        de marquer l'import comme démarré. Elle gère également les verrous
+        Utilise une opération atomique PostgreSQL (UPDATE ... WHERE NOT import_in_progress
+        RETURNING id) pour éviter toute race condition. Gère également les verrous
         abandonnés (stale locks) en les libérant automatiquement.
 
         Args:
@@ -400,59 +394,59 @@ class BlueGreenManager:
         Raises:
             ConcurrentImportError: Si un autre import est en cours
         """
-        # Recharge l'état depuis Airflow (pas le cache)
-        self._state = None
-        state = self.get_state()
+        from amue.services.admin_state_manager import AdminStateManager
+        mgr = AdminStateManager()
+        started_at = datetime.now().isoformat()
 
-        if state.import_in_progress:
-            # Vérifie si le verrou est abandonné (stale)
-            if self._is_lock_stale(state):
-                logger.warning(
-                    f"[BLUEGREEN] Verrou abandonné détecté (démarré: {state.import_started_at}). "
-                    f"Libération automatique."
-                )
-                self._force_release_lock()
-                # Recharge l'état
-                self._state = None
-                state = self.get_state()
-            else:
-                # Import réellement en cours
-                raise ConcurrentImportError(
-                    f"Un import est déjà en cours depuis {state.import_started_at}",
-                    import_started_at=state.import_started_at,
-                    context={
-                        "correlation_id": state.import_correlation_id,
-                        "target_schema": self.get_target_schema()
-                    }
-                )
-
-        # Acquérir le verrou
-        new_state = replace(
-            state,
-            import_in_progress=True,
-            import_started_at=datetime.now().isoformat(),
-            import_correlation_id=correlation_id
-        )
-
-        if self._save_state(new_state):
+        # Tentative atomique d'acquisition
+        if mgr.try_acquire_import_lock(started_at, correlation_id):
+            self._state = None  # Invalide le cache local
             logger.info(
                 f"[BLUEGREEN] Verrou acquis pour import "
                 f"(correlation_id: {correlation_id or 'N/A'})"
             )
             return True
 
-        return False
+        # Échec → le verrou est déjà pris : lire l'état pour savoir si stale
+        self._state = None
+        state = self.get_state()
+
+        if self._is_lock_stale(state):
+            logger.warning(
+                f"[BLUEGREEN] Verrou abandonné détecté (démarré: {state.import_started_at}). "
+                f"Libération automatique."
+            )
+            mgr.force_release_lock()
+            # Retente l'acquisition
+            if mgr.try_acquire_import_lock(started_at, correlation_id):
+                self._state = None
+                logger.info(
+                    f"[BLUEGREEN] Verrou acquis après libération stale "
+                    f"(correlation_id: {correlation_id or 'N/A'})"
+                )
+                return True
+
+        raise ConcurrentImportError(
+            f"Un import est déjà en cours depuis {state.import_started_at}",
+            import_started_at=state.import_started_at,
+            context={
+                "correlation_id": state.import_correlation_id,
+                "target_schema": self.get_target_schema()
+            }
+        )
 
     def release_import_lock(self, mark_completed: bool = True) -> bool:
         """
         Libère le verrou d'import.
 
         Args:
-            mark_completed: Si True, marque l'import comme terminé avec succès
+            mark_completed: Si True, enregistre le schéma cible comme dernier importé
 
         Returns:
             True si le verrou a été libéré
         """
+        from amue.services.admin_state_manager import AdminStateManager
+
         state = self.get_state()
 
         if not state.import_in_progress:
@@ -462,28 +456,20 @@ class BlueGreenManager:
         old_started_at = state.import_started_at
         old_correlation_id = state.import_correlation_id
 
-        last_import = state.last_import_schema
+        # À ce stade les vues pointent encore vers l'ancien actif
+        # → get_target_schema() retourne le schéma qui vient d'être importé
+        active_schema = ""
         if mark_completed:
-            # À ce stade les vues pointent encore vers l'ancien actif
-            # → get_target_schema() retourne le schéma qui vient d'être importé
-            last_import = self.get_target_schema().replace(self.SCHEMA_PREFIX, "")
+            active_schema = self.get_target_schema().replace(self.SCHEMA_PREFIX, "")
 
-        new_state = replace(
-            state,
-            import_in_progress=False,
-            last_import_schema=last_import,
-            import_started_at="",
-            import_correlation_id=""
-        )
-
-        if self._save_state(new_state):
+        success = AdminStateManager().release_import_lock(active_schema)
+        if success:
+            self._state = None  # Invalide le cache
             logger.info(
                 f"[BLUEGREEN] Verrou libéré "
                 f"(démarré: {old_started_at}, correlation_id: {old_correlation_id or 'N/A'})"
             )
-            return True
-
-        return False
+        return success
 
     def _is_lock_stale(self, state: BlueGreenState) -> bool:
         """
@@ -520,15 +506,12 @@ class BlueGreenManager:
         Returns:
             True si libération réussie
         """
-        state = self.get_state()
-        new_state = replace(
-            state,
-            import_in_progress=False,
-            import_started_at="",
-            import_correlation_id=""
-        )
+        from amue.services.admin_state_manager import AdminStateManager
         logger.warning("[BLUEGREEN] Libération forcée du verrou")
-        return self._save_state(new_state)
+        success = AdminStateManager().force_release_lock()
+        if success:
+            self._state = None
+        return success
 
     def get_lock_info(self) -> Optional[Dict]:
         """

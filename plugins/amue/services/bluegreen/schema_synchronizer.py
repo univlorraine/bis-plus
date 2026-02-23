@@ -95,8 +95,10 @@ class SchemaSynchronizer:
         Synchronise une table du schéma source vers le schéma cible.
 
         Opérations :
-            1. TRUNCATE table cible
-            2. INSERT INTO cible SELECT * FROM source
+            - Si table cible absente : CREATE TABLE cible (LIKE source INCLUDING ALL)
+              puis INSERT INTO cible SELECT * FROM source
+            - Si table cible présente : TRUNCATE cible
+              puis INSERT INTO cible SELECT * FROM source
 
         Args:
             table_name: Nom de la table
@@ -107,8 +109,9 @@ class SchemaSynchronizer:
             Résultat de la synchronisation :
             {
                 'table_name': 'csks',
-                'status': 'success' | 'error',
+                'status': 'success' | 'skipped' | 'error',
                 'rows_copied': 1500,
+                'created': False,
                 'error': None | 'message'
             }
         """
@@ -118,29 +121,37 @@ class SchemaSynchronizer:
         cursor = conn.cursor()
 
         try:
-            # Vérifie que la table existe dans les deux schémas
+            # La table source doit exister
             if not self._table_exists(table_name, source_schema):
                 return {
                     'table_name': table_name,
                     'status': 'skipped',
                     'rows_copied': 0,
+                    'created': False,
                     'error': f"Table absente du schéma source {source_schema}"
                 }
 
+            table_created = False
             if not self._table_exists(table_name, target_schema):
-                return {
-                    'table_name': table_name,
-                    'status': 'skipped',
-                    'rows_copied': 0,
-                    'error': f"Table absente du schéma cible {target_schema}"
-                }
-
-            # TRUNCATE cible
-            truncate_sql = sql.SQL("TRUNCATE TABLE {schema}.{table}").format(
-                schema=sql.Identifier(target_schema),
-                table=sql.Identifier(table_name)
-            )
-            cursor.execute(truncate_sql)
+                # Crée la table cible à partir de la structure source
+                create_sql = sql.SQL(
+                    "CREATE TABLE {target_schema}.{table}"
+                    " (LIKE {source_schema}.{table} INCLUDING ALL)"
+                ).format(
+                    target_schema=sql.Identifier(target_schema),
+                    source_schema=sql.Identifier(source_schema),
+                    table=sql.Identifier(table_name)
+                )
+                cursor.execute(create_sql)
+                logger.info(f"[SYNC] Table {table_name} créée dans {target_schema}")
+                table_created = True
+            else:
+                # TRUNCATE cible
+                truncate_sql = sql.SQL("TRUNCATE TABLE {schema}.{table}").format(
+                    schema=sql.Identifier(target_schema),
+                    table=sql.Identifier(table_name)
+                )
+                cursor.execute(truncate_sql)
 
             # INSERT SELECT
             insert_sql = sql.SQL("""
@@ -161,6 +172,7 @@ class SchemaSynchronizer:
                 'table_name': table_name,
                 'status': 'success',
                 'rows_copied': rows_copied,
+                'created': table_created,
                 'error': None
             }
 
@@ -171,6 +183,7 @@ class SchemaSynchronizer:
                 'table_name': table_name,
                 'status': 'error',
                 'rows_copied': 0,
+                'created': False,
                 'error': str(e)
             }
         finally:
@@ -197,8 +210,9 @@ class SchemaSynchronizer:
                 'source_schema': 'splus_blue',
                 'target_schema': 'splus_green',
                 'tables_synced': 30,
+                'tables_created': 2,
                 'tables_failed': 0,
-                'tables_skipped': 2,
+                'tables_skipped': 0,
                 'total_rows_copied': 150000,
                 'details': [...]
             }
@@ -216,6 +230,7 @@ class SchemaSynchronizer:
                 'source_schema': source_schema,
                 'target_schema': target_schema,
                 'tables_synced': 0,
+                'tables_created': 0,
                 'tables_failed': 0,
                 'tables_skipped': 0,
                 'total_rows_copied': 0,
@@ -227,6 +242,7 @@ class SchemaSynchronizer:
         # Synchronise chaque table
         results = []
         tables_synced = 0
+        tables_created = 0
         tables_failed = 0
         tables_skipped = 0
         total_rows = 0
@@ -238,6 +254,8 @@ class SchemaSynchronizer:
             if result['status'] == 'success':
                 tables_synced += 1
                 total_rows += result['rows_copied']
+                if result.get('created'):
+                    tables_created += 1
             elif result['status'] == 'error':
                 tables_failed += 1
             else:
@@ -251,7 +269,10 @@ class SchemaSynchronizer:
         else:
             status = 'error'
 
-        logger.info(f"[SYNC] Terminé: {tables_synced} OK, {tables_failed} erreurs, {tables_skipped} skipped")
+        logger.info(
+            f"[SYNC] Terminé: {tables_synced} OK ({tables_created} créées),"
+            f" {tables_failed} erreurs, {tables_skipped} skipped"
+        )
         logger.info(f"[SYNC] Total: {total_rows} lignes copiées")
 
         return {
@@ -259,6 +280,7 @@ class SchemaSynchronizer:
             'source_schema': source_schema,
             'target_schema': target_schema,
             'tables_synced': tables_synced,
+            'tables_created': tables_created,
             'tables_failed': tables_failed,
             'tables_skipped': tables_skipped,
             'total_rows_copied': total_rows,

@@ -75,10 +75,10 @@ class TestAMUEAPISensor:
 
         assert result is False
 
-    @patch('amue.sensors.amue_api_sensor.VarMgr')
+    @patch('amue.services.admin_state_manager.AdminStateManager')
     @patch('amue.sensors.amue_api_sensor.AMUEStatusChecker')
     @patch('amue.sensors.amue_api_sensor.AMUEAPIHook')
-    def test_poke_returns_false_when_same_finish(self, mock_hook_cls, mock_checker_cls, mock_varmgr):
+    def test_poke_returns_false_when_same_finish(self, mock_hook_cls, mock_checker_cls, mock_admin_cls):
         """poke() retourne False si le finish est identique au dernier."""
         mock_checker = MagicMock()
         mock_checker.fetch_full_status.return_value = {
@@ -86,7 +86,9 @@ class TestAMUEAPISensor:
             'finish': '2024-01-15 03:45:00',
         }
         mock_checker_cls.return_value = mock_checker
-        mock_varmgr.get.return_value = '2024-01-15 03:45:00'  # Même timestamp
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_finish_timestamp.return_value = '2024-01-15 03:45:00'  # Même timestamp
 
         sensor = self._make_sensor()
         result = sensor.poke(self._make_context())

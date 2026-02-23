@@ -122,6 +122,7 @@ class AMUEReportGenerator:
         # Statistiques
         total_tables = len(tables_with_data)
         total_inserted = sum(r.get('rows_inserted', 0) for r in tables_with_data)
+        total_updated = sum(r.get('rows_updated', 0) for r in tables_with_data)
         total_fetched = sum(r.get('rows_fetched', 0) for r in tables_with_data)
 
         # Calcul de la durée depuis le début du DAG
@@ -134,6 +135,7 @@ class AMUEReportGenerator:
                 'table_name': r.get('table_name', 'unknown'),
                 'rows_fetched': r.get('rows_fetched', 0),
                 'rows_inserted': r.get('rows_inserted', 0),
+                'rows_updated': r.get('rows_updated', 0),
                 'import_type': r.get('import_type', 'full'),
                 'status': r.get('status', 'success'),
                 'fingerprint_API': r.get('fingerprint_API', '')[:16] + '...' if r.get('fingerprint_API') else '',
@@ -150,6 +152,7 @@ class AMUEReportGenerator:
             'tables_skipped': tables_skipped,
             'total_fetched': total_fetched,
             'total_inserted': total_inserted,
+            'total_updated': total_updated,
             'tables_detail': tables_detail,
             'status': 'success'
         }
@@ -230,16 +233,17 @@ class AMUEReportGenerator:
         logger.info(f"  Tables traitées  : {report['total_tables']}")
         if report.get('tables_skipped', 0) > 0:
             logger.info(f"  Tables ignorées  : {report['tables_skipped']} (0 lignes)")
-        logger.info(f"  Lignes récupérées: {report['total_fetched']:,}")
-        logger.info(f"  Lignes insérées  : {report['total_inserted']:,}")
+        logger.info(f"  Lignes récupérées  : {report['total_fetched']:,}")
+        logger.info(f"  Lignes insérées    : {report['total_inserted']:,}  (nouvelles)")
+        logger.info(f"  Lignes mises à jour: {report['total_updated']:,}  (existantes)")
         logger.info("=" * 70)
 
         if report['tables_detail']:
             logger.info("")
             logger.info("  DÉTAIL PAR TABLE:")
-            logger.info("-" * 70)
-            logger.info(f"  {'Table':<15} | {'Récup.':>10} | {'Inséré':>10} | {'Type':<12} | Statut")
-            logger.info("-" * 70)
+            logger.info("-" * 80)
+            logger.info(f"  {'Table':<15} | {'Récup.':>10} | {'Insérées':>10} | {'MAJ':>10} | {'Type':<12} | Statut")
+            logger.info("-" * 80)
 
             for t in report['tables_detail']:
                 status_icon = "OK" if t.get('status') == 'success' else "!!"
@@ -247,11 +251,12 @@ class AMUEReportGenerator:
                     f"  {t['table_name']:<15} | "
                     f"{t.get('rows_fetched', 0):>10,} | "
                     f"{t.get('rows_inserted', 0):>10,} | "
+                    f"{t.get('rows_updated', 0):>10,} | "
                     f"{t.get('import_type', 'full'):<12} | "
                     f"[{status_icon}]"
                 )
 
-            logger.info("-" * 70)
+            logger.info("-" * 80)
         logger.info("")
 
     def _save_report(self, report: Dict) -> None:

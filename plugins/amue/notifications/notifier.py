@@ -177,6 +177,10 @@ class NotificationService:
             t.get('rows_inserted', t.get('rows', 0))
             for t in tables_imported
         )
+        total_updated = sum(
+            t.get('rows_updated', 0)
+            for t in tables_imported
+        )
         total_fetched = sum(
             t.get('rows_fetched', t.get('rows_inserted', 0))
             for t in tables_imported
@@ -190,6 +194,7 @@ class NotificationService:
             'duration': duration,
             'tables_imported': tables_imported,
             'total_rows': total_rows,
+            'total_updated': total_updated,
             'total_fetched': total_fetched,
             'status': 'success'
         }

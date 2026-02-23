@@ -50,6 +50,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA splus_green
 ALTER ROLE datauser SET search_path TO splus, splus_blue, splus_green, public;
 
 -- ============================================================================
+-- SCHÉMA ADMIN (état centralisé - remplace variables Airflow d'état)
+-- ============================================================================
+\i /docker-entrypoint-initdb.d/init_admin_schema.sql
+
+-- ============================================================================
 -- LOG DE CONFIRMATION
 -- ============================================================================
 SELECT 'Database initialized successfully' AS status;

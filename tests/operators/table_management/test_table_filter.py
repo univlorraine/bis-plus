@@ -2,7 +2,6 @@
 Tests unitaires pour AMUETableFilter
 """
 import pytest
-import json
 from unittest.mock import MagicMock, patch
 
 
@@ -10,9 +9,8 @@ class TestTableFilterInit:
     """Tests pour l'initialisation de AMUETableFilter"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_init_with_config(self, mock_varmgr):
-        """Initialisation avec configuration fournie"""
+    def test_init_with_config(self):
+        """Initialisation avec configuration fournie (sans chargement BDD)"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
@@ -24,28 +22,37 @@ class TestTableFilterInit:
 
         assert len(filter_obj.tables_config) == 2
         assert filter_obj.tables_config[0]['name'] == 'CSKS'
+        assert filter_obj._last_report_start == ''
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_init_load_config(self, mock_varmgr):
-        """Initialisation charge la config depuis les variables"""
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'primary_key': 'id'}
-        ])
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_init_load_config(self, mock_tcm_cls, mock_admin_cls):
+        """Initialisation charge la config et last_report_start depuis la BDD"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'primary_key': 'id', 'enable': True,
+             'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
+        ]
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_report_start.return_value = '2026-02-17T10:08:19+00:00'
 
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         filter_obj = AMUETableFilter()
 
         assert len(filter_obj.tables_config) == 1
+        assert filter_obj._last_report_start == '2026-02-17T10:08:19+00:00'
 
 
 class TestTableFilterCheckTablesExist:
     """Tests pour _check_tables_exist_in_status"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_all_tables_exist(self, mock_varmgr):
+    def test_all_tables_exist(self):
         """Toutes les tables existent dans le statut"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -66,8 +73,7 @@ class TestTableFilterCheckTablesExist:
         assert len(missing) == 0
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_some_tables_missing(self, mock_varmgr):
+    def test_some_tables_missing(self):
         """Certaines tables sont manquantes"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -89,8 +95,7 @@ class TestTableFilterCheckTablesExist:
         assert 'UNKNOWN' in missing
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_table_status_not_ok(self, mock_varmgr):
+    def test_table_status_not_ok(self):
         """Table avec statut != OK est considérée manquante"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -115,36 +120,74 @@ class TestTableFilterFilterTables:
     """Tests pour filter_tables"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_filter_tables_success(self, mock_varmgr):
-        """Filtrage réussi avec toutes les tables OK"""
+    def test_filter_tables_full_import(self):
+        """Tables sans delta = full import même avec last_report_start"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'primary_key': 'id', 'delta': '', 'last_import': ''},
-            {'name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif', 'last_import': '2024-01-01'}
+            {'name': 'CSKS', 'primary_key': 'id', 'delta': ''},
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
+        filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
 
         current_status = {
             'CSKS': {'status': 'OK', 'mode': 'FULL'},
-            'PRKS': {'status': 'OK', 'mode': 'DELTA'}
         }
 
         result = filter_obj.filter_tables(current_status)
 
-        assert len(result) == 2
-        # CSKS sans delta = full import
-        csks = next(t for t in result if t['name'] == 'CSKS')
+        assert len(result) == 1
+        csks = result[0]
         assert csks['import_type'] == 'full'
-        # PRKS avec delta et last_import = differential
-        prks = next(t for t in result if t['name'] == 'PRKS')
-        assert prks['import_type'] == 'differential'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_filter_tables_missing_raises_error(self, mock_varmgr):
+    def test_filter_tables_differential_with_report_start(self):
+        """Table avec delta + last_report_start = differential"""
+        from amue.operators.table_management.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+        filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
+
+        current_status = {
+            'PRKS': {'status': 'OK', 'mode': 'DELTA'},
+        }
+
+        result = filter_obj.filter_tables(current_status)
+
+        assert len(result) == 1
+        prks = result[0]
+        assert prks['import_type'] == 'differential'
+        assert prks['last_import'] == '2026-02-17T10:08:19+00:00'
+
+    @patch('amue.operators.table_management.table_filter.NotificationService', None)
+    def test_filter_tables_no_report_start_forces_full(self):
+        """Sans last_report_start, tables delta importées en full"""
+        from amue.operators.table_management.table_filter import AMUETableFilter
+
+        tables_config = [
+            {'name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
+        ]
+
+        filter_obj = AMUETableFilter(tables_config=tables_config)
+        filter_obj._last_report_start = ''  # Pas de timestamp global
+
+        current_status = {
+            'PRKS': {'status': 'OK', 'mode': 'FULL'},
+        }
+
+        result = filter_obj.filter_tables(current_status)
+
+        assert len(result) == 1
+        assert result[0]['import_type'] == 'full'
+        assert 'last_import' not in result[0]
+
+    @patch('amue.operators.table_management.table_filter.NotificationService', None)
+    def test_filter_tables_missing_raises_error(self):
         """Tables manquantes lèvent une erreur"""
         from amue.operators.table_management.table_filter import AMUETableFilter, TableNotFoundError
 
@@ -169,9 +212,8 @@ class TestTableFilterEnrichConfig:
     """Tests pour _enrich_table_config"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_enrich_table_config_defaults(self, mock_varmgr):
-        """Enrichissement ajoute les valeurs par défaut"""
+    def test_enrich_table_config_defaults(self):
+        """Enrichissement ajoute les valeurs par défaut (sans last_import)"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         filter_obj = AMUETableFilter(tables_config=[])
@@ -183,14 +225,14 @@ class TestTableFilterEnrichConfig:
 
         assert enriched['primary_key'] == ''
         assert enriched['delta'] == ''
-        assert enriched['last_import'] == ''
         assert enriched['fingerprint_API'] == ''
         assert enriched['fingerprint_UL'] == ''
         assert enriched['current_status'] == current_status
+        # last_import n'est pas injecté à l'enrichissement — seulement dans _should_process_table
+        assert 'last_import' not in enriched
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_enrich_table_config_needs_pk_update(self, mock_varmgr):
+    def test_enrich_table_config_needs_pk_update(self):
         """Enrichissement détecte si PK doit être mis à jour"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -207,8 +249,7 @@ class TestTableFilterEnrichConfig:
         assert enriched['needs_pk_update'] is False
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_enrich_table_config_extracts_table_finish(self, mock_varmgr):
+    def test_enrich_table_config_extracts_table_finish(self):
         """Enrichissement extrait table_finish depuis le statut API"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -230,8 +271,7 @@ class TestTableFilterShouldProcess:
     """Tests pour _should_process_table"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_should_process_ok_status(self, mock_varmgr):
+    def test_should_process_ok_status(self):
         """Table avec statut OK doit être traitée"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -248,8 +288,7 @@ class TestTableFilterShouldProcess:
         assert table_config['to_process'] is True
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_should_not_process_ko_status(self, mock_varmgr):
+    def test_should_not_process_ko_status(self):
         """Table avec statut KO ne doit pas être traitée"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -265,42 +304,61 @@ class TestTableFilterShouldProcess:
         assert result is False
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_import_type_full(self, mock_varmgr):
-        """Import type full si pas de last_import ou delta"""
+    def test_import_type_full_no_delta(self):
+        """Import type full si pas de colonne delta"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         filter_obj = AMUETableFilter(tables_config=[])
+        filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
 
         table_config = {
             'name': 'CSKS',
             'current_status': {'status': 'OK'},
-            'last_import': '',
             'delta': ''
         }
 
         filter_obj._should_process_table(table_config)
 
         assert table_config['import_type'] == 'full'
+        assert 'last_import' not in table_config
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_import_type_differential(self, mock_varmgr):
-        """Import type differential si last_import et delta présents"""
+    def test_import_type_full_no_report_start(self):
+        """Import type full si pas de last_report_start même avec delta"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         filter_obj = AMUETableFilter(tables_config=[])
+        filter_obj._last_report_start = ''
 
         table_config = {
             'name': 'CSKS',
             'current_status': {'status': 'OK'},
-            'last_import': '2024-01-01',
+            'delta': 'date_modif'
+        }
+
+        filter_obj._should_process_table(table_config)
+
+        assert table_config['import_type'] == 'full'
+        assert 'last_import' not in table_config
+
+    @patch('amue.operators.table_management.table_filter.NotificationService', None)
+    def test_import_type_differential(self):
+        """Import type differential si last_report_start et delta présents"""
+        from amue.operators.table_management.table_filter import AMUETableFilter
+
+        filter_obj = AMUETableFilter(tables_config=[])
+        filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
+
+        table_config = {
+            'name': 'CSKS',
+            'current_status': {'status': 'OK'},
             'delta': 'date_modif'
         }
 
         filter_obj._should_process_table(table_config)
 
         assert table_config['import_type'] == 'differential'
+        assert table_config['last_import'] == '2026-02-17T10:08:19+00:00'
 
 
 class TestTableNotFoundError:
@@ -328,12 +386,20 @@ class TestTableFilterLoadConfig:
     """Tests pour _load_config"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_load_config_json_string(self, mock_varmgr):
-        """Charge une configuration JSON string"""
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'primary_key': 'id'}
-        ])
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_load_config_from_db(self, mock_tcm_cls, mock_admin_cls):
+        """Charge une configuration depuis la BDD"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'primary_key': 'id', 'enable': True,
+             'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
+        ]
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_report_start.return_value = None
 
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -343,25 +409,17 @@ class TestTableFilterLoadConfig:
         assert filter_obj.tables_config[0]['name'] == 'CSKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_load_config_already_list(self, mock_varmgr):
-        """Config déjà en liste"""
-        mock_varmgr.get.return_value = [
-            {'name': 'CSKS', 'primary_key': 'id'}
-        ]
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_load_config_empty(self, mock_tcm_cls, mock_admin_cls):
+        """Config vide retourne liste vide"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = []
 
-        from amue.operators.table_management.table_filter import AMUETableFilter
-
-        filter_obj = AMUETableFilter()
-
-        assert len(filter_obj.tables_config) == 1
-
-    @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_load_config_not_list_returns_empty(self, mock_varmgr):
-        """Config JSON valide mais pas une liste retourne liste vide"""
-        # JSON valide mais c'est un dict, pas une liste
-        mock_varmgr.get.return_value = json.dumps({"name": "CSKS"})
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_report_start.return_value = None
 
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -374,8 +432,7 @@ class TestTableFilterEnableAttribute:
     """Tests pour l'attribut 'enable' des tables"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_split_by_enable_all_enabled(self, mock_varmgr):
+    def test_split_by_enable_all_enabled(self):
         """Toutes les tables sont activées par défaut"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -391,8 +448,7 @@ class TestTableFilterEnableAttribute:
         assert len(disabled) == 0
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_split_by_enable_some_disabled(self, mock_varmgr):
+    def test_split_by_enable_some_disabled(self):
         """Tables avec enable=false sont dans la liste disabled"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -410,8 +466,7 @@ class TestTableFilterEnableAttribute:
         assert disabled[0]['name'] == 'PRKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_split_by_enable_string_values(self, mock_varmgr):
+    def test_split_by_enable_string_values(self):
         """Gestion des valeurs string pour enable"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
@@ -430,15 +485,14 @@ class TestTableFilterEnableAttribute:
         assert len(disabled) == 1  # PRKS
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_filter_tables_ignores_disabled(self, mock_varmgr):
+    def test_filter_tables_ignores_disabled(self):
         """filter_tables ignore les tables désactivées"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': '', 'last_import': ''},
-            {'name': 'PRKS', 'enable': False, 'primary_key': 'code', 'delta': '', 'last_import': ''},
-            {'name': 'COST', 'primary_key': 'id', 'delta': '', 'last_import': ''}
+            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
+            {'name': 'PRKS', 'enable': False, 'primary_key': 'code', 'delta': ''},
+            {'name': 'COST', 'primary_key': 'id', 'delta': ''}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -459,13 +513,12 @@ class TestTableFilterEnableAttribute:
         assert 'PRKS' not in table_names
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_filter_tables_disabled_not_checked_in_status(self, mock_varmgr):
+    def test_filter_tables_disabled_not_checked_in_status(self):
         """Tables désactivées ne sont pas vérifiées dans le statut API"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': '', 'last_import': ''},
+            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
             {'name': 'UNKNOWN', 'enable': False}  # Désactivée, ne devrait pas causer d'erreur
         ]
 
@@ -483,8 +536,7 @@ class TestTableFilterEnableAttribute:
         assert result[0]['name'] == 'CSKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.operators.table_management.table_filter.VarMgr')
-    def test_filter_tables_all_disabled(self, mock_varmgr):
+    def test_filter_tables_all_disabled(self):
         """Toutes les tables désactivées retourne liste vide"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 

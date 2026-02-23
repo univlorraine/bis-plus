@@ -335,11 +335,7 @@ class AMUETableVerifier:
 
     def _save_primary_keys(self, table_name: str, primary_keys: str) -> None:
         """
-        Persiste les clés primaires dans la variable Airflow immédiatement.
-
-        Cette méthode met à jour la variable amue_tables_to_import pour stocker
-        les PKs récupérées depuis l'API, permettant ainsi à l'importeur de les
-        utiliser sans les passer en paramètre.
+        Persiste les clés primaires dans splus_admin.amue_tables.
 
         Args:
             table_name: Nom de la table
@@ -351,51 +347,9 @@ class AMUETableVerifier:
             logger.warning(f"[SAVE_PK] PKs vides pour {table_name}, abandon")
             return
 
-        try:
-            tables_var = VarMgr.get('amue_tables_to_import')
-            logger.info(f"[SAVE_PK] Variable chargée, type={type(tables_var).__name__}")
-
-            tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
-            logger.info(f"[SAVE_PK] Config parsée: {len(tables_config)} tables")
-
-            # Debug: lister les noms de tables dans la config
-            config_names = [t.get('name', 'NO_NAME') for t in tables_config if isinstance(t, dict)]
-            logger.info(f"[SAVE_PK] Tables dans config: {config_names}")
-
-            updated = False
-            table_found = False
-            for table in tables_config:
-                config_name = table.get('name', '')
-                if config_name.upper() == table_name.upper():
-                    table_found = True
-                    old_pk = table.get('primary_key', '')
-                    logger.info(f"[SAVE_PK] Table trouvée! old_pk='{old_pk}', new_pk='{primary_keys}'")
-
-                    if old_pk != primary_keys:
-                        table['primary_key'] = primary_keys
-                        updated = True
-                        logger.info(f"[SAVE_PK] PKs marquées pour mise à jour: {old_pk} -> {primary_keys}")
-                    else:
-                        logger.info(f"[SAVE_PK] PKs identiques, pas de mise à jour nécessaire")
-                    break
-
-            if not table_found:
-                logger.error(f"[SAVE_PK] Table {table_name} NON TROUVÉE dans la config!")
-                return
-
-            if updated:
-                new_config_json = json.dumps(tables_config)
-                logger.info(f"[SAVE_PK] Appel VarMgr.set() avec {len(new_config_json)} caractères")
-                success = VarMgr.set('amue_tables_to_import', new_config_json)
-                if success:
-                    logger.info(f"[SAVE_PK] SUCCESS - Variable Airflow mise à jour pour {table_name}")
-                else:
-                    logger.error(f"[SAVE_PK] ECHEC - VarMgr.set() a retourné False pour {table_name}")
-            else:
-                logger.info(f"[SAVE_PK] Pas de mise à jour nécessaire pour {table_name}")
-
-        except Exception as e:
-            logger.error(f"[SAVE_PK] EXCEPTION pour {table_name}: {type(e).__name__}: {e}")
+        from amue.services.table_config_manager import TableConfigManager
+        TableConfigManager().save_primary_keys(table_name, primary_keys)
+        logger.info(f"[SAVE_PK] SUCCESS - PKs sauvegardées pour {table_name}")
 
     def _table_exists(self, table_name: str) -> bool:
         """Vérifie si une table existe en base dans le schéma cible"""

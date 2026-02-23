@@ -70,20 +70,22 @@ class ImportResult(TypedDict, total=False):
 
     Attributes:
         table_name: Nom de la table importée
-        rows_inserted: Nombre de lignes insérées/mises à jour
+        rows_inserted: Nombre de nouvelles lignes insérées (INSERT)
+        rows_updated: Nombre de lignes existantes mises à jour (UPDATE)
         rows_fetched: Nombre de lignes récupérées depuis l'API
         import_type: Type d'import ('full' ou 'differential')
         status: Statut de l'import ('success' ou 'error')
         correlation_id: ID de corrélation pour le tracing
         fingerprint_API: Empreinte de structure originale API
         fingerprint_UL: Empreinte de structure transformée PG
-        table_finish: Date finish de la table côté API AMUE (pour last_import)
+        table_finish: Date finish de la table côté API AMUE
         batch_count: Nombre de batches traités
         total_duration_seconds: Durée totale d'insertion en secondes
         avg_batch_duration: Durée moyenne par batch en secondes
     """
     table_name: str
     rows_inserted: int
+    rows_updated: int
     rows_fetched: int
     import_type: str
     status: str
@@ -174,7 +176,7 @@ class ImportConfig(TypedDict, total=False):
     Attributes:
         import_type: Type d'import ('full' ou 'differential')
         delta: Nom de la colonne de date pour le différentiel
-        last_import: Date ISO du dernier import
+        last_import: Date ISO de référence pour le filtrage différentiel (depuis amue_state.last_report_start)
         fingerprint_API: Empreinte de structure originale API
         fingerprint_UL: Empreinte de structure transformée PG
         table_finish: Date finish de la table côté API AMUE

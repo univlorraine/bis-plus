@@ -165,10 +165,34 @@ class TestExecuteBatch:
     """Tests pour execute_batch."""
 
     @patch('amue.operators.pipeline.batch_inserter.execute_values')
-    def test_successful_batch_insert(self, mock_exec_values):
-        """Test insertion de batch réussie."""
+    def test_successful_batch_insert_upsert(self, mock_exec_values):
+        """UPSERT : execute_values(fetch=True) retourne (True/False) → compte INSERT vs UPDATE."""
+        # 1 INSERT (xmax=0 → True) + 1 UPDATE (xmax≠0 → False)
+        mock_exec_values.return_value = [(True,), (False,)]
         mock_cursor = Mock()
-        mock_cursor.rowcount = 2
+        mock_conn = Mock()
+
+        inserter = AMUEBatchInserter()
+        batch = [(1, "A"), (2, "B")]
+
+        result = inserter.execute_batch(
+            mock_cursor, mock_conn,
+            "INSERT INTO t VALUES %s ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name RETURNING (xmax=0) AS is_insert",
+            batch, "test_table", ["id", "name"], ["id"],
+            commit=True
+        )
+
+        mock_exec_values.assert_called_once()
+        mock_conn.commit.assert_called_once()
+        assert result['rows_inserted'] == 1
+        assert result['rows_updated'] == 1
+        assert result['rows_affected'] == 2
+        assert result['batch_size'] == 2
+
+    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    def test_successful_batch_insert_no_pk(self, mock_exec_values):
+        """INSERT simple (sans PK) : toutes les lignes comptent comme insérées."""
+        mock_cursor = Mock()
         mock_conn = Mock()
 
         inserter = AMUEBatchInserter()
@@ -177,20 +201,22 @@ class TestExecuteBatch:
         result = inserter.execute_batch(
             mock_cursor, mock_conn,
             "INSERT INTO t VALUES %s",
-            batch, "test_table", ["id", "name"], ["id"],
+            batch, "test_table", ["id", "name"], [],  # pas de PKs
             commit=True
         )
 
         mock_exec_values.assert_called_once()
         mock_conn.commit.assert_called_once()
+        assert result['rows_inserted'] == 2
+        assert result['rows_updated'] == 0
         assert result['rows_affected'] == 2
         assert result['batch_size'] == 2
 
     @patch('amue.operators.pipeline.batch_inserter.execute_values')
     def test_batch_insert_no_commit(self, mock_exec_values):
         """Test insertion sans commit."""
+        mock_exec_values.return_value = [(True,)]
         mock_cursor = Mock()
-        mock_cursor.rowcount = 1
         mock_conn = Mock()
 
         inserter = AMUEBatchInserter()
@@ -198,7 +224,7 @@ class TestExecuteBatch:
 
         inserter.execute_batch(
             mock_cursor, mock_conn,
-            "INSERT INTO t VALUES %s",
+            "INSERT INTO t VALUES %s ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name",
             batch, "test_table", ["id", "name"], ["id"],
             commit=False
         )

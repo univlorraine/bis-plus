@@ -326,11 +326,10 @@ class AMUEAPIHook:
             'Authorization': f'Bearer {self.access_token}',
             'Accept': 'application/json',
         }
-
-        logger.info(f"[API] Appel: {url}")
+        appel = f"[API] Appel: {url}"
         if params:
-            logger.info(f"[API] Params: {params}")
-
+            appel += f" + Params: {params}"
+        logger.info(appel)
         if use_retry and not check_status_only:
             return self._call_api_with_retry(url, headers, params, timeout)
         else:

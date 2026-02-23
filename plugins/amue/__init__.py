@@ -58,7 +58,9 @@ from amue.operators.table_management.table_filter import AMUETableFilter
 from amue.operators.table_management.table_manager import AMUETableManager
 from amue.operators.table_management.table_verifier import AMUETableVerifier
 # Services
+from amue.services.admin_state_manager import AdminStateManager
 from amue.services.metadata_manager import AMUEMetadataManager
+from amue.services.table_config_manager import TableConfigManager
 from amue.services.api.polling_service import AMUEPollingService
 from amue.services.retry_service import (
     RetryService,
@@ -135,9 +137,11 @@ __all__ = [
     # Hooks
     "AMUEAPIHook",
     # Services
+    "AdminStateManager",
     "AMUEStatusChecker",
     "AMUEPollingService",
     "AMUEMetadataManager",
+    "TableConfigManager",
     # Services Blue/Green
     "BlueGreenManager",
     "BlueGreenState",

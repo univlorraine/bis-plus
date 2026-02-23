@@ -1,0 +1,205 @@
+"""
+Gestionnaire de configuration des tables AMUE en base de données.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Remplace la variable Airflow 'amue_tables_to_import' par une table PostgreSQL
+dédiée : splus_admin.amue_tables
+
+Colonnes gérées :
+    - table_name      : Nom de la table (PK)
+    - enabled         : Table active ou non
+    - primary_key     : Clés primaires pour UPSERT (CSV)
+    - delta           : Colonne de date pour import différentiel
+    - fingerprint_api : Hash structure originale API + PKs API
+    - fingerprint_ul  : Hash structure transformée PG + PKs config
+    - updated_at      : Timestamp de dernière modification
+
+================================================================================
+"""
+import logging
+from typing import Dict, List, Optional
+
+from amue.utils.database.hooks import create_postgres_hook
+
+logger = logging.getLogger(__name__)
+
+_TABLE = "splus_admin.amue_tables"
+
+
+class TableConfigManager:
+    """
+    Accès à la configuration des tables stockée dans splus_admin.amue_tables.
+
+    Format de retour :
+        {
+            'name':            str,   # table_name
+            'enable':          bool,  # enabled
+            'primary_key':     str,   # primary_key
+            'delta':           str,   # delta
+            'fingerprint_API': str,   # fingerprint_api
+            'fingerprint_UL':  str,   # fingerprint_ul
+        }
+
+    Example:
+        >>> mgr = TableConfigManager()
+        >>> tables = mgr.get_tables_config()
+        >>> mgr.save_primary_keys('CSKS', 'BUKRS,KOSTL')
+    """
+
+    def __init__(self, postgres_hook=None):
+        self._hook = postgres_hook or create_postgres_hook(schema='public')
+
+    # =========================================================================
+    # LECTURE
+    # =========================================================================
+
+    def get_tables_config(self) -> List[Dict]:
+        """
+        Retourne toutes les tables — format dict rétro-compatible avec l'ancien JSON.
+
+        Returns:
+            Liste de dicts avec les clés : name, enable, primary_key, delta,
+            fingerprint_API, fingerprint_UL
+
+        Raises:
+            Exception: Si la requête SQL échoue (pour déclencher le retry du caller)
+        """
+        try:
+            rows = self._hook.get_records(
+                f"SELECT table_name, enabled, primary_key, delta, "
+                f"fingerprint_api, fingerprint_ul "
+                f"FROM {_TABLE} ORDER BY table_name"
+            )
+            result = [self._row_to_dict(row) for row in (rows or [])]
+            logger.info(f"[TABLE_CONFIG] {len(result)} tables chargées depuis la BDD")
+            return result
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur chargement config tables: {e}")
+            raise
+
+    def get_table_metadata(self, table_name: str) -> Optional[Dict]:
+        """
+        Config d'une seule table ou None si non trouvée.
+
+        Args:
+            table_name: Nom de la table (insensible à la casse)
+
+        Returns:
+            Dict avec les clés de get_tables_config(), ou None
+        """
+        try:
+            row = self._hook.get_first(
+                f"SELECT table_name, enabled, primary_key, delta, "
+                f"fingerprint_api, fingerprint_ul "
+                f"FROM {_TABLE} WHERE table_name = %s",
+                parameters=(table_name.upper(),)
+            )
+            if not row:
+                logger.warning(f"[TABLE_CONFIG] Table {table_name} non trouvée en BDD")
+                return None
+            return self._row_to_dict(row)
+        except Exception as e:
+            logger.warning(f"[TABLE_CONFIG] Erreur lecture {table_name}: {e}")
+            return None
+
+    # =========================================================================
+    # ÉCRITURE
+    # =========================================================================
+
+    def save_tables_config(self, tables: List[Dict]) -> None:
+        """
+        UPDATE batch des métadonnées (fingerprints, primary_key).
+
+        Args:
+            tables: Liste de dicts au format get_tables_config()
+
+        Raises:
+            Exception: Si un UPDATE échoue (pour déclencher le retry du caller)
+        """
+        try:
+            for table in tables:
+                table_name = table.get('name', '').upper()
+                if not table_name:
+                    continue
+                self._hook.run(
+                    f"""UPDATE {_TABLE}
+                        SET fingerprint_api = %s,
+                            fingerprint_ul  = %s,
+                            primary_key     = %s,
+                            updated_at      = NOW()
+                        WHERE table_name = %s""",
+                    parameters=(
+                        table.get('fingerprint_API', ''),
+                        table.get('fingerprint_UL', ''),
+                        table.get('primary_key', ''),
+                        table_name,
+                    )
+                )
+            logger.info(f"[TABLE_CONFIG] {len(tables)} table(s) sauvegardée(s)")
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur sauvegarde batch: {e}")
+            raise
+
+    def save_primary_keys(self, table_name: str, primary_keys: str) -> None:
+        """
+        UPDATE primary_key pour une seule table.
+
+        Args:
+            table_name: Nom de la table
+            primary_keys: Clés primaires séparées par virgules
+        """
+        try:
+            self._hook.run(
+                f"UPDATE {_TABLE} SET primary_key = %s, updated_at = NOW() "
+                f"WHERE table_name = %s",
+                parameters=(primary_keys, table_name.upper())
+            )
+            logger.info(f"[TABLE_CONFIG] PKs sauvegardées pour {table_name}: {primary_keys}")
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur sauvegarde PKs {table_name}: {e}")
+
+    def reset_table_metadata(self, table_name: str) -> bool:
+        """
+        Vide fingerprint_api et fingerprint_ul pour une table.
+
+        Utile en cas de changement de structure ou de réimport complet.
+
+        Args:
+            table_name: Nom de la table à réinitialiser
+
+        Returns:
+            True si succès, False en cas d'erreur
+        """
+        try:
+            self._hook.run(
+                f"""UPDATE {_TABLE}
+                    SET fingerprint_api = '',
+                        fingerprint_ul  = '',
+                        updated_at      = NOW()
+                    WHERE table_name = %s""",
+                parameters=(table_name.upper(),)
+            )
+            logger.info(f"[TABLE_CONFIG] Métadonnées réinitialisées pour {table_name}")
+            return True
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur réinitialisation {table_name}: {e}")
+            return False
+
+    # =========================================================================
+    # HELPERS PRIVÉS
+    # =========================================================================
+
+    @staticmethod
+    def _row_to_dict(row) -> Dict:
+        """Convertit une ligne SQL en dict."""
+        return {
+            'name':            row[0],
+            'enable':          row[1],
+            'primary_key':     row[2] or '',
+            'delta':           row[3] or '',
+            'fingerprint_API': row[4] or '',
+            'fingerprint_UL':  row[5] or '',
+        }

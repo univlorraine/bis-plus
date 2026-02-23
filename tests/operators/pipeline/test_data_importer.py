@@ -339,21 +339,27 @@ class TestQueueBasedInsertion:
         # Mock streamer
         importer.streamer.stream_data = MagicMock(return_value=iter(rows))
 
-        # Mock inserter
+        # Mock inserter — retourne rows_inserted/rows_updated en fonction de la taille du batch
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
         importer.inserter.get_connection = MagicMock(return_value=mock_conn)
         importer.inserter.build_insert_sql_for_values = MagicMock(return_value='INSERT SQL')
-        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.1})
 
-        total_inserted, total_fetched, batch_metrics = importer._stream_and_insert(
+        def fake_execute_batch(cursor, conn, sql, batch_data, *args, **kwargs):
+            n = len(batch_data)
+            return {'duration_seconds': 0.1, 'rows_inserted': n, 'rows_updated': 0, 'rows_affected': n}
+
+        importer.inserter.execute_batch = MagicMock(side_effect=fake_execute_batch)
+
+        total_inserted, total_updated, total_fetched, batch_metrics = importer._stream_and_insert(
             'test_table', columns + ['_source', '_imported_at'],
             ['col_a'], {'import_type': 'full'}, True, 'corr-1'
         )
 
         assert total_fetched == 12
         assert total_inserted == 12
+        assert total_updated == 0
         assert len(batch_metrics) == 3  # 5+5+2
         assert importer.inserter.execute_batch.call_count == 3
 
@@ -383,9 +389,10 @@ class TestQueueBasedInsertion:
         lock = threading.Lock()
 
         def fake_execute_batch(cursor, conn, sql, batch_data, *args, **kwargs):
+            n = len(batch_data)
             with lock:
-                batches_received.append(len(batch_data))
-            return {'duration_seconds': 0.01}
+                batches_received.append(n)
+            return {'duration_seconds': 0.01, 'rows_inserted': n, 'rows_updated': 0, 'rows_affected': n}
 
         with patch('amue.operators.pipeline.data_importer.AMUEBatchInserter') as MockInserter:
             mock_worker = MagicMock()
@@ -397,7 +404,7 @@ class TestQueueBasedInsertion:
             mock_worker.execute_batch = MagicMock(side_effect=fake_execute_batch)
             MockInserter.return_value = mock_worker
 
-            total_inserted, total_fetched, batch_metrics = importer._stream_and_insert(
+            total_inserted, total_updated, total_fetched, batch_metrics = importer._stream_and_insert(
                 'test_table', columns + ['_source', '_imported_at'],
                 ['col_a'], {'import_type': 'full'}, True, 'corr-2'
             )
@@ -460,7 +467,7 @@ class TestQueueBasedInsertion:
         mock_conn.cursor.return_value = mock_cursor
         importer.inserter.get_connection = MagicMock(return_value=mock_conn)
         importer.inserter.build_insert_sql_for_values = MagicMock(return_value='INSERT SQL')
-        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.01})
+        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.01, 'rows_inserted': 1, 'rows_updated': 0, 'rows_affected': 1})
 
         with pytest.raises(AMUEDatabaseError):
             importer._stream_and_insert(
@@ -482,12 +489,13 @@ class TestQueueBasedInsertion:
         importer.inserter.get_connection = MagicMock(return_value=mock_conn)
         importer.inserter.build_insert_sql_for_values = MagicMock(return_value='INSERT SQL')
 
-        total_inserted, total_fetched, batch_metrics = importer._stream_and_insert(
+        total_inserted, total_updated, total_fetched, batch_metrics = importer._stream_and_insert(
             'test_table', ['col_a', '_source', '_imported_at'],
             ['col_a'], {'import_type': 'full'}, True, 'corr-5'
         )
 
         assert total_inserted == 0
+        assert total_updated == 0
         assert total_fetched == 0
         assert batch_metrics == []
 
@@ -507,7 +515,7 @@ class TestQueueBasedInsertion:
         mock_conn.cursor.return_value = mock_cursor
         importer.inserter.get_connection = MagicMock(return_value=mock_conn)
         importer.inserter.build_insert_sql_for_values = MagicMock(return_value='INSERT SQL')
-        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.01})
+        importer.inserter.execute_batch = MagicMock(return_value={'duration_seconds': 0.01, 'rows_inserted': 1, 'rows_updated': 0, 'rows_affected': 1})
 
         importer._stream_and_insert(
             'test_table', ['col_a', '_source', '_imported_at'],
@@ -544,7 +552,7 @@ class TestQueueBasedInsertion:
                 mock_conn.cursor.return_value = mock_cursor
                 mock_worker.get_connection.return_value = mock_conn
                 mock_worker.build_insert_sql_for_values.return_value = 'INSERT SQL'
-                mock_worker.execute_batch.return_value = {'duration_seconds': 0.01}
+                mock_worker.execute_batch.return_value = {'duration_seconds': 0.01, 'rows_inserted': 1, 'rows_updated': 0, 'rows_affected': 1}
                 mock_workers.append(mock_worker)
                 return mock_worker
 

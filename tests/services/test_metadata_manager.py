@@ -2,7 +2,6 @@
 Tests unitaires pour AMUEMetadataManager
 """
 import pytest
-import json
 from unittest.mock import MagicMock, patch
 from datetime import datetime
 
@@ -16,9 +15,6 @@ class TestMetadataManagerInit:
 
         manager = AMUEMetadataManager()
 
-        assert manager.tables_var_name == 'amue_tables_to_import'
-        assert manager.last_success_var_name == 'amue_last_successful_run'
-        assert manager.last_finish_var_name == 'amue_last_finish_timestamp'
         assert manager.MAX_RETRIES == 3
         assert manager.RETRY_DELAY_SECONDS == 2
 
@@ -26,14 +22,14 @@ class TestMetadataManagerInit:
 class TestMetadataManagerUpdateMetadata:
     """Tests pour update_metadata"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_update_metadata_success(self, mock_varmgr):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_success(self, mock_tcm_cls):
         """Mise à jour réussie"""
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'last_import': '', 'primary_key': ''}
-        ])
-        mock_varmgr.get.return_value = tables_config
-        mock_varmgr.set.return_value = True
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''}
+        ]
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -51,34 +47,35 @@ class TestMetadataManagerUpdateMetadata:
 
         manager.update_metadata(import_results)
 
-        # Vérifie que set a été appelé
-        assert mock_varmgr.set.called
+        # Vérifie que save_tables_config a été appelé
+        assert mock_tcm.save_tables_config.called
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_update_metadata_empty_results(self, mock_varmgr):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_empty_results(self, mock_tcm_cls):
         """Résultats vides ne font rien"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
 
         manager.update_metadata([])
 
-        # Aucun appel à get/set
-        mock_varmgr.get.assert_not_called()
+        # Aucun appel à get_tables_config
+        mock_tcm.get_tables_config.assert_not_called()
 
     @patch('amue.services.metadata_manager.time.sleep')
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_update_metadata_retry_on_error(self, mock_varmgr, mock_sleep):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_retry_on_error(self, mock_tcm_cls, mock_sleep):
         """Retry en cas d'erreur de sauvegarde"""
-        from airflow.exceptions import AirflowException
-
-        # Config valide, mais sauvegarde échoue puis réussit
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'last_import': '', 'primary_key': ''}
-        ])
-        mock_varmgr.get.return_value = tables_config
-        # Premier set échoue (ValueError), deuxième réussit
-        mock_varmgr.set.side_effect = [ValueError("test"), True, True]
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''}
+        ]
+        # Premier save échoue, deuxième réussit
+        mock_tcm.save_tables_config.side_effect = [ValueError("test"), None]
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -94,12 +91,14 @@ class TestMetadataManagerUpdateMetadata:
         assert mock_sleep.called
 
     @patch('amue.services.metadata_manager.time.sleep')
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_update_metadata_fail_after_retries(self, mock_varmgr, mock_sleep):
-        """Échec après tous les retries - erreur de chargement"""
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_fail_after_retries(self, mock_tcm_cls, mock_sleep):
+        """Échec après tous les retries"""
         from airflow.exceptions import AirflowException
 
-        mock_varmgr.get.side_effect = json.JSONDecodeError("test", "test", 0)
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.side_effect = Exception("DB connection failed")
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -109,8 +108,33 @@ class TestMetadataManagerUpdateMetadata:
             {'table_name': 'csks', 'status': 'success', 'fingerprint_API': 'fp_api', 'fingerprint_UL': 'fp_ul'}
         ]
 
-        with pytest.raises(AirflowException, match="Impossible de charger"):
+        with pytest.raises(AirflowException, match="Impossible de sauvegarder"):
             manager.update_metadata(import_results)
+
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_saves_report_start(self, mock_tcm_cls, mock_admin_cls):
+        """update_metadata sauvegarde le report_start via AdminStateManager"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''}
+        ]
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+
+        from amue.services.metadata_manager import AMUEMetadataManager
+
+        manager = AMUEMetadataManager()
+
+        import_results = [
+            {'table_name': 'csks', 'status': 'success', 'fingerprint_API': 'fp', 'fingerprint_UL': 'fp'}
+        ]
+
+        manager.update_metadata(import_results, report_start='2026-02-17T10:08:19+00:00')
+
+        mock_admin.set_last_report_start.assert_called_with('2026-02-17T10:08:19+00:00')
 
 
 class TestMetadataManagerShouldUpdate:
@@ -150,12 +174,15 @@ class TestMetadataManagerShouldUpdate:
 class TestMetadataManagerLoadConfig:
     """Tests pour _load_tables_config"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_load_tables_config_string(self, mock_varmgr):
-        """Charge une config JSON string"""
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2'}
-        ])
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_load_tables_config(self, mock_tcm_cls):
+        """Charge la config depuis la BDD"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2',
+             'primary_key': '', 'delta': '', 'enable': True}
+        ]
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -165,32 +192,18 @@ class TestMetadataManagerLoadConfig:
         assert len(config) == 1
         assert config[0]['name'] == 'CSKS'
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_load_tables_config_list(self, mock_varmgr):
-        """Charge une config déjà en liste"""
-        mock_varmgr.get.return_value = [
-            {'name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2'}
-        ]
-
-        from amue.services.metadata_manager import AMUEMetadataManager
-
-        manager = AMUEMetadataManager()
-        config = manager._load_tables_config()
-
-        assert len(config) == 1
-
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_load_tables_config_invalid(self, mock_varmgr):
-        """Config invalide lève une erreur"""
-        from airflow.exceptions import AirflowException
-
-        mock_varmgr.get.return_value = "not a valid json"
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_load_tables_config_raises_on_error(self, mock_tcm_cls):
+        """Exception propagée si chargement échoue"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.side_effect = Exception("DB error")
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
 
-        with pytest.raises(AirflowException, match="Impossible de charger"):
+        with pytest.raises(Exception, match="DB error"):
             manager._load_tables_config()
 
 
@@ -198,7 +211,7 @@ class TestMetadataManagerUpdateTable:
     """Tests pour _update_table_metadata"""
 
     def test_update_table_found(self):
-        """Met à jour une table existante"""
+        """Met à jour une table existante (fingerprints et PKs)"""
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
@@ -222,11 +235,11 @@ class TestMetadataManagerUpdateTable:
         assert tables_config[0]['fingerprint_UL'] == 'new_ul'
         assert 'finger_print' not in tables_config[0]
         assert tables_config[0]['primary_key'] == 'id'
-        # last_import doit utiliser report_start (date start du rapport API)
-        assert tables_config[0]['last_import'] == '2024-01-15T10:08:19+00:00'
+        # last_import n'est plus stocké par table
+        assert 'last_import' not in tables_config[0]
 
-    def test_update_table_uses_report_start(self):
-        """last_import utilise report_start (date start du rapport API) et non datetime.now()"""
+    def test_update_table_no_last_import_stored(self):
+        """last_import n'est plus stocké par table — le timestamp global est dans amue_state"""
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
@@ -244,30 +257,7 @@ class TestMetadataManagerUpdateTable:
 
         manager._update_table_metadata(tables_config, result)
 
-        assert tables_config[0]['last_import'] == '2026-02-17T10:08:19+00:00'
-
-    def test_update_table_fallback_datetime_now_when_no_report_start(self):
-        """last_import utilise datetime.now() si report_start absent"""
-        from amue.services.metadata_manager import AMUEMetadataManager
-
-        manager = AMUEMetadataManager()
-        manager._report_start = ''  # Pas de report_start
-
-        tables_config = [
-            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
-        ]
-
-        result = {
-            'table_name': 'CSKS',
-            'fingerprint_API': 'new_api',
-            'fingerprint_UL': 'new_ul'
-        }
-
-        manager._update_table_metadata(tables_config, result)
-
-        # Doit être une date ISO récente (fallback datetime.now())
-        assert 'last_import' in tables_config[0]
-        assert tables_config[0]['last_import'] != ''
+        assert 'last_import' not in tables_config[0]
 
     def test_update_table_not_found(self):
         """Table non trouvée retourne False"""
@@ -293,10 +283,12 @@ class TestMetadataManagerUpdateTable:
 class TestMetadataManagerGetLastSuccess:
     """Tests pour get_last_success_date"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_get_last_success_date_valid(self, mock_varmgr):
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_get_last_success_date_valid(self, mock_admin_cls):
         """Récupère une date valide"""
-        mock_varmgr.get.return_value = '2024-01-15T10:30:00'
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_successful_run.return_value = '2024-01-15T10:30:00'
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -308,10 +300,12 @@ class TestMetadataManagerGetLastSuccess:
         assert result.month == 1
         assert result.day == 15
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_get_last_success_date_empty(self, mock_varmgr):
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_get_last_success_date_empty(self, mock_admin_cls):
         """Retourne None si vide"""
-        mock_varmgr.get.return_value = ''
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_successful_run.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -320,10 +314,12 @@ class TestMetadataManagerGetLastSuccess:
 
         assert result is None
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_get_last_success_date_invalid(self, mock_varmgr):
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_get_last_success_date_invalid(self, mock_admin_cls):
         """Retourne None si date invalide"""
-        mock_varmgr.get.return_value = 'invalid-date'
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_successful_run.return_value = 'invalid-date'
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -336,19 +332,18 @@ class TestMetadataManagerGetLastSuccess:
 class TestMetadataManagerGetTableMetadata:
     """Tests pour get_table_metadata"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_get_table_metadata_found(self, mock_varmgr):
-        """Récupère les métadonnées d'une table"""
-        mock_varmgr.get.return_value = json.dumps([
-            {
-                'name': 'CSKS',
-                'fingerprint_API': 'fp_api_123',
-                'fingerprint_UL': 'fp_ul_456',
-                'last_import': '2024-01-15',
-                'primary_key': 'id',
-                'delta': 'date_modif'
-            }
-        ])
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_get_table_metadata_found(self, mock_tcm_cls):
+        """Récupère les métadonnées d'une table (sans last_import)"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_table_metadata.return_value = {
+            'name': 'CSKS',
+            'fingerprint_API': 'fp_api_123',
+            'fingerprint_UL': 'fp_ul_456',
+            'primary_key': 'id',
+            'delta': 'date_modif'
+        }
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -359,16 +354,15 @@ class TestMetadataManagerGetTableMetadata:
         assert result.name == 'CSKS'
         assert result.fingerprint_API == 'fp_api_123'
         assert result.fingerprint_UL == 'fp_ul_456'
-        assert result.last_import == '2024-01-15'
         assert result.primary_key == 'id'
         assert result.delta == 'date_modif'
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_get_table_metadata_not_found(self, mock_varmgr):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_get_table_metadata_not_found(self, mock_tcm_cls):
         """Retourne None si table non trouvée"""
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': 'fp_api', 'fingerprint_UL': 'fp_ul'}
-        ])
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_table_metadata.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -381,18 +375,12 @@ class TestMetadataManagerGetTableMetadata:
 class TestMetadataManagerResetTable:
     """Tests pour reset_table_metadata"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_reset_table_metadata_success(self, mock_varmgr):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_reset_table_metadata_success(self, mock_tcm_cls):
         """Réinitialise les métadonnées d'une table"""
-        mock_varmgr.get.return_value = json.dumps([
-            {
-                'name': 'CSKS',
-                'fingerprint_API': 'fp_api_123',
-                'fingerprint_UL': 'fp_ul_456',
-                'last_import': '2024-01-15'
-            }
-        ])
-        mock_varmgr.set.return_value = True
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.reset_table_metadata.return_value = True
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -400,19 +388,14 @@ class TestMetadataManagerResetTable:
         result = manager.reset_table_metadata('CSKS')
 
         assert result is True
-        # Vérifie que set a été appelé avec les métadonnées réinitialisées
-        call_args = mock_varmgr.set.call_args[0]
-        saved_config = json.loads(call_args[1])
-        assert saved_config[0]['fingerprint_API'] == ''
-        assert saved_config[0]['fingerprint_UL'] == ''
-        assert saved_config[0]['last_import'] == ''
+        mock_tcm.reset_table_metadata.assert_called_once_with('CSKS')
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_reset_table_metadata_not_found(self, mock_varmgr):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_reset_table_metadata_not_found(self, mock_tcm_cls):
         """Retourne False si table non trouvée"""
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': 'fp_api', 'fingerprint_UL': 'fp_ul'}
-        ])
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.reset_table_metadata.return_value = False
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -421,14 +404,12 @@ class TestMetadataManagerResetTable:
 
         assert result is False
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_reset_table_metadata_error(self, mock_varmgr):
-        """Retourne False en cas d'erreur de sauvegarde"""
-        # Config valide mais sauvegarde échoue
-        mock_varmgr.get.return_value = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': 'fp_api', 'fingerprint_UL': 'fp_ul'}
-        ])
-        mock_varmgr.set.side_effect = ValueError("test")
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_reset_table_metadata_error(self, mock_tcm_cls):
+        """Retourne False en cas d'erreur"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.reset_table_metadata.return_value = False
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -441,31 +422,33 @@ class TestMetadataManagerResetTable:
 class TestMetadataManagerFinishTimestamp:
     """Tests pour la sauvegarde du finish timestamp"""
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_save_finish_timestamp(self, mock_varmgr):
-        """Sauvegarde du finish timestamp"""
-        mock_varmgr.get.return_value = ''
-        mock_varmgr.set.return_value = True
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_save_finish_timestamp(self, mock_admin_cls):
+        """Sauvegarde du finish timestamp via AdminStateManager"""
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_finish_timestamp.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
         manager._save_finish_timestamp('2024-01-15T10:00:00')
 
-        # Vérifie que set a été appelé avec la bonne variable
-        mock_varmgr.set.assert_called_with('amue_last_finish_timestamp', '2024-01-15T10:00:00')
+        mock_admin.set_last_finish_timestamp.assert_called_once_with('2024-01-15T10:00:00')
 
-    @patch('amue.services.metadata_manager.VarMgr')
-    def test_update_metadata_with_finish_timestamp(self, mock_varmgr):
-        """update_metadata sauvegarde le finish_timestamp"""
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'last_import': '', 'primary_key': ''}
-        ])
-        mock_varmgr.get.side_effect = lambda key, default=None: {
-            'amue_tables_to_import': tables_config,
-            'amue_last_finish_timestamp': ''
-        }.get(key, default) if key != 'amue_tables_to_import' else tables_config
-        mock_varmgr.set.return_value = True
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_update_metadata_with_finish_timestamp(self, mock_tcm_cls, mock_admin_cls):
+        """update_metadata sauvegarde le finish_timestamp via AdminStateManager"""
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
+        mock_tcm.get_tables_config.return_value = [
+            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''}
+        ]
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_finish_timestamp.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -482,24 +465,20 @@ class TestMetadataManagerFinishTimestamp:
 
         manager.update_metadata(import_results, finish_timestamp='2024-01-15T10:00:00')
 
-        # Vérifie que set a été appelé pour le finish timestamp
-        calls = mock_varmgr.set.call_args_list
-        finish_call = [c for c in calls if 'amue_last_finish_timestamp' in str(c)]
-        assert len(finish_call) > 0
+        mock_admin.set_last_finish_timestamp.assert_called_with('2024-01-15T10:00:00')
 
 
 class TestTableMetadata:
     """Tests pour TableMetadata dataclass"""
 
     def test_table_metadata(self):
-        """Création de TableMetadata"""
+        """Création de TableMetadata (sans last_import)"""
         from amue.services.metadata_manager import TableMetadata
 
         metadata = TableMetadata(
             name='CSKS',
             fingerprint_API='fp_api_123',
             fingerprint_UL='fp_ul_456',
-            last_import='2024-01-15',
             primary_key='id',
             delta='date_modif'
         )
@@ -507,7 +486,6 @@ class TestTableMetadata:
         assert metadata.name == 'CSKS'
         assert metadata.fingerprint_API == 'fp_api_123'
         assert metadata.fingerprint_UL == 'fp_ul_456'
-        assert metadata.last_import == '2024-01-15'
         assert metadata.primary_key == 'id'
         assert metadata.delta == 'date_modif'
 
@@ -518,8 +496,7 @@ class TestTableMetadata:
         metadata = TableMetadata(
             name='CSKS',
             fingerprint_API='fp_api_123',
-            fingerprint_UL='fp_ul_456',
-            last_import='2024-01-15'
+            fingerprint_UL='fp_ul_456'
         )
 
         assert metadata.primary_key == ''

@@ -329,6 +329,7 @@ class NotificationTemplates:
             name = table.get('table_name', table.get('name', 'unknown'))
             rows_fetched = table.get('rows_fetched', 0)
             rows_inserted = table.get('rows_inserted', table.get('rows', 0))
+            rows_updated = table.get('rows_updated', 0)
             import_type = table.get('import_type', 'full')
             status = table.get('status', 'success')
 
@@ -345,6 +346,9 @@ class NotificationTemplates:
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">
                     {rows_inserted:,}
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+                    {rows_updated:,}
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">
                     <code>{type_label}</code>
@@ -366,6 +370,7 @@ class NotificationTemplates:
                         <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Table</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Recuperees</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Inserees</th>
+                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">MAJ</th>
                         <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e0e0e0;">Type</th>
                         <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e0e0e0;">Statut</th>
                     </tr>

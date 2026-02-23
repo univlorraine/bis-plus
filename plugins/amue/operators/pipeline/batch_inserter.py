@@ -123,7 +123,9 @@ class AMUEBatchInserter:
         Returns:
             Métriques du batch :
             {
-                'rows_affected': int,
+                'rows_affected': int,   # rows_inserted + rows_updated
+                'rows_inserted': int,   # nouvelles lignes (INSERT)
+                'rows_updated': int,    # lignes mises à jour (UPDATE)
                 'batch_size': int,
                 'duration_seconds': float,
                 'batch_num': int or None
@@ -154,13 +156,27 @@ class AMUEBatchInserter:
                 )
 
         try:
-            execute_values(cursor, insert_sql, batch, page_size=len(batch))
+            if primary_keys:
+                # UPSERT avec RETURNING (xmax = 0) AS is_insert
+                # xmax=0 → INSERT (nouvelle ligne), xmax≠0 → UPDATE (mise à jour)
+                results = execute_values(cursor, insert_sql, batch,
+                                         page_size=len(batch), fetch=True)
+                rows_inserted = sum(1 for row in results if row[0])
+                rows_updated = sum(1 for row in results if not row[0])
+            else:
+                # INSERT simple sans RETURNING : toutes les lignes sont nouvelles
+                execute_values(cursor, insert_sql, batch, page_size=len(batch))
+                rows_inserted = len(batch)
+                rows_updated = 0
+
             if commit:
                 conn.commit()
 
             duration = time.monotonic() - start_time
             return {
-                'rows_affected': cursor.rowcount,
+                'rows_affected': rows_inserted + rows_updated,
+                'rows_inserted': rows_inserted,
+                'rows_updated': rows_updated,
                 'batch_size': len(batch),
                 'duration_seconds': round(duration, 3),
                 'batch_num': batch_num
@@ -289,6 +305,7 @@ class AMUEBatchInserter:
                 INSERT INTO {table} ({columns})
                 VALUES %s ON CONFLICT ({pks})
                 DO UPDATE SET {updates}
+                RETURNING (xmax = 0) AS is_insert
             """).format(
                 table=table_id,
                 columns=column_list,

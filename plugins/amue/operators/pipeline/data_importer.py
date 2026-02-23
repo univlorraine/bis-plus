@@ -41,7 +41,6 @@ Variables Airflow utilisees :
 
 ================================================================================
 """
-import json
 import logging
 import queue
 import threading
@@ -162,9 +161,9 @@ class AMUEDataImporter:
         if target_schema:
             logger.info(f"[IMPORT] Schéma cible blue/green: {target_schema}")
 
-    def _get_primary_keys_from_config(self, table_name: str) -> List[str]:  # noqa: C901
+    def _get_primary_keys_from_config(self, table_name: str) -> List[str]:
         """
-        Récupère les clés primaires depuis la variable Airflow.
+        Récupère les clés primaires depuis splus_admin.amue_tables.
 
         Args:
             table_name: Nom de la table
@@ -172,15 +171,14 @@ class AMUEDataImporter:
         Returns:
             Liste des colonnes formant la clé primaire
         """
+        from amue.services.table_config_manager import TableConfigManager
         try:
-            tables_var = VarMgr.get('amue_tables_to_import')
-            tables_config = json.loads(tables_var) if isinstance(tables_var, str) else tables_var
-
-            for table in tables_config:
-                if table.get('name', '').upper() == table_name.upper():
-                    pk_str = table.get('primary_key', '')
-                    if pk_str:
-                        return [pk.strip().lower() for pk in pk_str.split(',') if pk.strip()]
+            table = TableConfigManager().get_table_metadata(table_name)
+            if table is None:
+                return []
+            pk_str = table.get('primary_key', '')
+            if pk_str:
+                return [pk.strip().lower() for pk in pk_str.split(',') if pk.strip()]
             return []
         except Exception as e:
             logger.warning(f"Erreur lecture PKs depuis config pour {table_name}: {e}")
@@ -283,7 +281,7 @@ class AMUEDataImporter:
                 columns_with_meta = list(columns) + ['_source', '_imported_at']
 
                 # Lance le streaming et l'insertion par batch
-                rows_inserted, rows_fetched, batch_metrics = self._stream_and_insert(
+                rows_inserted, rows_updated, rows_fetched, batch_metrics = self._stream_and_insert(
                     table_name,
                     columns_with_meta,
                     primary_keys,
@@ -294,6 +292,7 @@ class AMUEDataImporter:
 
                 # Ajoute les métriques au contexte de tracing
                 ctx.add_metadata('rows_inserted', rows_inserted)
+                ctx.add_metadata('rows_updated', rows_updated)
                 ctx.add_metadata('rows_fetched', rows_fetched)
 
                 # Calcul des métriques enrichies
@@ -304,6 +303,7 @@ class AMUEDataImporter:
                 return {
                     'table_name': table_name,
                     'rows_inserted': rows_inserted,
+                    'rows_updated': rows_updated,
                     'rows_fetched': rows_fetched,
                     'import_type': import_type,
                     'fingerprint_API': import_config.get('fingerprint_API', ''),
@@ -361,7 +361,7 @@ class AMUEDataImporter:
             correlation_id: ID de corrélation pour le tracing
 
         Returns:
-            Tuple (rows_inserted, rows_fetched, batch_metrics)
+            Tuple (rows_inserted, rows_updated, rows_fetched, batch_metrics)
 
         Raises:
             AMUEDatabaseError: En cas d'erreur de connexion DB
@@ -434,7 +434,7 @@ class AMUEDataImporter:
             finally:
                 cursor.close()
 
-        total_inserted = 0
+        total_submitted = 0
         total_fetched = 0
         batch: List[tuple] = []
         batch_num = 0
@@ -462,8 +462,8 @@ class AMUEDataImporter:
                             batch_num += 1
                             batch_copy = list(batch)
                             self._queue_put_safe(batch_queue, (batch_copy, batch_num), error_event)
-                            total_inserted += len(batch)
-                            logger.info(f"{table_name}: {total_inserted:,} lignes inserees (UPSERT)")
+                            total_submitted += len(batch)
+                            logger.info(f"{table_name}: {total_submitted:,} lignes soumises")
                             batch.clear()
 
                     # Dernier batch partiel
@@ -471,7 +471,7 @@ class AMUEDataImporter:
                         batch_num += 1
                         batch_copy = list(batch)
                         self._queue_put_safe(batch_queue, (batch_copy, batch_num), error_event)
-                        total_inserted += len(batch)
+                        total_submitted += len(batch)
 
                     # Envoie les sentinelles (une par consumer)
                     for _ in range(num_workers):
@@ -490,8 +490,15 @@ class AMUEDataImporter:
                 if producer_error is not None:
                     raise producer_error
 
-            logger.info(f"[{correlation_id}] {table_name}: Total {total_inserted:,}/{total_fetched:,} lignes (UPSERT)")
-            return total_inserted, total_fetched, batch_metrics
+            # Agrège INSERT vs UPDATE depuis les métriques des consumers
+            total_inserted = sum(m.get('rows_inserted', 0) for m in batch_metrics)
+            total_updated = sum(m.get('rows_updated', 0) for m in batch_metrics)
+            logger.info(
+                f"[{correlation_id}] {table_name}: "
+                f"{total_inserted:,} insérées, {total_updated:,} mises à jour "
+                f"({total_fetched:,} récupérées)"
+            )
+            return total_inserted, total_updated, total_fetched, batch_metrics
 
         except (AMUEDatabaseError, AMUEBatchError, AMUEDataError):
             raise

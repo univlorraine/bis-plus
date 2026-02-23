@@ -608,25 +608,20 @@ class TestTableVerifierTableExists:
 
 
 class TestTableVerifierSavePrimaryKeys:
-    """Tests pour _save_primary_keys (persistance immédiate)"""
+    """Tests pour _save_primary_keys (persistance immédiate en BDD)"""
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_save_primary_keys_success(self, mock_varmgr, mock_create_hook):
-        """Sauvegarde des PKs dans la variable Airflow"""
-        import json
-
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'primary_key': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
-        ])
-
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_save_primary_keys_success(self, mock_tcm_cls, mock_varmgr, mock_create_hook):
+        """Sauvegarde des PKs via TableConfigManager"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev',
-            'amue_tables_to_import': tables_config
         }.get(key, default)
-        mock_varmgr.set.return_value = True
+
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -635,27 +630,15 @@ class TestTableVerifierSavePrimaryKeys:
 
         verifier._save_primary_keys('CSKS', 'ID,NAME')
 
-        # Vérifie que set a été appelé avec les PKs mises à jour
-        mock_varmgr.set.assert_called()
-        call_args = mock_varmgr.set.call_args[0]
-        saved_config = json.loads(call_args[1])
-        assert saved_config[0]['primary_key'] == 'ID,NAME'
+        mock_tcm.save_primary_keys.assert_called_once_with('CSKS', 'ID,NAME')
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_save_primary_keys_no_change(self, mock_varmgr, mock_create_hook):
-        """Pas de sauvegarde si PKs identiques"""
-        import json
-
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'primary_key': 'ID,NAME', 'fingerprint_API': '', 'fingerprint_UL': ''}
-        ])
-
+    def test_save_primary_keys_empty_aborts(self, mock_varmgr, mock_create_hook):
+        """Abandon si PKs vides — pas d'appel à TableConfigManager"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev',
-            'amue_tables_to_import': tables_config
         }.get(key, default)
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
@@ -663,28 +646,22 @@ class TestTableVerifierSavePrimaryKeys:
         mock_api_hook = MagicMock()
         verifier = AMUETableVerifier(mock_api_hook)
 
-        verifier._save_primary_keys('CSKS', 'ID,NAME')
-
-        # Pas d'appel à set car les PKs sont identiques
-        mock_varmgr.set.assert_not_called()
+        with patch('amue.services.table_config_manager.TableConfigManager') as mock_tcm_cls:
+            verifier._save_primary_keys('CSKS', '')
+            mock_tcm_cls.assert_not_called()
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_verify_structure_calls_save_pks(self, mock_varmgr, mock_create_hook):
+    @patch('amue.services.table_config_manager.TableConfigManager')
+    def test_verify_structure_calls_save_pks(self, mock_tcm_cls, mock_varmgr, mock_create_hook):
         """verify_structure appelle _save_primary_keys après récupération API"""
-        import json
-
-        tables_config = json.dumps([
-            {'name': 'CSKS', 'primary_key': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
-        ])
-
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev',
-            'amue_tables_to_import': tables_config
         }.get(key, default)
-        mock_varmgr.set.return_value = True
+
+        mock_tcm = MagicMock()
+        mock_tcm_cls.return_value = mock_tcm
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -709,9 +686,9 @@ class TestTableVerifierSavePrimaryKeys:
 
         result = verifier.verify_structure(table_info)
 
-        # Vérifie que les PKs ont été sauvegardées
+        # Vérifie que les PKs ont été sauvegardées via TableConfigManager
         assert result['primary_keys'] == 'ID'
-        mock_varmgr.set.assert_called()
+        mock_tcm.save_primary_keys.assert_called_once_with('CSKS', 'ID')
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')

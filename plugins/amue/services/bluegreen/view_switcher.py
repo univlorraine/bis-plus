@@ -147,12 +147,20 @@ class ViewSwitcher:
                     )
                     cursor.execute(drop_sql)
 
+                    columns = self._get_view_columns(table_name, target_schema)
+                    if not columns:
+                        logger.warning(f"[VIEW_SWITCH] Aucune colonne pour {table_name}, fallback SELECT *")
+                        col_sql = sql.SQL("*")
+                    else:
+                        col_sql = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
+
                     create_sql = sql.SQL(
-                        "CREATE VIEW {view_schema}.{table} AS SELECT * FROM {target_schema}.{table}"
+                        "CREATE VIEW {view_schema}.{table} AS SELECT {columns} FROM {target_schema}.{table}"
                     ).format(
                         view_schema=sql.Identifier(self.VIEW_SCHEMA),
-                        target_schema=sql.Identifier(target_schema),
-                        table=sql.Identifier(table_name)
+                        table=sql.Identifier(table_name),
+                        columns=col_sql,
+                        target_schema=sql.Identifier(target_schema)
                     )
                     cursor.execute(create_sql)
                     logger.debug(f"[VIEW_SWITCH] Vue {self.VIEW_SCHEMA}.{table_name} -> {target_schema}.{table_name}")
@@ -239,12 +247,20 @@ class ViewSwitcher:
                 )
                 cursor.execute(drop_sql)
 
+                columns = self._get_view_columns(table_name, source_schema)
+                if not columns:
+                    logger.warning(f"[VIEW_SWITCH] Aucune colonne pour {table_name}, fallback SELECT *")
+                    col_sql = sql.SQL("*")
+                else:
+                    col_sql = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
+
                 create_sql = sql.SQL(
-                    "CREATE VIEW {view_schema}.{table} AS SELECT * FROM {source_schema}.{table}"
+                    "CREATE VIEW {view_schema}.{table} AS SELECT {columns} FROM {source_schema}.{table}"
                 ).format(
                     view_schema=sql.Identifier(self.VIEW_SCHEMA),
-                    source_schema=sql.Identifier(source_schema),
-                    table=sql.Identifier(table_name.lower())
+                    table=sql.Identifier(table_name.lower()),
+                    columns=col_sql,
+                    source_schema=sql.Identifier(source_schema)
                 )
                 cursor.execute(create_sql)
 
@@ -299,6 +315,31 @@ class ViewSwitcher:
                 return False
             finally:
                 cursor.close()
+
+    def _get_view_columns(self, table_name: str, schema_name: str) -> List[str]:
+        """
+        Retourne les colonnes à exposer dans la vue, en excluant les colonnes techniques.
+
+        Les colonnes '_source' et '_imported_at' sont des métadonnées internes
+        qui ne doivent pas être visibles dans le schéma splus.
+
+        Args:
+            table_name: Nom de la table
+            schema_name: Schéma où chercher les colonnes
+
+        Returns:
+            Liste des noms de colonnes (sans _source ni _imported_at)
+        """
+        query = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = %s
+              AND column_name NOT IN ('_source', '_imported_at')
+            ORDER BY ordinal_position
+        """
+        result = self.postgres_hook.get_records(query, parameters=(schema_name, table_name))
+        return [row[0] for row in result] if result else []
 
     def get_current_target_schema(self) -> Optional[str]:
         """

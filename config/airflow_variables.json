@@ -24,32 +24,13 @@
 
   "_comment_bluegreen": "=== BLUE/GREEN ===",
   "amue_bluegreen_enabled": "false",
-  "amue_bluegreen_state": "{}",
 
-  "_comment_tables": "=== TABLES A IMPORTER ===",
-  "amue_tables_to_import": [
-    {"name": "CSKS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "COBK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "COVP", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "CEPC", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "FMBDT", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "FMBH", "enable": true, "primary_key": "", "delta": "crtdate", "last_import": "", "finger_print": ""},
-    {"name": "FMMEASURE", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "FM01H", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "KNA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "KBLK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "LFA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "LFB1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "PRPS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "PRPS_RH", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "SRGBTBREL", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-    {"name": "TFKB", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""}
-  ],
-
-  "_comment_metadata": "=== METADONNEES (gerees automatiquement) ===",
-  "amue_last_finish_timestamp": "",
-  "amue_last_successful_run": "",
+  "_comment_metadata": "=== METADONNEES (gerees automatiquement en BDD - splus_admin.amue_state + splus_admin.amue_tables) ===",
   "last_import_report": "",
+
+  "_comment_schedules": "=== PLANIFICATION DES DAGs ===",
+  "amue_import_schedule": "0 2 * * *",
+  "amue_sync_schedule": "0 6 * * *",
 
   "_comment_rapports": "=== RAPPORTS & NOTIFICATIONS ===",
   "amue_report_recipients": "admin@example.com",

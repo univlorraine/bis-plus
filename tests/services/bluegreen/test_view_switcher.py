@@ -99,7 +99,12 @@ class TestViewSwitcherSwitch:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
-        mock_postgres_hook.get_records.return_value = [('csks',), ('prps',)]
+        # 1er appel: tables; 2e et 3e: colonnes de csks et prps (sans _source/_imported_at)
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',), ('prps',)],
+            [('bukrs',), ('kostl',), ('datbi',)],
+            [('kokrs',), ('belnr',)],
+        ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
@@ -138,7 +143,10 @@ class TestViewSwitcherSwitch:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
-        mock_postgres_hook.get_records.return_value = [('csks',)]
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',)],
+            [('bukrs',), ('kostl',)],
+        ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
@@ -164,7 +172,10 @@ class TestViewSwitcherDropCreate:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
-        mock_postgres_hook.get_records.return_value = [('csks',)]
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',)],
+            [('bukrs',), ('kostl',)],
+        ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
@@ -185,7 +196,7 @@ class TestViewSwitcherDropCreate:
         assert isinstance(drop_composed, psql.Composed)
         assert isinstance(create_composed, psql.Composed)
 
-        # Vérifie les templates SQL via les strings internes
+        # Vérifie les templates SQL via les strings internes (items sql.SQL uniquement)
         drop_strings = [s._wrapped if isinstance(s, psql.SQL) else s for s in drop_composed.seq]
         create_strings = [s._wrapped if isinstance(s, psql.SQL) else s for s in create_composed.seq]
 
@@ -195,6 +206,45 @@ class TestViewSwitcherDropCreate:
         assert 'DROP VIEW IF EXISTS' in drop_text
         assert 'CREATE VIEW' in create_text
         assert 'REPLACE' not in create_text
+
+
+class TestViewSwitcherGetViewColumns:
+    """Tests pour _get_view_columns"""
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_get_view_columns_excludes_meta(self, mock_create_hook):
+        """Exclut _source et _imported_at"""
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.return_value = [
+            ('bukrs',), ('kostl',), ('datbi',)
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher()
+        cols = switcher._get_view_columns('csks', 'splus_blue')
+
+        assert cols == ['bukrs', 'kostl', 'datbi']
+        # Vérifie que la requête exclut bien les colonnes techniques
+        call_args = mock_postgres_hook.get_records.call_args
+        query = call_args[0][0]
+        assert '_source' in query
+        assert '_imported_at' in query
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_get_view_columns_empty(self, mock_create_hook):
+        """Retourne liste vide si pas de colonnes"""
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.return_value = []
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher()
+        cols = switcher._get_view_columns('csks', 'splus_blue')
+
+        assert cols == []
 
 
 class TestViewSwitcherVerify:
@@ -253,7 +303,7 @@ class TestViewSwitcherCreateView:
 
     @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
     def test_create_view_for_table_success(self, mock_create_hook):
-        """Crée une vue avec succès (DROP + CREATE)"""
+        """Crée une vue avec succès (DROP + CREATE) sans _source ni _imported_at"""
         mock_conn = MagicMock()
         mock_conn.closed = False
         mock_cursor = MagicMock()
@@ -261,6 +311,7 @@ class TestViewSwitcherCreateView:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
+        mock_postgres_hook.get_records.return_value = [('bukrs',), ('kostl',), ('datbi',)]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
@@ -283,6 +334,7 @@ class TestViewSwitcherCreateView:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
+        mock_postgres_hook.get_records.return_value = [('bukrs',), ('kostl',)]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
@@ -294,6 +346,27 @@ class TestViewSwitcherCreateView:
         # 2 appels : DROP + CREATE
         assert mock_cursor.execute.call_count == 2
         mock_conn.commit.assert_not_called()
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_create_view_fallback_select_star_when_no_columns(self, mock_create_hook):
+        """Fallback SELECT * si aucune colonne trouvée"""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_conn.return_value = mock_conn
+        mock_postgres_hook.get_records.return_value = []  # Aucune colonne
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher()
+        result = switcher.create_view_for_table('csks', 'splus_blue')
+
+        assert result is True
+        assert mock_cursor.execute.call_count == 2
 
 
 class TestViewSwitcherCurrentTarget:

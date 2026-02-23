@@ -61,7 +61,7 @@ Voir plugins/amue/utils/config/settings.py pour la liste complète des variables
 PLANIFICATION
 ================================================================================
 
-Schedule : Tous les jours à 2h00 (0 2 * * *)
+Schedule : Configurable via variable Airflow 'amue_import_schedule' (défaut: '0 2 * * *')
 Catchup  : Désactivé (pas de rattrapage des exécutions manquées)
 Max runs : 1 seul DAG run actif à la fois
 
@@ -71,6 +71,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag
 
 from amue import send_failure_notification
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (
     init_bluegreen,
@@ -89,12 +90,16 @@ from amue.tasks.import_dag import (
 # DÉFINITION DU DAG
 # ==============================================================================
 
+# Schedule configurable via variable Airflow
+_import_schedule = VarMgr.get('amue_import_schedule', default='0 2 * * *')
+
+
 @dag(
     dag_id='amue_multi_table_import',
     description='Import AMUE - Architecture simplifiée',
 
     # --- Planification ---
-    schedule='0 2 * * *',           # Tous les jours à 2h00
+    schedule=_import_schedule,      # Configurable via amue_import_schedule
     start_date=datetime(2024, 1, 1),
     catchup=False,                  # Pas de rattrapage des runs manqués
     max_active_runs=1,              # Un seul run actif à la fois

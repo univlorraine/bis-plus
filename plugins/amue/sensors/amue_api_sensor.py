@@ -81,8 +81,9 @@ class AMUEAPISensor(BaseSensorOperator):
             logger.info("[SENSOR] Traitement AMUE en cours (finish vide)")
             return False
 
-        # Vérifie que le timestamp est nouveau
-        last_finish = VarMgr.get('amue_last_finish_timestamp', default='')
+        # Vérifie que le timestamp est nouveau (lu depuis la BDD)
+        from amue.services.admin_state_manager import AdminStateManager
+        last_finish = AdminStateManager().get_last_finish_timestamp() or ''
         if finish == last_finish:
             logger.info(f"[SENSOR] Même timestamp finish ({finish}), en attente de nouveau traitement")
             return False
