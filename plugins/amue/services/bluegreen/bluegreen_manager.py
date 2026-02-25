@@ -42,6 +42,8 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, replace
 from typing import Dict, Optional
 
+from psycopg2 import sql
+
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.config.settings import Defaults
 from amue.exceptions import ConcurrentImportError
@@ -110,19 +112,22 @@ class BlueGreenManager:
     SCHEMA_GREEN = "green"
     SCHEMA_PREFIX = "splus_"
     VIEW_SCHEMA = "splus"
+    OFFLINE_SUFFIX = "_offline"
 
     # Variable Airflow pour la configuration (lecture seule)
     ENABLED_VAR_NAME = "amue_bluegreen_enabled"
 
-    def __init__(self, view_switcher=None):
+    def __init__(self, view_switcher=None, postgres_hook=None):
         """
         Initialise le gestionnaire.
 
         Args:
             view_switcher: ViewSwitcher injectable (créé lazy si non fourni)
+            postgres_hook: Hook PostgreSQL injectable (créé lazy si non fourni)
         """
         self._state: Optional[BlueGreenState] = None
         self._view_switcher = view_switcher  # Injectable pour les tests
+        self._postgres_hook = postgres_hook  # Injectable pour les tests
 
     @property
     def _vs(self):
@@ -131,6 +136,14 @@ class BlueGreenManager:
             from amue.services.bluegreen.view_switcher import ViewSwitcher
             self._view_switcher = ViewSwitcher()
         return self._view_switcher
+
+    @property
+    def _hook(self):
+        """Hook PostgreSQL lazy pour les opérations DDL sur les schémas."""
+        if self._postgres_hook is None:
+            from amue.utils.database.hooks import create_postgres_hook
+            self._postgres_hook = create_postgres_hook(schema='public')
+        return self._postgres_hook
 
     def _get_active_schema_from_views(self) -> Optional[str]:
         """
@@ -512,6 +525,72 @@ class BlueGreenManager:
         if success:
             self._state = None
         return success
+
+    # =========================================================================
+    # GESTION DU RENOMMAGE OFFLINE
+    # =========================================================================
+
+    def schema_exists(self, schema_name: str) -> bool:
+        """
+        Vérifie si un schéma PostgreSQL existe.
+
+        Args:
+            schema_name: Nom du schéma à vérifier
+
+        Returns:
+            True si le schéma existe
+        """
+        rows = self._hook.get_records(
+            "SELECT 1 FROM information_schema.schemata WHERE schema_name = %s",
+            parameters=[schema_name]
+        )
+        return bool(rows)
+
+    def rename_schema_to_offline(self, schema_name: str) -> bool:
+        """
+        Renomme un schéma en ajoutant le suffixe _offline.
+
+        Appelé après un switch de vues réussi pour rendre visible aux métiers
+        que ce schéma est désormais inactif.
+
+        Args:
+            schema_name: Nom actuel du schéma (ex: 'splus_blue')
+
+        Returns:
+            True si le renommage a été effectué, False si le schéma n'existe pas
+        """
+        offline_name = f"{schema_name}{self.OFFLINE_SUFFIX}"
+        if not self.schema_exists(schema_name):
+            logger.warning(f"[BLUEGREEN] Schéma {schema_name} introuvable, rename ignoré")
+            return False
+        logger.info(f"[BLUEGREEN] {sql.SQL(f"ALTER SCHEMA {schema_name} RENAME TO {offline_name}")}")
+        self._hook.run(
+            f"ALTER SCHEMA {schema_name} RENAME TO {offline_name}"
+        )
+        logger.info(f"[BLUEGREEN] Schéma renommé: {schema_name} → {offline_name}")
+        return True
+
+    def rename_schema_from_offline(self, schema_name: str) -> bool:
+        """
+        Restaure un schéma offline à son nom de base.
+
+        Appelé avant un import ou une sync pour que le schéma soit accessible
+        avec son nom standard.
+
+        Args:
+            schema_name: Nom de base du schéma (ex: 'splus_green')
+
+        Returns:
+            True si le renommage a été effectué, False si le schéma offline n'existe pas
+        """
+        offline_name = f"{schema_name}{self.OFFLINE_SUFFIX}"
+        if not self.schema_exists(offline_name):
+            return False  # Pas encore offline (1er cycle ou déjà restauré)
+        self._hook.run(
+            f"ALTER SCHEMA {offline_name} RENAME TO {schema_name}"
+        )
+        logger.info(f"[BLUEGREEN] Schéma restauré: {offline_name} → {schema_name}")
+        return True
 
     def get_lock_info(self) -> Optional[Dict]:
         """

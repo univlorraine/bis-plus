@@ -372,3 +372,82 @@ class TestBlueGreenManagerHelpers:
         result = manager.needs_sync()
 
         assert result is False
+
+
+class TestBlueGreenManagerOfflineRename:
+    """Tests pour le renommage offline du schéma inactif"""
+
+    def _make_manager(self, mock_hook):
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        manager = BlueGreenManager(postgres_hook=mock_hook)
+        return manager
+
+    def test_schema_exists_true(self):
+        """schema_exists retourne True si le schéma est trouvé"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = [(1,)]
+
+        manager = self._make_manager(mock_hook)
+        result = manager.schema_exists("splus_blue")
+
+        assert result is True
+        mock_hook.get_records.assert_called_once()
+
+    def test_schema_exists_false(self):
+        """schema_exists retourne False si le schéma est absent"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = []
+
+        manager = self._make_manager(mock_hook)
+        result = manager.schema_exists("splus_blue")
+
+        assert result is False
+
+    def test_rename_schema_to_offline_success(self):
+        """rename_schema_to_offline renomme le schéma si il existe"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = [(1,)]  # schema exists
+
+        manager = self._make_manager(mock_hook)
+        result = manager.rename_schema_to_offline("splus_blue")
+
+        assert result is True
+        mock_hook.run.assert_called_once()
+
+    def test_rename_schema_to_offline_schema_missing(self):
+        """rename_schema_to_offline retourne False si le schéma n'existe pas"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = []  # schema absent
+
+        manager = self._make_manager(mock_hook)
+        result = manager.rename_schema_to_offline("splus_blue")
+
+        assert result is False
+        mock_hook.run.assert_not_called()
+
+    def test_rename_schema_from_offline_success(self):
+        """rename_schema_from_offline restaure le schéma si le variant offline existe"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = [(1,)]  # offline schema exists
+
+        manager = self._make_manager(mock_hook)
+        result = manager.rename_schema_from_offline("splus_blue")
+
+        assert result is True
+        mock_hook.run.assert_called_once()
+
+    def test_rename_schema_from_offline_no_offline(self):
+        """rename_schema_from_offline est no-op si le variant offline n'existe pas"""
+        mock_hook = MagicMock()
+        mock_hook.get_records.return_value = []  # pas d'offline
+
+        manager = self._make_manager(mock_hook)
+        result = manager.rename_schema_from_offline("splus_blue")
+
+        assert result is False
+        mock_hook.run.assert_not_called()
+
+    def test_offline_suffix_constant(self):
+        """La constante OFFLINE_SUFFIX est bien définie"""
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        assert BlueGreenManager.OFFLINE_SUFFIX == "_offline"

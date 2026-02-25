@@ -37,6 +37,7 @@ def init_bluegreen() -> Dict:
         }
 
     target = manager.get_target_schema()
+    manager.rename_schema_from_offline(target)
     active = manager.get_active_schema()
     needs_sync = manager.needs_sync()
 

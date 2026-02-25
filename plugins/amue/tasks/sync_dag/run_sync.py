@@ -52,4 +52,5 @@ def run_sync(sync_ctx: Dict) -> Dict:
     else:
         logger.error(f"[SYNC] Échec: {result}")
 
+    BlueGreenManager().rename_schema_to_offline(target)
     return result

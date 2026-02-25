@@ -54,6 +54,7 @@ Commandes disponibles:
     start               Démarre tous les services
     stop                Arrête tous les services
     restart             Redémarre tous les services
+    refresh-plugins     Rafraichi les plugins
     status              Affiche l'état des services
     logs [service]      Affiche les logs (optionnel: nom du service)
     health              Vérifie la santé de tous les services
@@ -184,6 +185,12 @@ cmd_restart() {
     log_info "Redémarrage des services..."
     $DOCKER_CMD restart
     log_success "Services redémarrés"
+}
+
+cmd_refresh_plugins() {
+    log_info "Rechargement des plugins..."
+    $DOCKER_CMD restart airflow-scheduler
+    log_success "Plugins redémarrés"
 }
 
 cmd_status() {
@@ -1857,6 +1864,7 @@ main() {
         start)          cmd_start "$@" ;;
         stop)           cmd_stop "$@" ;;
         restart)        cmd_restart "$@" ;;
+        refresh-plugins)        cmd_refresh_plugins "$@" ;;
         status)         cmd_status "$@" ;;
         logs)           cmd_logs "$@" ;;
         health)         cmd_health "$@" ;;
