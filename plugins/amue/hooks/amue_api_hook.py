@@ -76,6 +76,7 @@ USAGE
 """
 import json
 import logging
+import sys
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -425,7 +426,7 @@ class AMUEAPIHook:
             except ValueError as e:
                 # ValueError couvre json.JSONDecodeError ET simplejson.JSONDecodeError
                 # (les vieilles versions de simplejson n'héritent pas de json.JSONDecodeError)
-                logger.info(f"[API] Réponse en texte brut (non JSON) : {e}")
+                logger.info(f"[API] Réponse en texte brut (non JSON) : {e.with_traceback(sys.exception().__traceback__)}")
                 return response.text
 
         def on_retry(attempt: int, error: Exception, delay: float):

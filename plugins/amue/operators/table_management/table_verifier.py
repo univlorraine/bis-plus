@@ -69,6 +69,7 @@ Variables Airflow :
 ================================================================================
 """
 import logging
+import sys
 from string import Template
 from typing import Dict, List
 
@@ -81,6 +82,8 @@ from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
 
 logger = logging.getLogger(__name__)
+
+_META_COLUMNS = {'_SOURCE', '_IMPORTED_AT'}
 
 
 def _error_result(table_name: str, error: str, columns: List,
@@ -259,7 +262,7 @@ class AMUETableVerifier:
             }
 
         except Exception as e:
-            error_msg = f"Erreur vérification structure {table_name} [{type(e).__name__}]: {e}"
+            error_msg = f"Erreur vérification structure {table_name} [{type(e).__name__}]: {e.with_traceback(sys.exception().__traceback__)}"
             logger.error(f"[ERROR] {error_msg}")
             return _error_result(table_name, error_msg, [], '', '', '', False, False)
 
@@ -283,8 +286,10 @@ class AMUETableVerifier:
 
             parts = col_def.split(None, 1)
             if len(parts) >= 2:
-                col_name = parts[0].strip()
-                col_type = parts[1].strip()
+                col_name = parts[0].strip().upper()
+                if col_name in _META_COLUMNS:
+                    continue
+                col_type = parts[1].strip().upper()
                 pg_type = parse_column_definition(col_type)
 
                 columns.append({
@@ -411,6 +416,7 @@ class AMUETableVerifier:
                    numeric_precision, numeric_scale
             FROM information_schema.columns
             WHERE table_schema = %s AND table_name = %s
+              AND column_name NOT IN ('_source', '_imported_at')
             ORDER BY ordinal_position
         """
         rows = self.postgres_hook.get_records(
