@@ -330,12 +330,9 @@ class NotificationTemplates:
             rows_fetched = table.get('rows_fetched', 0)
             rows_inserted = table.get('rows_inserted', table.get('rows', 0))
             rows_updated = table.get('rows_updated', 0)
-            import_type = table.get('import_type', 'full')
             status = table.get('status', 'success')
 
             badge_class = 'badge-success' if status == 'success' else 'badge-error'
-            type_label = 'UPSERT' if import_type == 'differential' else 'INSERT'
-
             rows_html += f"""
             <tr>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">
@@ -349,9 +346,6 @@ class NotificationTemplates:
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">
                     {rows_updated:,}
-                </td>
-                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">
-                    <code>{type_label}</code>
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">
                     <span class="badge {badge_class}">{status}</span>

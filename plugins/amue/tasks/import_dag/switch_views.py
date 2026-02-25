@@ -37,6 +37,7 @@ def switch_views(metadata_result: Dict) -> Dict:
         return {"switched": False, "reason": "bluegreen disabled in config"}
 
     switcher = ViewSwitcher()
+    old_active = manager.get_active_schema()
     success = switcher.switch_views_to_schema(target_schema)
 
     if success:
@@ -53,6 +54,7 @@ def switch_views(metadata_result: Dict) -> Dict:
 
         manager.mark_import_completed()
         manager.mark_switch_completed()
+        manager.rename_schema_to_offline(old_active)
         logger.info(f"[SWITCH] Vues basculées et vérifiées vers {target_schema}")
         return {
             "switched": True,

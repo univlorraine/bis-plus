@@ -33,6 +33,7 @@ def init_sync() -> Dict:
     manager = BlueGreenManager()
     source = manager.get_active_schema()
     target = manager.get_inactive_schema()
+    manager.rename_schema_from_offline(target)
 
     logger.info(f"[SYNC] Source: {source} → Cible: {target}")
     return {'enabled': True, 'source_schema': source, 'target_schema': target}
