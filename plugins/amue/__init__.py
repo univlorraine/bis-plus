@@ -44,7 +44,6 @@ from amue.notifications import (
     Email,
     NotificationTemplates,
     NotificationService,
-    NotificationType,
     send_failure_notification,
     send_success_notification,
 )
@@ -169,7 +168,6 @@ __all__ = [
     "Email",
     "NotificationTemplates",
     "NotificationService",
-    "NotificationType",
     "send_failure_notification",
     "send_success_notification",
     "AMUEReportGenerator",

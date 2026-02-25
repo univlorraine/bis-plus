@@ -26,7 +26,7 @@ TYPES DE NOTIFICATIONS
 ERREUR (NotificationService.notify_error / send_failure_notification) :
     - Declenchee automatiquement via on_failure_callback
     - Email avec fond rouge, details de l'erreur
-    - Sauvegarde dans la variable 'last_import_report'
+    - Email avec fond rouge, details de l'erreur
 
 SUCCES (NotificationService.notify_success / AMUEReportGenerator) :
     - Declenchee en fin de DAG via la task send_report
@@ -56,7 +56,7 @@ from amue.notifications.email_service import EmailService, EmailConfig, Email
 from amue.notifications.templates import NotificationTemplates
 
 # Service de notification unifie
-from amue.notifications.notifier import NotificationService, NotificationType
+from amue.notifications.notifier import NotificationService
 
 # Callbacks Airflow
 from amue.notifications.callbacks import send_failure_notification, send_success_notification
@@ -70,7 +70,6 @@ __all__ = [
     'NotificationTemplates',
     # Service de notification
     'NotificationService',
-    'NotificationType',
     # Callbacks
     'send_failure_notification',
     'send_success_notification',

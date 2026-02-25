@@ -5,10 +5,8 @@ Service de notification unifie pour les DAGs AMUE.
 Ce module fournit un point d'entree unique pour toutes les notifications,
 remplacant l'ancienne hierarchie de classes (BaseNotifier, ErrorNotifier, SuccessNotifier).
 """
-import json
 import logging
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from amue.notifications.email_service import EmailService, Email
@@ -16,12 +14,6 @@ from amue.notifications.templates import NotificationTemplates
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
-
-
-class NotificationType(Enum):
-    """Types de notifications supportes"""
-    SUCCESS = "success"
-    ERROR = "error"
 
 
 class NotificationService:
@@ -94,10 +86,7 @@ class NotificationService:
             html_content=html_content
         )
 
-        success = self.email_service.send(email)
-        self._save_report(context, NotificationType.ERROR, success)
-
-        return success
+        return self.email_service.send(email)
 
     def notify_success(self, data: Dict[str, Any]) -> bool:
         """
@@ -127,10 +116,7 @@ class NotificationService:
             html_content=html_content
         )
 
-        success = self.email_service.send(email)
-        self._save_report(context, NotificationType.SUCCESS, success)
-
-        return success
+        return self.email_service.send(email)
 
     def _build_error_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Construit le contexte pour le template d'erreur"""
@@ -211,24 +197,3 @@ class NotificationService:
         tables_count = len(context.get('tables_imported', []))
         total_rows = context.get('total_rows', 0)
         return f"[SUCCES] Import AMUE - {tables_count} table(s) - {total_rows:,} lignes - {date_str}"
-
-    def _save_report(
-        self,
-        context: Dict[str, Any],
-        notification_type: NotificationType,
-        email_sent: bool
-    ) -> None:
-        """Sauvegarde le rapport dans les variables Airflow"""
-        report = {
-            'type': notification_type.value,
-            'timestamp': datetime.now().isoformat(),
-            'email_sent': email_sent,
-            'recipients': self.recipients,
-            **context
-        }
-
-        try:
-            VarMgr.set('last_import_report', json.dumps(report, default=str))
-            logger.debug("Rapport sauvegarde")
-        except Exception as e:
-            logger.warning(f"Echec sauvegarde rapport: {e}")

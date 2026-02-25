@@ -67,11 +67,11 @@ FORMAT DU RAPPORT DANS LES LOGS
 PERSISTANCE
 ================================================================================
 
-Le rapport est sauvegardé dans la variable Airflow 'last_import_report'
-au format JSON. Cela permet :
-    - De consulter le dernier rapport via l'UI Airflow
+Le rapport est archivé en fichier JSON dans le répertoire de logs Airflow
+(/opt/airflow/logs/reports/). Cela permet :
+    - De consulter les rapports via les logs Airflow
     - D'intégrer les rapports dans un système de monitoring
-    - De garder un historique (une seule entrée, le dernier)
+    - De garder un historique horodaté
 
 ================================================================================
 """
@@ -81,7 +81,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -260,13 +259,7 @@ class AMUEReportGenerator:
         logger.info("")
 
     def _save_report(self, report: Dict) -> None:
-        """Sauvegarde le rapport dans les variables et en fichier JSON."""
-        try:
-            VarMgr.set('last_import_report', json.dumps(report, default=str))
-            logger.info("[REPORT] Rapport sauvegardé dans les variables Airflow")
-        except Exception as e:
-            logger.warning(f"[REPORT] Impossible de sauvegarder le rapport: {e}")
-
+        """Sauvegarde le rapport en fichier JSON."""
         # Archivage en fichier JSON
         try:
             reports_dir = Path('/opt/airflow/logs/reports')

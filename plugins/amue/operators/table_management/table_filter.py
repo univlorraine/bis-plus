@@ -6,7 +6,7 @@ RÔLE DU MODULE
 ================================================================================
 
 Ce module détermine quelles tables doivent être importées lors d'une exécution
-du DAG. Il compare la configuration Airflow (variable amue_tables_to_import)
+du DAG. Il compare la configuration BDD (table splus_admin.amue_tables)
 avec le statut réel de l'API AMUE.
 
 PROCESSUS DE FILTRAGE :
@@ -127,11 +127,11 @@ class AMUETableFilter:
 
         Args:
             tables_config: Configuration des tables (optionnel).
-                          Si non fourni, chargé depuis la variable Airflow.
+                          Si non fourni, chargé depuis la BDD (splus_admin.amue_tables).
         """
         self._last_report_start = ''
 
-        # Charge la config depuis Airflow si non fournie
+        # Charge la config depuis la BDD si non fournie
         if tables_config is None:
             tables_config = self._load_config()
         self.tables_config = tables_config
@@ -402,7 +402,7 @@ class AMUETableFilter:
         """
         enriched = table_config.copy()
 
-        # DEBUG: Afficher ce qui vient de la variable Airflow
+        # DEBUG: Config depuis la BDD
         logger.info(f"[ENRICH] Table {enriched.get('name')}: Config originale primary_key='{table_config.get('primary_key', 'NOT_SET')}'")
 
         # Ajoute les valeurs par défaut

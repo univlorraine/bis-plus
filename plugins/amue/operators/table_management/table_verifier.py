@@ -276,7 +276,7 @@ class AMUETableVerifier:
             columns_def = str(structure_response)
 
         columns = []
-        for col_def in columns_def.split(','):
+        for col_def in self._split_column_defs(columns_def):
             col_def = col_def.strip()
             if not col_def:
                 continue
@@ -297,6 +297,37 @@ class AMUETableVerifier:
             raise ValueError("Aucune colonne trouvée")
 
         return columns
+
+    @staticmethod
+    def _split_column_defs(columns_def: str) -> list:
+        """
+        Découpe la chaîne de définitions de colonnes en respectant les parenthèses.
+
+        Un split naïf sur ',' casse les types avec paramètres comme NUMERIC(15,2).
+        Cette méthode ne coupe que les virgules au niveau 0 de parenthèses.
+
+        Exemple :
+            "MANDT CHAR(3),WKGBTR NUMERIC(15,2),CODE CHAR(4)"
+            → ["MANDT CHAR(3)", "WKGBTR NUMERIC(15,2)", "CODE CHAR(4)"]
+        """
+        parts = []
+        depth = 0
+        current = []
+        for char in columns_def:
+            if char == '(':
+                depth += 1
+                current.append(char)
+            elif char == ')':
+                depth -= 1
+                current.append(char)
+            elif char == ',' and depth == 0:
+                parts.append(''.join(current))
+                current = []
+            else:
+                current.append(char)
+        if current:
+            parts.append(''.join(current))
+        return parts
 
     def _fetch_primary_keys(self, table_name: str) -> str:
         """

@@ -360,7 +360,9 @@ class AMUEAPIHook:
 
             try:
                 return response.json()
-            except json.JSONDecodeError:
+            except ValueError:
+                # ValueError couvre json.JSONDecodeError ET simplejson.JSONDecodeError
+                # (les vieilles versions de simplejson n'héritent pas de json.JSONDecodeError)
                 logger.info("[API] Réponse en texte brut (non JSON)")
                 return response.text
 
@@ -420,8 +422,10 @@ class AMUEAPIHook:
 
             try:
                 return response.json()
-            except json.JSONDecodeError:
-                logger.info("[API] Réponse en texte brut (non JSON)")
+            except ValueError as e:
+                # ValueError couvre json.JSONDecodeError ET simplejson.JSONDecodeError
+                # (les vieilles versions de simplejson n'héritent pas de json.JSONDecodeError)
+                logger.info(f"[API] Réponse en texte brut (non JSON) : {e}")
                 return response.text
 
         def on_retry(attempt: int, error: Exception, delay: float):

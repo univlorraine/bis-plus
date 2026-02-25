@@ -5,7 +5,7 @@ Fonctions @task extraites de dag_amue_dynamic_table.py
 pour séparer orchestration et logique métier.
 """
 from amue.tasks.import_dag.init_bluegreen import init_bluegreen
-from amue.tasks.import_dag.polling import wait_for_api_and_select, wait_for_api, select_tables
+from amue.tasks.import_dag.polling import wait_for_api, select_tables
 from amue.tasks.import_dag.verify_table import verify_table
 from amue.tasks.import_dag.validate_tables import validate_tables
 from amue.tasks.import_dag.prepare_table import prepare_table
@@ -18,7 +18,6 @@ __all__ = [
     'init_bluegreen',
     'wait_for_api',
     'select_tables',
-    'wait_for_api_and_select',
     'verify_table',
     'validate_tables',
     'prepare_table',
