@@ -403,7 +403,6 @@ class TestSendFailureNotification:
         mock_service_class.return_value = mock_service
 
         mock_manager = MagicMock()
-        mock_manager.is_enabled.return_value = True
         mock_manager.is_import_in_progress.return_value = True
         mock_bg_class.return_value = mock_manager
 
@@ -417,29 +416,6 @@ class TestSendFailureNotification:
         send_failure_notification(context)
 
         mock_manager.release_import_lock.assert_called_once_with(mark_completed=False)
-
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
-    @patch('amue.notifications.notifier.NotificationService')
-    def test_send_failure_no_release_when_bluegreen_disabled(self, mock_service_class, mock_bg_class):
-        """Callback ne libere pas le verrou si blue/green desactive"""
-        mock_service = MagicMock()
-        mock_service.notify_error.return_value = True
-        mock_service_class.return_value = mock_service
-
-        mock_manager = MagicMock()
-        mock_manager.is_enabled.return_value = False
-        mock_bg_class.return_value = mock_manager
-
-        from amue.notifications.callbacks import send_failure_notification
-
-        context = {
-            'task_instance': MagicMock(),
-            'exception': ValueError('Test error')
-        }
-
-        send_failure_notification(context)
-
-        mock_manager.release_import_lock.assert_not_called()
 
     @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
     @patch('amue.notifications.notifier.NotificationService')

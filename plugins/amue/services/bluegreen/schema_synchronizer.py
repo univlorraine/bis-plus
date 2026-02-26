@@ -296,13 +296,6 @@ class SchemaSynchronizer:
         Returns:
             Résultat de la synchronisation
         """
-        if not self.bluegreen_manager.is_enabled():
-            logger.warning("[SYNC] Blue/green désactivé, sync ignorée")
-            return {
-                'status': 'skipped',
-                'error': 'Blue/green mode not enabled'
-            }
-
         source = self.bluegreen_manager.get_active_schema()
         target = self.bluegreen_manager.get_target_schema()
 

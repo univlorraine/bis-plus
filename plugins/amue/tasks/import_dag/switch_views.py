@@ -32,10 +32,6 @@ def switch_views(metadata_result: Dict) -> Dict:
         return {"switched": False, "reason": "bluegreen disabled"}
 
     manager = BlueGreenManager()
-    if not manager.is_enabled():
-        logger.info("[SWITCH] Blue/green désactivé dans la config")
-        return {"switched": False, "reason": "bluegreen disabled in config"}
-
     switcher = ViewSwitcher()
     old_active = manager.get_active_schema()
     success = switcher.switch_views_to_schema(target_schema)

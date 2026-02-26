@@ -278,28 +278,9 @@ class TestSchemaSynchronizerActiveToTarget:
 
     @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
     @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
-    def test_sync_active_to_target_disabled(self, mock_create_hook, mock_bg_manager):
-        """Skip si blue/green désactivé"""
-        mock_manager = MagicMock()
-        mock_manager.is_enabled.return_value = False
-        mock_bg_manager.return_value = mock_manager
-
-        mock_postgres_hook = MagicMock()
-        mock_create_hook.return_value = mock_postgres_hook
-
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
-
-        sync = SchemaSynchronizer()
-        result = sync.sync_active_to_target()
-
-        assert result['status'] == 'skipped'
-
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_active_to_target_success(self, mock_create_hook, mock_bg_manager):
         """Sync automatique avec succès"""
         mock_manager = MagicMock()
-        mock_manager.is_enabled.return_value = True
         mock_manager.get_active_schema.return_value = 'splus_blue'
         mock_manager.get_target_schema.return_value = 'splus_green'
         mock_bg_manager.return_value = mock_manager

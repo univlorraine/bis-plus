@@ -80,7 +80,7 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
-        if manager.is_enabled() and manager.is_import_in_progress():
+        if manager.is_import_in_progress():
             manager.release_import_lock(mark_completed=False)
             logger.info("Verrou blue/green libere apres echec du DAG")
     except Exception as e:

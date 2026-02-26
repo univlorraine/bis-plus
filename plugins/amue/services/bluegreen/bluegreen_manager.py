@@ -44,7 +44,6 @@ from typing import Dict, Optional
 
 from psycopg2 import sql
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.config.settings import Defaults
 from amue.exceptions import ConcurrentImportError
 
@@ -100,11 +99,10 @@ class BlueGreenManager:
 
     Example:
         >>> manager = BlueGreenManager()
-        >>> if manager.is_enabled():
-        ...     target = manager.get_target_schema()  # 'splus_green'
-        ...     manager.mark_import_started()
-        ...     # ... import ...
-        ...     manager.mark_import_completed()
+        >>> target = manager.get_target_schema()  # 'splus_green'
+        >>> manager.mark_import_started()
+        >>> # ... import ...
+        >>> manager.mark_import_completed()
     """
 
     # Constantes pour les noms de schémas
@@ -113,9 +111,6 @@ class BlueGreenManager:
     SCHEMA_PREFIX = "splus_"
     VIEW_SCHEMA = "splus"
     OFFLINE_SUFFIX = "_offline"
-
-    # Variable Airflow pour la configuration (lecture seule)
-    ENABLED_VAR_NAME = "amue_bluegreen_enabled"
 
     def __init__(self, view_switcher=None, postgres_hook=None):
         """
@@ -153,16 +148,6 @@ class BlueGreenManager:
             'splus_blue', 'splus_green', ou None si aucune vue n'existe
         """
         return self._vs.get_current_target_schema()
-
-    def is_enabled(self) -> bool:
-        """
-        Vérifie si le mode blue/green est activé.
-
-        Returns:
-            True si amue_bluegreen_enabled est true
-        """
-        enabled = VarMgr.get(self.ENABLED_VAR_NAME, default="false")
-        return str(enabled).lower() == "true"
 
     def get_state(self) -> BlueGreenState:
         """

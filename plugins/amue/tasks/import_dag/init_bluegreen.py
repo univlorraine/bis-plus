@@ -27,15 +27,6 @@ def init_bluegreen() -> Dict:
     """
     manager = BlueGreenManager()
 
-    if not manager.is_enabled():
-        logger.info("[BLUEGREEN] Mode désactivé - import classique")
-        return {
-            "enabled": False,
-            "target_schema": None,
-            "active_schema": None,
-            "needs_sync": False
-        }
-
     target = manager.get_target_schema()
     manager.rename_schema_from_offline(target)
     active = manager.get_active_schema()

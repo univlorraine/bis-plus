@@ -22,9 +22,6 @@
   "amue_polling_max_backoff_minutes": "60",
   "amue_force_import": "false",
 
-  "_comment_bluegreen": "=== BLUE/GREEN ===",
-  "amue_bluegreen_enabled": "false",
-
   "_comment_schedules": "=== PLANIFICATION DES DAGs ===",
   "amue_import_schedule": "0 2 * * *",
   "amue_sync_schedule": "0 6 * * *",

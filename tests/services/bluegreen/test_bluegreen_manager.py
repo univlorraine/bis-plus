@@ -85,40 +85,6 @@ class TestBlueGreenState:
         assert state is not new_state
 
 
-class TestBlueGreenManagerInit:
-    """Tests pour l'initialisation de BlueGreenManager"""
-
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_is_enabled_true(self, mock_varmgr):
-        """Mode activé si variable est 'true'"""
-        mock_varmgr.get.return_value = "true"
-
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-
-        manager = BlueGreenManager()
-        assert manager.is_enabled() is True
-
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_is_enabled_false(self, mock_varmgr):
-        """Mode désactivé si variable est 'false'"""
-        mock_varmgr.get.return_value = "false"
-
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-
-        manager = BlueGreenManager()
-        assert manager.is_enabled() is False
-
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_is_enabled_default(self, mock_varmgr):
-        """Mode désactivé par défaut"""
-        mock_varmgr.get.return_value = "false"
-
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-
-        manager = BlueGreenManager()
-        assert manager.is_enabled() is False
-
-
 class TestBlueGreenManagerState:
     """Tests pour la gestion de l'état"""
 
@@ -148,8 +114,7 @@ class TestBlueGreenManagerState:
 
         assert state.last_import_schema == "green"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_target_schema_blue_active(self, mock_varmgr):
+    def test_get_target_schema_blue_active(self):
         """Schéma cible = green si views pointent vers blue"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -162,8 +127,7 @@ class TestBlueGreenManagerState:
 
         assert target == "splus_green"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_target_schema_green_active(self, mock_varmgr):
+    def test_get_target_schema_green_active(self):
         """Schéma cible = blue si views pointent vers green"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -176,8 +140,7 @@ class TestBlueGreenManagerState:
 
         assert target == "splus_blue"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_target_schema_no_views(self, mock_varmgr):
+    def test_get_target_schema_no_views(self):
         """Schéma cible = blue si aucune vue (premier import)"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -279,8 +242,7 @@ class TestBlueGreenManagerMarkers:
 class TestBlueGreenManagerHelpers:
     """Tests pour les méthodes utilitaires"""
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_active_schema_blue(self, mock_varmgr):
+    def test_get_active_schema_blue(self):
         """Retourne le schéma actif complet quand views pointent vers blue"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -293,8 +255,7 @@ class TestBlueGreenManagerHelpers:
 
         assert result == "splus_blue"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_active_schema_no_views(self, mock_varmgr):
+    def test_get_active_schema_no_views(self):
         """Retourne splus_green si aucune vue (premier import)"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -307,8 +268,7 @@ class TestBlueGreenManagerHelpers:
 
         assert result == "splus_green"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_inactive_schema(self, mock_varmgr):
+    def test_get_inactive_schema(self):
         """Retourne le schéma inactif complet (opposé de l'actif)"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -321,8 +281,7 @@ class TestBlueGreenManagerHelpers:
 
         assert result == "splus_green"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_view_schema(self, mock_varmgr):
+    def test_get_view_schema(self):
         """Retourne le schéma des vues"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
@@ -331,8 +290,7 @@ class TestBlueGreenManagerHelpers:
 
         assert result == "splus"
 
-    @patch('amue.services.bluegreen.bluegreen_manager.VarMgr')
-    def test_get_schema_for_table(self, mock_varmgr):
+    def test_get_schema_for_table(self):
         """Retourne le nom qualifié de la table dans le schéma cible"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
