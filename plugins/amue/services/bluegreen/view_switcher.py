@@ -26,6 +26,7 @@ Le switch est atomique grâce à :
 ================================================================================
 """
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
@@ -35,6 +36,8 @@ from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.database.connection_manager import PostgresConnectionManager
 
 logger = logging.getLogger(__name__)
+
+CUSTOM_VIEWS_DIR = Path(__file__).parents[4] / "scripts" / "sql" / "custom_views"
 
 
 class ViewSwitcher:
@@ -55,14 +58,17 @@ class ViewSwitcher:
 
     VIEW_SCHEMA = "splus"
 
-    def __init__(self, postgres_hook: PostgresHook = None):
+    def __init__(self, postgres_hook: PostgresHook = None, custom_views_dir: Path = CUSTOM_VIEWS_DIR):
         """
         Initialise le ViewSwitcher.
 
         Args:
             postgres_hook: Hook PostgreSQL (créé si non fourni)
+            custom_views_dir: Répertoire contenant les fichiers .sql de vues custom
         """
         self.postgres_hook = postgres_hook or create_postgres_hook(schema='public')
+        logger.info(custom_views_dir)
+        self.custom_views_dir = custom_views_dir
 
     def get_tables_in_schema(self, schema_name: str) -> List[str]:
         """
@@ -164,6 +170,14 @@ class ViewSwitcher:
                     )
                     cursor.execute(create_sql)
                     logger.debug(f"[VIEW_SWITCH] Vue {self.VIEW_SCHEMA}.{table_name} -> {target_schema}.{table_name}")
+
+                # Vues personnalisées (fichiers .sql) dans la même transaction
+                custom_sqls = self._load_custom_view_sqls(target_schema)
+                logger.info(f"[VIEW_SWITCH] {len(custom_sqls)} vue(s) personnalisée(s) appliquée(s)")
+                for custom_sql in custom_sqls:
+                    cursor.execute(custom_sql)
+                if custom_sqls:
+                    logger.info(f"[VIEW_SWITCH] {len(custom_sqls)} vue(s) personnalisée(s) appliquée(s)")
 
                 # Commit atomique de toutes les vues
                 conn_mgr.commit()
@@ -340,6 +354,29 @@ class ViewSwitcher:
         """
         result = self.postgres_hook.get_records(query, parameters=(schema_name, table_name))
         return [row[0] for row in result] if result else []
+
+    def _load_custom_view_sqls(self, target_schema: str) -> List[str]:
+        """
+        Charge les fichiers .sql du répertoire custom_views et substitue le schéma cible.
+
+        Les fichiers sont traités par ordre alphabétique (un préfixe numérique permet
+        de contrôler les dépendances). Le placeholder `{target_schema}` dans chaque
+        fichier est remplacé par le schéma cible (ex: 'splus_green').
+
+        Args:
+            target_schema: Schéma cible à injecter (ex: 'splus_blue' ou 'splus_green')
+
+        Returns:
+            Liste des SQL prêts à être exécutés, dans l'ordre alphabétique des fichiers
+        """
+        sqls = []
+        if not self.custom_views_dir.exists():
+            return sqls
+        for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
+            content = sql_file.read_text(encoding="utf-8")
+            sqls.append(content.replace("{target_schema}", target_schema))
+            logger.info(f"[VIEW_SWITCH] Vue custom chargée: {sql_file.name}")
+        return sqls
 
     def get_current_target_schema(self) -> Optional[str]:
         """

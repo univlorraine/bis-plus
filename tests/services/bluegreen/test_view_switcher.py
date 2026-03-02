@@ -2,6 +2,7 @@
 Tests unitaires pour ViewSwitcher
 """
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 
 
@@ -366,6 +367,123 @@ class TestViewSwitcherCreateView:
         result = switcher.create_view_for_table('csks', 'splus_blue')
 
         assert result is True
+        assert mock_cursor.execute.call_count == 2
+
+
+class TestViewSwitcherCustomViews:
+    """Tests pour le chargement et l'application des vues personnalisées"""
+
+    def test_no_custom_views_dir_is_noop(self):
+        """Si le dossier n'existe pas, _load_custom_view_sqls retourne liste vide"""
+        mock_postgres_hook = MagicMock()
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(
+            postgres_hook=mock_postgres_hook,
+            custom_views_dir=Path("/nonexistent/path/custom_views")
+        )
+        result = switcher._load_custom_view_sqls("splus_green")
+
+        assert result == []
+
+    def test_schema_placeholder_substituted(self, tmp_path):
+        """Le placeholder {target_schema} est remplacé par le schéma cible"""
+        sql_file = tmp_path / "01_test.sql"
+        sql_file.write_text(
+            "DROP VIEW IF EXISTS splus.v_test;\n"
+            "CREATE VIEW splus.v_test AS SELECT id FROM {target_schema}.csks;",
+            encoding="utf-8"
+        )
+
+        mock_postgres_hook = MagicMock()
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(postgres_hook=mock_postgres_hook, custom_views_dir=tmp_path)
+        sqls = switcher._load_custom_view_sqls("splus_green")
+
+        assert len(sqls) == 1
+        assert "{target_schema}" not in sqls[0]
+        assert "splus_green" in sqls[0]
+        assert "splus_blue" not in sqls[0]
+
+    def test_custom_views_sorted_alphabetically(self, tmp_path):
+        """Les fichiers sont exécutés dans l'ordre alphabétique"""
+        (tmp_path / "02_b.sql").write_text("SELECT 2 FROM {target_schema}.t;", encoding="utf-8")
+        (tmp_path / "01_a.sql").write_text("SELECT 1 FROM {target_schema}.t;", encoding="utf-8")
+        (tmp_path / "03_c.sql").write_text("SELECT 3 FROM {target_schema}.t;", encoding="utf-8")
+
+        mock_postgres_hook = MagicMock()
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(postgres_hook=mock_postgres_hook, custom_views_dir=tmp_path)
+        sqls = switcher._load_custom_view_sqls("splus_blue")
+
+        assert len(sqls) == 3
+        assert "SELECT 1" in sqls[0]
+        assert "SELECT 2" in sqls[1]
+        assert "SELECT 3" in sqls[2]
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_custom_views_applied_in_same_transaction(self, mock_create_hook, tmp_path):
+        """Les vues custom sont exécutées dans le même cursor que les vues standard"""
+        sql_file = tmp_path / "01_custom.sql"
+        sql_file.write_text(
+            "DROP VIEW IF EXISTS splus.custom_v;\n"
+            "CREATE VIEW splus.custom_v AS SELECT id FROM {target_schema}.csks;",
+            encoding="utf-8"
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_conn.return_value = mock_conn
+        # 1er appel: tables; 2e: colonnes de csks
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',)],
+            [('bukrs',), ('kostl',)],
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(custom_views_dir=tmp_path)
+        result = switcher.switch_views_to_schema('splus_green')
+
+        assert result is True
+        # 2 appels pour csks (DROP + CREATE) + 1 appel pour la vue custom = 3
+        assert mock_cursor.execute.call_count == 3
+        # Un seul commit (transaction atomique)
+        mock_conn.commit.assert_called_once()
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_custom_views_dir_empty_no_extra_calls(self, mock_create_hook, tmp_path):
+        """Un dossier custom_views vide ne génère pas d'appels cursor supplémentaires"""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_conn.return_value = mock_conn
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',)],
+            [('bukrs',)],
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(custom_views_dir=tmp_path)  # dossier vide
+        result = switcher.switch_views_to_schema('splus_green')
+
+        assert result is True
+        # Exactement 2 appels (DROP + CREATE pour csks), rien de plus
         assert mock_cursor.execute.call_count == 2
 
 
