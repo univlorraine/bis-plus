@@ -272,7 +272,7 @@ class BlueGreenManager:
         """
         return self.acquire_import_lock(correlation_id)
 
-    def mark_import_completed(self) -> bool:
+    def mark_import_completed(self, target_schema: str = None) -> bool:
         """
         Marque la fin d'un import (avant switch).
 
@@ -281,11 +281,17 @@ class BlueGreenManager:
             - import_started_at = ""
             - last_import_schema = schéma cible
 
+        Args:
+            target_schema: Schéma dans lequel l'import a eu lieu. Si None,
+                           lu depuis les vues (à appeler avant le switch uniquement).
+
         Returns:
             True si mise à jour réussie
         """
-        target_schema = self.get_target_schema()
-        success = self.release_import_lock(mark_completed=True)
+        if target_schema is None:
+            target_schema = self.get_target_schema()
+        active_schema_short = target_schema.replace(self.SCHEMA_PREFIX, "")
+        success = self._release_lock_with_schema(active_schema_short)
         if success:
             logger.info(f"[BLUEGREEN] Import terminé dans {target_schema}")
         return success
@@ -443,23 +449,34 @@ class BlueGreenManager:
         Returns:
             True si le verrou a été libéré
         """
-        from amue.services.admin_state_manager import AdminStateManager
-
         state = self.get_state()
 
         if not state.import_in_progress:
             logger.warning("[BLUEGREEN] Tentative de libération d'un verrou inexistant")
             return True  # Pas d'erreur, le verrou est déjà libéré
 
-        old_started_at = state.import_started_at
-        old_correlation_id = state.import_correlation_id
-
-        # À ce stade les vues pointent encore vers l'ancien actif
-        # → get_target_schema() retourne le schéma qui vient d'être importé
+        # NOTE: appelé avant le switch (depuis callbacks.py ou rollback)
+        # Les vues pointent encore vers l'ancien actif → get_target_schema() retourne le bon schéma
         active_schema = ""
         if mark_completed:
             active_schema = self.get_target_schema().replace(self.SCHEMA_PREFIX, "")
 
+        return self._release_lock_with_schema(active_schema)
+
+    def _release_lock_with_schema(self, active_schema: str) -> bool:
+        """
+        Libère le verrou d'import avec le schéma actif fourni explicitement.
+
+        Args:
+            active_schema: Schéma court (ex: 'green') à enregistrer comme dernier importé
+
+        Returns:
+            True si le verrou a été libéré
+        """
+        from amue.services.admin_state_manager import AdminStateManager
+        state = self.get_state()
+        old_started_at = state.import_started_at
+        old_correlation_id = state.import_correlation_id
         success = AdminStateManager().release_import_lock(active_schema)
         if success:
             self._state = None  # Invalide le cache

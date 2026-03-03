@@ -196,4 +196,4 @@ class NotificationService:
         date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
         tables_count = len(context.get('tables_imported', []))
         total_rows = context.get('total_rows', 0)
-        return f"[SUCCES] Import AMUE - {tables_count} table(s) - {total_rows:,} lignes - {date_str}"
+        return f"[SUCCES] Import AMUE - {tables_count} table(s) - {total_rows:,} nouvelles lignes - {date_str}"

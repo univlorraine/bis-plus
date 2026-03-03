@@ -5,6 +5,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 
+# Répertoire inexistant pour isoler les tests des vues custom réelles
+_NO_CUSTOM_VIEWS = Path("/nonexistent/custom_views")
+
 
 class TestViewSwitcherInit:
     """Tests pour l'initialisation de ViewSwitcher"""
@@ -100,17 +103,17 @@ class TestViewSwitcherSwitch:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
-        # 1er appel: tables; 2e et 3e: colonnes de csks et prps (sans _source/_imported_at)
+        # 1er appel: tables; 2e: toutes les colonnes en batch (table_name, column_name)
         mock_postgres_hook.get_records.side_effect = [
             [('csks',), ('prps',)],
-            [('bukrs',), ('kostl',), ('datbi',)],
-            [('kokrs',), ('belnr',)],
+            [('csks', 'bukrs'), ('csks', 'kostl'), ('csks', 'datbi'),
+             ('prps', 'kokrs'), ('prps', 'belnr')],
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
 
-        switcher = ViewSwitcher()
+        switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         result = switcher.switch_views_to_schema('splus_green')
 
         assert result is True
@@ -146,18 +149,58 @@ class TestViewSwitcherSwitch:
         mock_postgres_hook.get_conn.return_value = mock_conn
         mock_postgres_hook.get_records.side_effect = [
             [('csks',)],
-            [('bukrs',), ('kostl',)],
+            [('csks', 'bukrs'), ('csks', 'kostl')],
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
 
-        switcher = ViewSwitcher()
+        switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         result = switcher.switch_views_to_schema('splus_green')
 
         assert result is False
         mock_conn.rollback.assert_called_once()
         mock_cursor.close.assert_called_once()
+
+    def test_switch_views_invalid_schema(self):
+        """Lève ValueError si le schéma cible n'est pas splus_blue ou splus_green"""
+        mock_postgres_hook = MagicMock()
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(postgres_hook=mock_postgres_hook)
+
+        with pytest.raises(ValueError, match="Schéma invalide"):
+            switcher.switch_views_to_schema('splus_evil')
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_switch_views_single_columns_query(self, mock_create_hook):
+        """Une seule requête batch pour toutes les colonnes (pas N+1)"""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_conn.return_value = mock_conn
+        mock_postgres_hook.get_records.side_effect = [
+            [('csks',), ('prps',), ('fmbl',)],       # 1er appel : tables
+            [                                          # 2e appel : toutes les colonnes
+                ('csks', 'bukrs'), ('csks', 'kostl'),
+                ('prps', 'posid'),
+                ('fmbl', 'bukrs'), ('fmbl', 'gjahr'),
+            ],
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
+        result = switcher.switch_views_to_schema('splus_blue')
+
+        assert result is True
+        # Exactement 2 appels get_records : 1 tables + 1 batch colonnes
+        assert mock_postgres_hook.get_records.call_count == 2
 
 
 class TestViewSwitcherDropCreate:
@@ -175,13 +218,13 @@ class TestViewSwitcherDropCreate:
         mock_postgres_hook.get_conn.return_value = mock_conn
         mock_postgres_hook.get_records.side_effect = [
             [('csks',)],
-            [('bukrs',), ('kostl',)],
+            [('csks', 'bukrs'), ('csks', 'kostl')],
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.services.bluegreen.view_switcher import ViewSwitcher
 
-        switcher = ViewSwitcher()
+        switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         switcher.switch_views_to_schema('splus_green')
 
         # 2 appels pour 1 table : DROP puis CREATE
@@ -228,6 +271,29 @@ class TestViewSwitcherGetViewColumns:
 
         assert cols == ['bukrs', 'kostl', 'datbi']
         # Vérifie que la requête exclut bien les colonnes techniques
+        call_args = mock_postgres_hook.get_records.call_args
+        query = call_args[0][0]
+        assert '_source' in query
+        assert '_imported_at' in query
+
+    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    def test_get_all_view_columns_returns_dict(self, mock_create_hook):
+        """_get_all_view_columns retourne un dict keyed par table_name"""
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_records.return_value = [
+            ('csks', 'bukrs'),
+            ('csks', 'kostl'),
+            ('prps', 'posid'),
+        ]
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.view_switcher import ViewSwitcher
+
+        switcher = ViewSwitcher()
+        result = switcher._get_all_view_columns(['csks', 'prps'], 'splus_blue')
+
+        assert result == {'csks': ['bukrs', 'kostl'], 'prps': ['posid']}
+        # Vérifie que la requête exclut les colonnes techniques
         call_args = mock_postgres_hook.get_records.call_args
         query = call_args[0][0]
         assert '_source' in query
@@ -443,10 +509,10 @@ class TestViewSwitcherCustomViews:
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_conn.return_value = mock_conn
-        # 1er appel: tables; 2e: colonnes de csks
+        # 1er appel: tables; 2e: colonnes en batch
         mock_postgres_hook.get_records.side_effect = [
             [('csks',)],
-            [('bukrs',), ('kostl',)],
+            [('csks', 'bukrs'), ('csks', 'kostl')],
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
@@ -473,7 +539,7 @@ class TestViewSwitcherCustomViews:
         mock_postgres_hook.get_conn.return_value = mock_conn
         mock_postgres_hook.get_records.side_effect = [
             [('csks',)],
-            [('bukrs',)],
+            [('csks', 'bukrs')],
         ]
         mock_create_hook.return_value = mock_postgres_hook
 

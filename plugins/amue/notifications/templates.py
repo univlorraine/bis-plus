@@ -274,6 +274,7 @@ class NotificationTemplates:
         tables_imported = context.get('tables_imported', [])
         total_rows = context.get('total_rows', 0)
         total_fetched = context.get('total_fetched', total_rows)
+        total_updated = context.get('total_updated', 0)
 
         # Rendu de la liste des tables
         tables_html = cls._render_tables_list(tables_imported)
@@ -302,6 +303,9 @@ class NotificationTemplates:
 
                 <div class="info-label">Lignes DB:</div>
                 <div class="info-value"><strong>{total_rows:,}</strong> ligne(s) inseree(s)</div>
+
+                <div class="info-label">Mises a jour:</div>
+                <div class="info-value"><strong>{total_updated:,}</strong> ligne(s) mise(s) a jour</div>
 
                 <div class="info-label">Statut:</div>
                 <div class="info-value">

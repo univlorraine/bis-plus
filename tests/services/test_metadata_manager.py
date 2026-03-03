@@ -217,9 +217,8 @@ class TestMetadataManagerUpdateTable:
         manager = AMUEMetadataManager()
         manager._report_start = '2024-01-15T10:08:19+00:00'
 
-        tables_config = [
-            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': ''}
-        ]
+        table = {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': ''}
+        tables_index = {'CSKS': table}
 
         result = {
             'table_name': 'CSKS',
@@ -228,15 +227,15 @@ class TestMetadataManagerUpdateTable:
             'primary_keys': 'id'
         }
 
-        updated = manager._update_table_metadata(tables_config, result)
+        updated = manager._update_table_metadata(tables_index, result)
 
         assert updated is True
-        assert tables_config[0]['fingerprint_API'] == 'new_api'
-        assert tables_config[0]['fingerprint_UL'] == 'new_ul'
-        assert 'finger_print' not in tables_config[0]
-        assert tables_config[0]['primary_key'] == 'id'
+        assert table['fingerprint_API'] == 'new_api'
+        assert table['fingerprint_UL'] == 'new_ul'
+        assert 'finger_print' not in table
+        assert table['primary_key'] == 'id'
         # last_import n'est plus stocké par table
-        assert 'last_import' not in tables_config[0]
+        assert 'last_import' not in table
 
     def test_update_table_no_last_import_stored(self):
         """last_import n'est plus stocké par table — le timestamp global est dans amue_state"""
@@ -245,9 +244,8 @@ class TestMetadataManagerUpdateTable:
         manager = AMUEMetadataManager()
         manager._report_start = '2026-02-17T10:08:19+00:00'
 
-        tables_config = [
-            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
-        ]
+        table = {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul', 'primary_key': 'id'}
+        tables_index = {'CSKS': table}
 
         result = {
             'table_name': 'CSKS',
@@ -255,9 +253,9 @@ class TestMetadataManagerUpdateTable:
             'fingerprint_UL': 'new_ul'
         }
 
-        manager._update_table_metadata(tables_config, result)
+        manager._update_table_metadata(tables_index, result)
 
-        assert 'last_import' not in tables_config[0]
+        assert 'last_import' not in table
 
     def test_update_table_not_found(self):
         """Table non trouvée retourne False"""
@@ -265,9 +263,7 @@ class TestMetadataManagerUpdateTable:
 
         manager = AMUEMetadataManager()
 
-        tables_config = [
-            {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul'}
-        ]
+        tables_index = {'CSKS': {'name': 'CSKS', 'fingerprint_API': 'old_api', 'fingerprint_UL': 'old_ul'}}
 
         result = {
             'table_name': 'UNKNOWN',
@@ -275,7 +271,7 @@ class TestMetadataManagerUpdateTable:
             'fingerprint_UL': 'new_ul'
         }
 
-        updated = manager._update_table_metadata(tables_config, result)
+        updated = manager._update_table_metadata(tables_index, result)
 
         assert updated is False
 

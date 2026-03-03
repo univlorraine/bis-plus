@@ -1220,3 +1220,35 @@ class TestVerifyStructureErrorMessages:
 
         assert result['status'] == 'error'
         assert '[ConnectionError]' in result['error']
+
+
+class TestTableVerifierVerifyStructureException:
+    """Tests pour la gestion d'exceptions dans verify_structure"""
+
+    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.VarMgr')
+    def test_verify_structure_exception_returns_error_dict(self, mock_varmgr, mock_create_hook):
+        """Exception dans _fetch_structure → retourne dict {status: 'error'} sans lever AttributeError"""
+        mock_varmgr.get.side_effect = lambda key, default=None: {
+            'universite': 'ul',
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+            'environment': 'dev'
+        }.get(key, default)
+
+        from amue.operators.table_management.table_verifier import AMUETableVerifier
+
+        mock_api_hook = MagicMock()
+        verifier = AMUETableVerifier(mock_api_hook)
+
+        table_info = {
+            'name': 'CSKS',
+            'primary_key': 'ID',
+            'fingerprint_API': '',
+            'fingerprint_UL': ''
+        }
+
+        with patch.object(verifier, '_fetch_structure', side_effect=RuntimeError("test error")):
+            result = verifier.verify_structure(table_info)
+
+        assert result['status'] == 'error'
+        assert 'test error' in result['error']

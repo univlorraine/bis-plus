@@ -27,7 +27,7 @@ Le switch est atomique grâce à :
 """
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import sql
@@ -38,6 +38,7 @@ from amue.utils.database.connection_manager import PostgresConnectionManager
 logger = logging.getLogger(__name__)
 
 CUSTOM_VIEWS_DIR = Path(__file__).parents[4] / "scripts" / "sql" / "custom_views"
+VALID_TARGET_SCHEMAS = {"splus_blue", "splus_green"}
 
 
 class ViewSwitcher:
@@ -67,7 +68,7 @@ class ViewSwitcher:
             custom_views_dir: Répertoire contenant les fichiers .sql de vues custom
         """
         self.postgres_hook = postgres_hook or create_postgres_hook(schema='public')
-        logger.info(custom_views_dir)
+        logger.debug(f"[VIEW_SWITCH] custom_views_dir: {custom_views_dir}")
         self.custom_views_dir = custom_views_dir
 
     def get_tables_in_schema(self, schema_name: str) -> List[str]:
@@ -121,14 +122,19 @@ class ViewSwitcher:
         soit aucune en cas d'erreur.
 
         Args:
-            target_schema: Schéma cible (ex: 'splus_blue' ou 'splus_green')
+            target_schema: Schéma cible ('splus_blue' ou 'splus_green')
 
         Returns:
             True si le switch a réussi, False sinon
 
         Raises:
-            Exception: En cas d'erreur SQL (rollback automatique)
+            ValueError: Si target_schema n'est pas un schéma valide
         """
+        if target_schema not in VALID_TARGET_SCHEMAS:
+            raise ValueError(
+                f"Schéma invalide: {target_schema!r}. Attendu: {VALID_TARGET_SCHEMAS}"
+            )
+
         logger.info(f"[VIEW_SWITCH] Switch des vues vers {target_schema}")
 
         # Récupère la liste des tables dans le schéma cible
@@ -137,6 +143,9 @@ class ViewSwitcher:
         if not tables:
             logger.warning(f"[VIEW_SWITCH] Aucune table dans {target_schema}, abandon")
             return False
+
+        # Récupère toutes les colonnes en une seule requête (évite le N+1)
+        columns_dict = self._get_all_view_columns(tables, target_schema)
 
         with PostgresConnectionManager(self.postgres_hook) as conn_mgr:
             conn = conn_mgr.get_connection()
@@ -153,29 +162,18 @@ class ViewSwitcher:
                     )
                     cursor.execute(drop_sql)
 
-                    columns = self._get_view_columns(table_name, target_schema)
+                    columns = columns_dict.get(table_name, [])
                     if not columns:
                         logger.warning(f"[VIEW_SWITCH] Aucune colonne pour {table_name}, fallback SELECT *")
-                        col_sql = sql.SQL("*")
-                    else:
-                        col_sql = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
 
-                    create_sql = sql.SQL(
-                        "CREATE VIEW {view_schema}.{table} AS SELECT {columns} FROM {target_schema}.{table}"
-                    ).format(
-                        view_schema=sql.Identifier(self.VIEW_SCHEMA),
-                        table=sql.Identifier(table_name),
-                        columns=col_sql,
-                        target_schema=sql.Identifier(target_schema)
-                    )
+                    create_sql = self._build_view_sql(table_name, target_schema, columns)
                     cursor.execute(create_sql)
                     logger.debug(f"[VIEW_SWITCH] Vue {self.VIEW_SCHEMA}.{table_name} -> {target_schema}.{table_name}")
 
                 # Vues personnalisées (fichiers .sql) dans la même transaction
                 custom_sqls = self._load_custom_view_sqls(target_schema)
-                logger.info(f"[VIEW_SWITCH] {len(custom_sqls)} vue(s) personnalisée(s) appliquée(s)")
-                for custom_sql in custom_sqls:
-                    cursor.execute(custom_sql)
+                for custom_sql_str in custom_sqls:
+                    cursor.execute(custom_sql_str)
                 if custom_sqls:
                     logger.info(f"[VIEW_SWITCH] {len(custom_sqls)} vue(s) personnalisée(s) appliquée(s)")
 
@@ -261,21 +259,11 @@ class ViewSwitcher:
                 )
                 cursor.execute(drop_sql)
 
-                columns = self._get_view_columns(table_name, source_schema)
+                columns = self._get_view_columns(table_name.lower(), source_schema)
                 if not columns:
                     logger.warning(f"[VIEW_SWITCH] Aucune colonne pour {table_name}, fallback SELECT *")
-                    col_sql = sql.SQL("*")
-                else:
-                    col_sql = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
 
-                create_sql = sql.SQL(
-                    "CREATE VIEW {view_schema}.{table} AS SELECT {columns} FROM {source_schema}.{table}"
-                ).format(
-                    view_schema=sql.Identifier(self.VIEW_SCHEMA),
-                    table=sql.Identifier(table_name.lower()),
-                    columns=col_sql,
-                    source_schema=sql.Identifier(source_schema)
-                )
+                create_sql = self._build_view_sql(table_name.lower(), source_schema, columns)
                 cursor.execute(create_sql)
 
                 if commit:
@@ -355,6 +343,61 @@ class ViewSwitcher:
         result = self.postgres_hook.get_records(query, parameters=(schema_name, table_name))
         return [row[0] for row in result] if result else []
 
+    def _get_all_view_columns(self, table_names: List[str], schema_name: str) -> Dict[str, List[str]]:
+        """
+        Retourne les colonnes à exposer dans la vue pour chaque table, en une seule requête.
+
+        Variante batch de _get_view_columns : une seule requête SQL pour N tables
+        au lieu de N requêtes. Exclut les colonnes techniques '_source' et '_imported_at'.
+
+        Args:
+            table_names: Liste des noms de tables
+            schema_name: Schéma où chercher les colonnes
+
+        Returns:
+            Dict {table_name: [colonnes]} (ordre d'ordinal_position préservé)
+        """
+        if not table_names:
+            return {}
+        query = """
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = ANY(%s)
+              AND column_name NOT IN ('_source', '_imported_at')
+            ORDER BY table_name, ordinal_position
+        """
+        result = self.postgres_hook.get_records(query, parameters=(schema_name, list(table_names)))
+        columns_dict: Dict[str, List[str]] = {}
+        for tname, col_name in (result or []):
+            columns_dict.setdefault(tname, []).append(col_name)
+        return columns_dict
+
+    def _build_view_sql(self, table_name: str, target_schema: str, columns: List[str]):
+        """
+        Construit le SQL CREATE VIEW pour une table.
+
+        Args:
+            table_name: Nom de la table (et de la vue résultante)
+            target_schema: Schéma source des données
+            columns: Colonnes à exposer (SELECT * si vide)
+
+        Returns:
+            Objet sql.Composed prêt à être exécuté
+        """
+        if not columns:
+            col_sql = sql.SQL("*")
+        else:
+            col_sql = sql.SQL(", ").join(sql.Identifier(col) for col in columns)
+        return sql.SQL(
+            "CREATE VIEW {view_schema}.{table} AS SELECT {columns} FROM {target_schema}.{table}"
+        ).format(
+            view_schema=sql.Identifier(self.VIEW_SCHEMA),
+            table=sql.Identifier(table_name),
+            columns=col_sql,
+            target_schema=sql.Identifier(target_schema)
+        )
+
     def _load_custom_view_sqls(self, target_schema: str) -> List[str]:
         """
         Charge les fichiers .sql du répertoire custom_views et substitue le schéma cible.
@@ -391,6 +434,8 @@ class ViewSwitcher:
             SELECT view_definition
             FROM information_schema.views
             WHERE table_schema = %s
+              AND (view_definition LIKE '%%splus_blue%%' OR view_definition LIKE '%%splus_green%%')
+            ORDER BY table_name
             LIMIT 1
         """
         result = self.postgres_hook.get_first(query, parameters=(self.VIEW_SCHEMA,))

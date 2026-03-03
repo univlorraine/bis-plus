@@ -343,3 +343,26 @@ class TestSchemaSynchronizerCompare:
 
         assert result['identical'] is False
         assert len(result['differences']) == 1
+
+    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    def test_get_row_count_uses_identifier(self, mock_create_hook, mock_bg_manager):
+        """_get_row_count passe un objet sql.Composed à get_first (pas une f-string)"""
+        from psycopg2 import sql as pgsql
+
+        mock_postgres_hook = MagicMock()
+        mock_postgres_hook.get_first.return_value = (42,)
+        mock_create_hook.return_value = mock_postgres_hook
+
+        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+
+        sync = SchemaSynchronizer()
+        count = sync._get_row_count('csks', 'splus_blue')
+
+        assert count == 42
+        call_args = mock_postgres_hook.get_first.call_args
+        query_arg = call_args[0][0]
+        # La requête doit être un objet sql.Composed, pas une chaîne
+        assert isinstance(query_arg, pgsql.Composed), (
+            f"Attendu sql.Composed, obtenu {type(query_arg).__name__!r}"
+        )

@@ -33,4 +33,7 @@ def verify_table(table_info: Dict) -> Dict:
     result = verifier.verify_table(table_info)
     # Propage le schéma cible dans le résultat
     result["target_schema"] = target_schema
+    # Retire type_original (non utilisé en aval) pour réduire la payload XCom
+    for col in result.get("columns", []):
+        col.pop("type_original", None)
     return result

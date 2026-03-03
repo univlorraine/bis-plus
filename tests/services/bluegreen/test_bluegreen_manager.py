@@ -200,6 +200,43 @@ class TestBlueGreenManagerMarkers:
         assert state.last_import_schema == "green"
 
     @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_mark_import_completed_with_explicit_target(self, mock_admin_cls):
+        """target_schema explicite → correct active_schema passé à release_lock, sans lire les vues"""
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_bluegreen_state.return_value = BlueGreenState(import_in_progress=True)
+        mock_admin.release_import_lock.return_value = True
+
+        manager = BlueGreenManager()
+        result = manager.mark_import_completed(target_schema='splus_green')
+
+        assert result is True
+        mock_admin.release_import_lock.assert_called_once_with('green')
+        # ViewSwitcher n'a jamais été instancié (pas de lecture de vues)
+        assert manager._view_switcher is None
+
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_mark_import_completed_without_target_reads_views(self, mock_admin_cls):
+        """Sans target_schema → fallback sur get_target_schema() (lecture des vues)"""
+        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_bluegreen_state.return_value = BlueGreenState(import_in_progress=True)
+        mock_admin.release_import_lock.return_value = True
+
+        manager = BlueGreenManager()
+        mock_vs = MagicMock()
+        mock_vs.get_current_target_schema.return_value = 'splus_blue'  # views → blue → target = green
+        manager._view_switcher = mock_vs
+
+        result = manager.mark_import_completed()
+
+        assert result is True
+        mock_vs.get_current_target_schema.assert_called()
+        mock_admin.release_import_lock.assert_called_once_with('green')
+
+    @patch('amue.services.admin_state_manager.AdminStateManager')
     def test_mark_switch_completed(self, mock_admin_cls):
         """Marque la fin du switch"""
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState

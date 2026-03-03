@@ -340,7 +340,7 @@ class AMUEDataImporter:
         import_config: Dict[str, Any],
         use_upsert: bool,
         correlation_id: str = ""
-    ) -> Tuple[int, int, List[Dict]]:
+    ) -> Tuple[int, int, int, List[Dict]]:
         """
         Orchestre le streaming des donnees et leur insertion par batch.
 

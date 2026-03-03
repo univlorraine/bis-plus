@@ -72,6 +72,7 @@ from airflow.sdk import dag
 
 from amue import send_failure_notification
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.utils.config.settings import Defaults
 from amue.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (
     init_bluegreen,
@@ -91,7 +92,13 @@ from amue.tasks.import_dag import (
 # ==============================================================================
 
 # Schedule configurable via variable Airflow
-_import_schedule = VarMgr.get('amue_import_schedule', default='0 2 * * *')
+_import_schedule = VarMgr.get('amue_import_schedule', default='0 3 * * *')
+
+# Sensor configurable via variables Airflow
+_sensor_poke_interval = int(VarMgr.get('amue_polling_interval_minutes',
+                                        Defaults.POLLING_INTERVAL_MINUTES)) * 60
+_sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
+                                  Defaults.POLLING_MAX_WAIT_HOURS)) * 3600
 
 
 @dag(
@@ -116,7 +123,6 @@ _import_schedule = VarMgr.get('amue_import_schedule', default='0 2 * * *')
         'owner': 'airflow',
         'retries': 0,               # Pas de retry automatique (géré dans le code)
         'retry_delay': timedelta(minutes=5),
-        'on_failure_callback': send_failure_notification,
     }
 )
 def amue_multi_table_import():
@@ -155,8 +161,8 @@ def amue_multi_table_import():
     # Phase 1 : Sensor polling (mode reschedule - libère le worker)
     wait_sensor = AMUEAPISensor(
         task_id='wait_for_api',
-        poke_interval=600,   # 10 minutes
-        timeout=21600,       # 6 heures
+        poke_interval=_sensor_poke_interval,
+        timeout=_sensor_timeout,
     )
     bluegreen_ctx >> wait_sensor
 

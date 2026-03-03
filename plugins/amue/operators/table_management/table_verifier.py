@@ -262,7 +262,7 @@ class AMUETableVerifier:
             }
 
         except Exception as e:
-            error_msg = f"Erreur vérification structure {table_name} [{type(e).__name__}]: {e.with_traceback(sys.exception().__traceback__)}"
+            error_msg = f"Erreur vérification structure {table_name} [{type(e).__name__}]: {e}"
             logger.error(f"[ERROR] {error_msg}")
             return _error_result(table_name, error_msg, [], '', '', '', False, False)
 

@@ -41,7 +41,8 @@ def init_bluegreen() -> Dict:
     try:
         context = get_current_context()
         run_id = context["dag_run"].run_id if context.get("dag_run") else "unknown"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[BLUEGREEN] run_id non disponible dans le contexte: {e}")
         run_id = "unknown"
 
     # Marque le début de l'import avec correlation_id

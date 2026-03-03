@@ -369,7 +369,8 @@ class SchemaSynchronizer:
 
     def _get_row_count(self, table_name: str, schema_name: str) -> int:
         """Compte les lignes d'une table"""
-        # Utilise une requête simple sans psycopg2.sql pour éviter les problèmes de contexte
-        query = f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"'
+        query = sql.SQL("SELECT COUNT(*) FROM {}.{}").format(
+            sql.Identifier(schema_name), sql.Identifier(table_name)
+        )
         result = self.postgres_hook.get_first(query)
         return result[0] if result else 0

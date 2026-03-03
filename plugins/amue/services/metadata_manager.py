@@ -58,7 +58,6 @@ Pourquoi ? Si les métadonnées ne sont pas sauvegardées :
 ================================================================================
 """
 import logging
-import pprint
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -137,14 +136,19 @@ class AMUEMetadataManager:
             try:
                 # Charge la configuration actuelle
                 tables_config = self._load_tables_config()
+                tables_index = {
+                    t.get('name', '').upper(): t
+                    for t in tables_config
+                    if isinstance(t, dict)
+                }
 
                 # Met à jour chaque table
                 updated_count = 0
                 for result in import_results:
-                    pprint.pp(result)
+                    logger.debug("[METADATA] Traitement: %s", result)
 
                     if self._should_update_metadata(result):
-                        if self._update_table_metadata(tables_config, result):
+                        if self._update_table_metadata(tables_index, result):
                             updated_count += 1
 
                 # Sauvegarde la configuration
@@ -207,12 +211,12 @@ class AMUEMetadataManager:
         from amue.services.table_config_manager import TableConfigManager
         return TableConfigManager().get_tables_config()
 
-    def _update_table_metadata(self, tables_config: List[Dict], result: Dict) -> bool:
+    def _update_table_metadata(self, tables_index: Dict[str, Dict], result: Dict) -> bool:
         """
         Met à jour les métadonnées d'une table spécifique
 
         Args:
-            tables_config: Configuration complète des tables
+            tables_index: Index {NOM_UPPER: table_dict} pré-calculé depuis la configuration
             result: Résultat d'import pour cette table
 
         Returns:
@@ -220,38 +224,32 @@ class AMUEMetadataManager:
         """
         table_name = result['table_name'].upper()
 
-        # Recherche la table dans la configuration
-        for table in tables_config:
-            if not isinstance(table, dict):
-                continue
+        table = tables_index.get(table_name)
+        if table is None:
+            logger.warning(f"Table {table_name} non trouvée dans la configuration")
+            return False
 
-            config_name = table.get('name', '').upper()
+        # Mise à jour des métadonnées
+        old_fp_api = table.get('fingerprint_API', 'none')
+        old_fp_ul = table.get('fingerprint_UL', 'none')
+        new_fp_api = result.get('fingerprint_API', '')
+        new_fp_ul = result.get('fingerprint_UL', '')
 
-            if config_name == table_name:
-                # Mise à jour des métadonnées
-                old_fp_api = table.get('fingerprint_API', 'none')
-                old_fp_ul = table.get('fingerprint_UL', 'none')
-                new_fp_api = result.get('fingerprint_API', '')
-                new_fp_ul = result.get('fingerprint_UL', '')
+        table['fingerprint_API'] = new_fp_api
+        table['fingerprint_UL'] = new_fp_ul
+        # Supprimer l'ancien champ s'il existe
+        table.pop('finger_print', None)
 
-                table['fingerprint_API'] = new_fp_api
-                table['fingerprint_UL'] = new_fp_ul
-                # Supprimer l'ancien champ s'il existe
-                table.pop('finger_print', None)
+        # Mise à jour des clés primaires uniquement si pas déjà définies
+        if result.get('primary_keys') and not table.get('primary_key'):
+            table['primary_key'] = result['primary_keys']
+            logger.info(f"{table_name}: Clés primaires initialisées: {result['primary_keys']}")
 
-                # Mise à jour des clés primaires uniquement si pas déjà définies
-                if result.get('primary_keys') and not table.get('primary_key'):
-                    table['primary_key'] = result['primary_keys']
-                    logger.info(f"{table_name}: Clés primaires initialisées: {result['primary_keys']}")
+        logger.info(f"{table_name}:")
+        logger.info(f"  - fingerprint_API: {old_fp_api[:8] if old_fp_api else 'none'}... -> {new_fp_api[:8] if new_fp_api else 'none'}...")
+        logger.info(f"  - fingerprint_UL: {old_fp_ul[:8] if old_fp_ul else 'none'}... -> {new_fp_ul[:8] if new_fp_ul else 'none'}...")
 
-                logger.info(f"{table_name}:")
-                logger.info(f"  - fingerprint_API: {old_fp_api[:8] if old_fp_api else 'none'}... -> {new_fp_api[:8] if new_fp_api else 'none'}...")
-                logger.info(f"  - fingerprint_UL: {old_fp_ul[:8] if old_fp_ul else 'none'}... -> {new_fp_ul[:8] if new_fp_ul else 'none'}...")
-
-                return True
-
-        logger.warning(f"Table {table_name} non trouvée dans la configuration")
-        return False
+        return True
 
     def _save_tables_config(self, tables_config: List[Dict]) -> None:
         """

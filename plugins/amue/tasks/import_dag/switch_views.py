@@ -33,7 +33,8 @@ def switch_views(metadata_result: Dict) -> Dict:
 
     manager = BlueGreenManager()
     switcher = ViewSwitcher()
-    old_active = manager.get_active_schema()
+    # L'ancien actif est l'opposé du schéma cible — déterministe, sans lecture de vues
+    old_active = 'splus_blue' if target_schema == 'splus_green' else 'splus_green'
     success = switcher.switch_views_to_schema(target_schema)
 
     if success:
@@ -48,7 +49,7 @@ def switch_views(metadata_result: Dict) -> Dict:
                 "error": "Post-switch verification failed"
             }
 
-        manager.mark_import_completed()
+        manager.mark_import_completed(target_schema=target_schema)
         manager.mark_switch_completed()
         manager.rename_schema_to_offline(old_active)
         logger.info(f"[SWITCH] Vues basculées et vérifiées vers {target_schema}")

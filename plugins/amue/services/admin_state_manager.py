@@ -282,14 +282,17 @@ class AdminStateManager:
         """
         Libère le verrou d'import et enregistre le schéma importé.
 
+        N'effectue l'UPDATE que si le verrou est effectivement tenu
+        (import_in_progress = TRUE). Retourne False si le verrou n'était pas tenu.
+
         Args:
             active_schema: Nom court du schéma qui vient d'être importé (ex: 'blue')
 
         Returns:
-            True si succès
+            True si le verrou a été libéré, False si non tenu ou erreur
         """
         try:
-            self._hook.run(
+            result = self._hook.get_first(
                 f"""
                 UPDATE {_TABLE}
                 SET import_in_progress    = FALSE,
@@ -297,10 +300,14 @@ class AdminStateManager:
                     import_started_at     = NULL,
                     import_correlation_id = NULL,
                     updated_at            = NOW()
-                WHERE id = %s
+                WHERE id = %s AND import_in_progress = TRUE
+                RETURNING id
                 """,
                 parameters=(active_schema or None, _ROW_ID)
             )
+            if result is None:
+                logger.warning("[ADMIN_STATE] release_import_lock: verrou non tenu, aucune ligne mise à jour")
+                return False
             logger.info(f"[ADMIN_STATE] Verrou libéré (schéma: {active_schema})")
             return True
         except Exception as e:

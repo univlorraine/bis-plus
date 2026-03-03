@@ -191,22 +191,44 @@ class TestAdminStateManagerImportLock:
         assert result is False
 
     def test_release_import_lock_success(self):
-        """Libère le verrou"""
+        """Libère le verrou quand il est tenu (RETURNING retourne une ligne)"""
         manager, hook = make_manager()
+        hook.get_first.return_value = (1,)  # UPDATE ... RETURNING id → une ligne
 
         result = manager.release_import_lock('blue')
 
         assert result is True
-        hook.run.assert_called_once()
+        hook.get_first.assert_called_once()
 
     def test_release_import_lock_error(self):
         """Retourne False en cas d'erreur BDD"""
         manager, hook = make_manager()
-        hook.run.side_effect = Exception("DB error")
+        hook.get_first.side_effect = Exception("DB error")
 
         result = manager.release_import_lock('blue')
 
         assert result is False
+
+    def test_release_lock_not_held_returns_false(self):
+        """Retourne False si le verrou n'était pas tenu (RETURNING retourne None)"""
+        manager, hook = make_manager()
+        hook.get_first.return_value = None  # Aucune ligne mise à jour
+
+        result = manager.release_import_lock('blue')
+
+        assert result is False
+
+    def test_release_lock_not_held_logs_warning(self):
+        """Log un warning si le verrou n'était pas tenu"""
+        from unittest.mock import patch
+        manager, hook = make_manager()
+        hook.get_first.return_value = None
+
+        with patch('amue.services.admin_state_manager.logger') as mock_logger:
+            manager.release_import_lock('blue')
+
+        mock_logger.warning.assert_called_once()
+        assert 'non tenu' in mock_logger.warning.call_args[0][0]
 
     def test_force_release_lock(self):
         """Force la libération du verrou"""
