@@ -15,5 +15,14 @@
     "extra": {
       "options": "-c search_path=${POSTGRES_DATA_SCHEMA}"
     }
+  },
+  "oracle_data": {
+    "conn_type": "oracle",
+    "host": "${ORACLE_DATA_HOST}",
+    "schema": "${ORACLE_DATA_DB}",
+    "port": "${ORACLE_DATA_PORT}",
+    "extra": {
+      "options": "-c search_path=${ORACLE_DATA_SCHEMA}"
+    }
   }
 }

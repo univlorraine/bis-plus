@@ -207,7 +207,8 @@ class AMUEBatchInserter:
         columns: List[str],
         primary_keys: List[str],
         use_upsert: bool,
-        conn
+        conn,
+        protected_source: Optional[str] = None
     ) -> str:
         """
         Construit la requete SQL d'insertion avec identifiants securises.
@@ -218,6 +219,8 @@ class AMUEBatchInserter:
             primary_keys: Liste des cles primaires
             use_upsert: True pour UPSERT, False pour INSERT simple
             conn: Connexion pour convertir la requete en string
+            protected_source: Si fourni, les lignes ayant _source=protected_source
+                              ne seront pas écrasées lors d'un conflit
 
         Returns:
             Requete SQL sous forme de string
@@ -239,10 +242,19 @@ class AMUEBatchInserter:
                 if col not in primary_keys and col != '_source'
             ]
 
+            if protected_source:
+                where_clause = sql.SQL(" WHERE {table}.{col} != {protected}").format(
+                    table=table_id,
+                    col=sql.Identifier('_source'),
+                    protected=sql.Literal(protected_source)
+                )
+            else:
+                where_clause = sql.SQL("")
+
             query = sql.SQL("""
                 INSERT INTO {table} ({columns})
                 VALUES ({placeholders}) ON CONFLICT ({pks})
-                DO UPDATE SET {updates}
+                DO UPDATE SET {updates}{where}
             """).format(
                 table=table_id,
                 columns=column_list,
@@ -251,7 +263,8 @@ class AMUEBatchInserter:
                 updates=sql.SQL(', ').join([
                     sql.SQL("{} = EXCLUDED.{}").format(col, col)
                     for col in update_cols
-                ])
+                ]),
+                where=where_clause
             )
         else:
             query = sql.SQL("""
@@ -271,7 +284,8 @@ class AMUEBatchInserter:
         columns: List[str],
         primary_keys: List[str],
         use_upsert: bool,
-        conn
+        conn,
+        protected_source: Optional[str] = None
     ) -> str:
         """
         Construit la requête SQL pour execute_values() (avec VALUES %s).
@@ -285,6 +299,9 @@ class AMUEBatchInserter:
             primary_keys: Liste des clés primaires
             use_upsert: True pour UPSERT, False pour INSERT simple
             conn: Connexion pour convertir la requête en string
+            protected_source: Si fourni, les lignes ayant _source=protected_source
+                              ne seront pas écrasées lors d'un conflit.
+                              rows_skipped = batch_size - rows_affected.
 
         Returns:
             Requête SQL avec VALUES %s
@@ -301,10 +318,19 @@ class AMUEBatchInserter:
                 if col not in primary_keys and col != '_source'
             ]
 
+            if protected_source:
+                where_clause = sql.SQL(" WHERE {table}.{col} != {protected}").format(
+                    table=table_id,
+                    col=sql.Identifier('_source'),
+                    protected=sql.Literal(protected_source)
+                )
+            else:
+                where_clause = sql.SQL("")
+
             query = sql.SQL("""
                 INSERT INTO {table} ({columns})
                 VALUES %s ON CONFLICT ({pks})
-                DO UPDATE SET {updates}
+                DO UPDATE SET {updates}{where}
                 RETURNING (xmax = 0) AS is_insert
             """).format(
                 table=table_id,
@@ -313,7 +339,8 @@ class AMUEBatchInserter:
                 updates=sql.SQL(', ').join([
                     sql.SQL("{} = EXCLUDED.{}").format(col, col)
                     for col in update_cols
-                ])
+                ]),
+                where=where_clause
             )
         else:
             query = sql.SQL("""

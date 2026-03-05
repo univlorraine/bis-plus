@@ -95,13 +95,15 @@ class AMUEReportGenerator:
         """Initialise le générateur de rapports"""
         self.notification_service = NotificationService()
 
-    def generate_report(self, import_results: List[Dict], polling_result: Dict) -> Dict:
+    def generate_report(self, import_results: List[Dict], polling_result: Dict,
+                        title: str = 'RAPPORT IMPORT AMUE') -> Dict:
         """
         Génère un rapport d'exécution
 
         Args:
             import_results: Résultats des imports
             polling_result: Résultat du polling (avec start_time)
+            title: Titre affiché dans les logs (défaut: 'RAPPORT IMPORT AMUE')
 
         Returns:
             Rapport complet
@@ -156,7 +158,7 @@ class AMUEReportGenerator:
             'status': 'success'
         }
 
-        self._print_report(report)
+        self._print_report(report, title=title)
         self._save_report(report)
 
         return report
@@ -219,10 +221,10 @@ class AMUEReportGenerator:
             minutes = int((seconds % 3600) // 60)
             return f"{hours}h {minutes}m"
 
-    def _print_report(self, report: Dict) -> None:
+    def _print_report(self, report: Dict, title: str = 'RAPPORT IMPORT AMUE') -> None:
         """Affiche le rapport dans les logs"""
         logger.info("=" * 70)
-        logger.info("                    RAPPORT IMPORT AMUE")
+        logger.info(f"                    {title}")
         logger.info("=" * 70)
         logger.info(f"  Date d'exécution : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"  Durée totale     : {report.get('duration', 'N/A')}")
@@ -271,19 +273,21 @@ class AMUEReportGenerator:
         except Exception as e:
             logger.warning(f"[REPORT] Impossible d'archiver le rapport en fichier: {e}")
 
-    def generate_and_send(self, import_results: List[Dict], polling_result: Dict) -> Dict:
+    def generate_and_send(self, import_results: List[Dict], polling_result: Dict,
+                          title: str = 'RAPPORT IMPORT AMUE') -> Dict:
         """
         Génère le rapport et envoie la notification en une seule opération
 
         Args:
             import_results: Résultats des imports
             polling_result: Résultat du polling
+            title: Titre affiché dans les logs (défaut: 'RAPPORT IMPORT AMUE')
 
         Returns:
             Rapport généré avec statut d'envoi
         """
         # Génère le rapport
-        report = self.generate_report(import_results, polling_result)
+        report = self.generate_report(import_results, polling_result, title=title)
 
         # Envoie la notification
         self.send_notification(report)

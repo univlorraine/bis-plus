@@ -267,7 +267,7 @@ AIRFLOW_IMAGE_NAME=apache/airflow:3.1.3
 AIRFLOW__CORE__FERNET_KEY=$(generate_fernet_key)
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
-_PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib"
+_PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib oracledb"
 
 # Environnement
 AMUE_ENVIRONMENT=$ENVIRONMENT
