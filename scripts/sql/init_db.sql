@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS splus_admin.amue_tables (
     delta           TEXT         NOT NULL DEFAULT '',
     fingerprint_api TEXT         NOT NULL DEFAULT '',
     fingerprint_ul  TEXT         NOT NULL DEFAULT '',
+    setup_status    VARCHAR(20)  NOT NULL DEFAULT 'pending',  -- pending / ready / blocked
     ecc_query       TEXT,          -- NULL = table AMUE pure ; non-NULL = requête Oracle ECC
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

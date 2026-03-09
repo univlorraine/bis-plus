@@ -335,6 +335,7 @@ class NotificationTemplates:
             rows_inserted = table.get('rows_inserted', table.get('rows', 0))
             rows_updated = table.get('rows_updated', 0)
             status = table.get('status', 'success')
+            import_type = table.get('import_type', 'full')
 
             badge_class = 'badge-success' if status == 'success' else 'badge-error'
             rows_html += f"""
@@ -350,6 +351,9 @@ class NotificationTemplates:
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: right;">
                     {rows_updated:,}
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+                    {import_type}
                 </td>
                 <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; text-align: center;">
                     <span class="badge {badge_class}">{status}</span>

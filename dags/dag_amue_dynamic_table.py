@@ -5,7 +5,7 @@ Ce DAG récupère les données depuis l'API AMUE (Agence de Mutualisation des
 Universités et Établissements) et les importe dans une base PostgreSQL.
 
 ================================================================================
-ARCHITECTURE EN 6 PHASES
+ARCHITECTURE EN 5 PHASES
 ================================================================================
 
 PHASE 0 - BLUE/GREEN INIT
@@ -23,18 +23,19 @@ PHASE 1 - POLLING & SÉLECTION
         • Sélectionne les tables selon la configuration
         • Injecte le schéma cible blue/green
 
-PHASE 2 - VÉRIFICATION (parallèle, 1 task par table)
-    ├── verify_table.expand()
-    │   • Vérifie le statut de chaque table côté API
-    │   • Compare le fingerprint pour détecter les changements de structure
-    │
-    └── validate_tables()
-        • Agrège les résultats de vérification
-        • STOPPE le DAG si une table est en erreur (fail-fast)
+PHASE 2 - SETUP (délégué à amue_table_setup)
+    └── TriggerDagRunOperator → amue_table_setup
+        • Crée les tables si absentes
+        • Vérifie/sauvegarde les fingerprints
+        • Détecte les changements de structure
 
-PHASE 3 - IMPORT (parallèle, 1 task par table)
-    ├── prepare_table.expand()
-    │   • Crée/modifie la table PostgreSQL si nécessaire (dev uniquement)
+PHASE 3 - VALIDATION & IMPORT (parallèle, 1 task par table)
+    ├── check_setup_status()
+    │   • Lit setup_status depuis splus_admin.amue_tables
+    │   • STOPPE si une table est 'pending' ou 'blocked'
+    │
+    ├── get_table_schema.expand()
+    │   • Récupère les colonnes depuis l'API (sans fingerprint)
     │
     └── import_data.expand()
         • Récupère les données par batch depuis l'API
@@ -42,7 +43,8 @@ PHASE 3 - IMPORT (parallèle, 1 task par table)
 
 PHASE 4 - FINALISATION
     ├── save_metadata()
-    │   • Met à jour les fingerprints dans les variables Airflow
+    │   • Sauvegarde les timestamps (finish, report_start, last_success)
+    │   • Les fingerprints sont gérés par amue_table_setup
     │
     ├── switch_views()
     │   • Bascule atomique des vues vers le schéma cible (blue/green)
@@ -61,7 +63,7 @@ Voir plugins/amue/utils/config/settings.py pour la liste complète des variables
 PLANIFICATION
 ================================================================================
 
-Schedule : Configurable via variable Airflow 'amue_import_schedule' (défaut: '0 2 * * *')
+Schedule : Configurable via variable Airflow 'amue_import_schedule' (défaut: '0 3 * * *')
 Catchup  : Désactivé (pas de rattrapage des exécutions manquées)
 Max runs : 1 seul DAG run actif à la fois
 
@@ -69,6 +71,7 @@ Max runs : 1 seul DAG run actif à la fois
 """
 from datetime import datetime, timedelta
 from airflow.sdk import dag
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
 from amue import send_failure_notification
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -77,9 +80,7 @@ from amue.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (
     init_bluegreen,
     select_tables,
-    verify_table,
-    validate_tables,
-    prepare_table,
+    check_setup_status,
     import_data,
     save_metadata,
     switch_views,
@@ -115,7 +116,6 @@ _sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
     tags=['amue', 'production'],
 
     # --- Gestion des erreurs ---
-    # Envoie un email en cas d'échec du DAG
     on_failure_callback=send_failure_notification,
 
     # --- Configuration par défaut des tasks ---
@@ -134,15 +134,15 @@ def amue_multi_table_import():
             ↓
         AMUEAPISensor (wait_for_api)
             ↓
-        tables = select_tables(polling_result, bluegreen_ctx)
+        tables = select_tables(bluegreen_ctx)
             ↓
-        verifications = verify_table.expand(tables)
+        trigger_table_setup (amue_table_setup)
             ↓
-        validated = validate_tables(verifications)
+        checked = check_setup_status(tables)
             ↓
-        prepared = prepare_table.expand(validated)
+        schemas = get_table_schema.expand(checked)
             ↓
-        imported = import_data.expand(prepared)
+        imported = import_data.expand(schemas)
             ↓
         save_metadata(imported, polling_result)
             ↓
@@ -166,18 +166,26 @@ def amue_multi_table_import():
     )
     bluegreen_ctx >> wait_sensor
 
-    # Phase 1b : Sélection des tables (pull XCom du sensor)
+    # Phase 1b : Sélection des tables
     tables = select_tables(bluegreen_ctx)
-
     wait_sensor >> tables
 
-    # Phase 2 : Vérification
-    verifications = verify_table.expand(table_info=tables)
-    validated = validate_tables(verifications)
+    # Phase 2 : Setup — déclenche la DAG amue_table_setup avec le schéma cible
+    trigger_setup = TriggerDagRunOperator(
+        task_id='trigger_table_setup',
+        trigger_dag_id='amue_table_setup',
+        conf={"target_schema": "{{ ti.xcom_pull('init_bluegreen')['target_schema'] }}"},
+        wait_for_completion=True,
+        deferrable=True,
+    )
+    tables >> trigger_setup
 
-    # Phase 3 : Import
-    prepared = prepare_table.expand(verified_table=validated)
-    imported = import_data.expand(prepared_table=prepared)
+    # Phase 3a : Validation du statut de setup (fail-fast si pending/blocked)
+    checked = check_setup_status(tables)
+    trigger_setup >> checked
+
+    # Phase 3b : Import des données (colonnes lues depuis information_schema)
+    imported = import_data.expand(table_info=checked)
 
     # Phase 4 : Finalisation - polling_result via XCom du sensor
     metadata = save_metadata(imported, wait_sensor.output)
@@ -186,7 +194,7 @@ def amue_multi_table_import():
     switch_result = switch_views(metadata)
 
     # Phase 6 : Rapport
-    report = send_report(imported, switch_result, wait_sensor.output)
+    send_report(imported, switch_result, wait_sensor.output)
 
 
 # ==============================================================================

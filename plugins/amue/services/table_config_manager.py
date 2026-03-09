@@ -15,6 +15,7 @@ Colonnes gérées :
     - delta           : Colonne de date pour import différentiel
     - fingerprint_api : Hash structure originale API + PKs API
     - fingerprint_ul  : Hash structure transformée PG + PKs config
+    - setup_status    : État du setup (pending / ready / blocked)
     - updated_at      : Timestamp de dernière modification
 
 ================================================================================
@@ -41,6 +42,7 @@ class TableConfigManager:
             'delta':           str,   # delta
             'fingerprint_API': str,   # fingerprint_api
             'fingerprint_UL':  str,   # fingerprint_ul
+            'setup_status':    str,   # setup_status (pending/ready/blocked)
         }
 
     Example:
@@ -70,7 +72,7 @@ class TableConfigManager:
         try:
             rows = self._hook.get_records(
                 f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_ul "
+                f"fingerprint_api, fingerprint_ul, setup_status "
                 f"FROM {_TABLE} ORDER BY table_name"
             )
             result = [self._row_to_dict(row) for row in (rows or [])]
@@ -93,7 +95,7 @@ class TableConfigManager:
         try:
             row = self._hook.get_first(
                 f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_ul "
+                f"fingerprint_api, fingerprint_ul, setup_status "
                 f"FROM {_TABLE} WHERE table_name = %s",
                 parameters=(table_name.upper(),)
             )
@@ -192,6 +194,62 @@ class TableConfigManager:
     # HELPERS PRIVÉS
     # =========================================================================
 
+    # =========================================================================
+    # SETUP (gestion du setup_status et des fingerprints par la DAG setup)
+    # =========================================================================
+
+    def save_setup_result(self, table_name: str, fingerprint_api: str,
+                          fingerprint_ul: str, primary_keys: str) -> None:
+        """
+        Sauvegarde atomique du résultat du setup pour une table.
+
+        Met à jour fingerprints, primary_key et passe setup_status à 'ready'.
+
+        Args:
+            table_name: Nom de la table
+            fingerprint_api: Hash structure API
+            fingerprint_ul: Hash structure PG
+            primary_keys: Clés primaires CSV
+        """
+        try:
+            self._hook.run(
+                f"""UPDATE {_TABLE}
+                    SET fingerprint_api = %s,
+                        fingerprint_ul  = %s,
+                        primary_key     = %s,
+                        setup_status    = 'ready',
+                        updated_at      = NOW()
+                    WHERE table_name = %s""",
+                parameters=(
+                    fingerprint_api,
+                    fingerprint_ul,
+                    primary_keys,
+                    table_name.upper(),
+                )
+            )
+            logger.info(f"[TABLE_CONFIG] Setup result sauvegardé pour {table_name} (status=ready)")
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur sauvegarde setup result {table_name}: {e}")
+            raise
+
+    def set_setup_status(self, table_name: str, status: str) -> None:
+        """
+        Met à jour uniquement le setup_status d'une table.
+
+        Args:
+            table_name: Nom de la table
+            status: Nouveau statut ('pending', 'ready', 'blocked')
+        """
+        try:
+            self._hook.run(
+                f"UPDATE {_TABLE} SET setup_status = %s, updated_at = NOW() "
+                f"WHERE table_name = %s",
+                parameters=(status, table_name.upper())
+            )
+            logger.info(f"[TABLE_CONFIG] setup_status={status} pour {table_name}")
+        except Exception as e:
+            logger.error(f"[TABLE_CONFIG] Erreur set_setup_status {table_name}: {e}")
+
     @staticmethod
     def _row_to_dict(row) -> Dict:
         """Convertit une ligne SQL en dict."""
@@ -202,4 +260,5 @@ class TableConfigManager:
             'delta':           row[3] or '',
             'fingerprint_API': row[4] or '',
             'fingerprint_UL':  row[5] or '',
+            'setup_status':    row[6] if len(row) > 6 else 'pending',
         }

@@ -98,70 +98,35 @@ class AMUEMetadataManager:
 
     def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None, report_start: str = None) -> None:
         """
-        Met à jour les métadonnées après des imports réussis
+        Sauvegarde les timestamps globaux après un import réussi.
 
-        IMPORTANT: Cette méthode fait échouer le DAG si les métadonnées
-        ne peuvent pas être sauvegardées, car cela compromettrait
-        les imports différentiels suivants.
+        Les fingerprints et primary_keys sont désormais gérés exclusivement
+        par la DAG amue_table_setup. Cette méthode ne persiste que les
+        timestamps de synchronisation dans splus_admin.amue_state.
 
         Args:
-            import_results: Liste des résultats d'import
+            import_results: Liste des résultats d'import (non utilisé, conservé pour compatibilité)
             finish_timestamp: Timestamp finish de l'API (pour le polling)
             report_start: Date start du rapport API AMUE (référence globale pour le mode différentiel)
 
         Raises:
-            AirflowException: Si mise à jour échoue après tous les retries
+            AirflowException: Si sauvegarde échoue après tous les retries
         """
-        logger.info("Début mise à jour des métadonnées")
-        logger.info(f"{len(import_results)} résultats à traiter")
-
-        # Stocke le report_start pour l'utiliser dans _update_table_metadata
-        self._report_start = report_start or ''
-
-        # Sauvegarde le finish timestamp pour le prochain polling
-        if finish_timestamp:
-            self._save_finish_timestamp(finish_timestamp)
-
-        # Sauvegarde le report_start comme référence globale pour les imports différentiels
-        if report_start:
-            self._save_report_start(report_start)
-
-        if not import_results:
-            logger.info("Aucun résultat à traiter")
-            return
+        logger.info("Début mise à jour des métadonnées (timestamps uniquement)")
 
         last_error = None
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                # Charge la configuration actuelle
-                tables_config = self._load_tables_config()
-                tables_index = {
-                    t.get('name', '').upper(): t
-                    for t in tables_config
-                    if isinstance(t, dict)
-                }
+                if finish_timestamp:
+                    self._save_finish_timestamp(finish_timestamp)
 
-                # Met à jour chaque table
-                updated_count = 0
-                for result in import_results:
-                    logger.debug("[METADATA] Traitement: %s", result)
+                if report_start:
+                    self._save_report_start(report_start)
 
-                    if self._should_update_metadata(result):
-                        if self._update_table_metadata(tables_index, result):
-                            updated_count += 1
-
-                # Sauvegarde la configuration
-                if updated_count > 0:
-                    self._save_tables_config(tables_config)
-                    logger.info(f"{updated_count}/{len(import_results)} tables mises à jour")
-                else:
-                    logger.info("Aucune mise à jour nécessaire")
-
-                # Enregistre la date du dernier succès global
                 self._save_last_success()
 
-                logger.info("Mise à jour terminée avec succès")
+                logger.info("Mise à jour des timestamps terminée avec succès")
                 return
 
             except Exception as e:
@@ -169,101 +134,13 @@ class AMUEMetadataManager:
                 logger.warning(f"[{type(e).__name__}] Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
 
                 if attempt < self.MAX_RETRIES - 1:
-                    wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)  # Backoff exponentiel
+                    wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)
                     logger.info(f"Retry dans {wait_time}s...")
                     time.sleep(wait_time)
 
-        # Échec après tous les retries - FAIL EXPLICITE
         error_msg = f"Impossible de sauvegarder les métadonnées après {self.MAX_RETRIES} tentatives: {last_error}"
         logger.error(error_msg)
         raise AirflowException(error_msg)
-
-    def _should_update_metadata(self, result: Dict) -> bool:
-        """
-        Détermine si on doit mettre à jour les métadonnées pour ce résultat
-
-        Args:
-            result: Résultat d'import d'une table
-
-        Returns:
-            True si mise à jour nécessaire
-        """
-        if result.get('status') != 'success':
-            logger.info(f"Skip {result.get('table_name', 'unknown')}: statut {result.get('status')}")
-            return False
-
-        if not result.get('table_name'):
-            logger.info("Skip: pas de nom de table")
-            return False
-
-        return True
-
-    def _load_tables_config(self) -> List[Dict]:
-        """
-        Charge la configuration des tables depuis splus_admin.amue_tables.
-
-        Returns:
-            Liste des configurations de tables
-
-        Raises:
-            Exception: Si chargement échoue (pour déclencher le retry du caller)
-        """
-        from amue.services.table_config_manager import TableConfigManager
-        return TableConfigManager().get_tables_config()
-
-    def _update_table_metadata(self, tables_index: Dict[str, Dict], result: Dict) -> bool:
-        """
-        Met à jour les métadonnées d'une table spécifique
-
-        Args:
-            tables_index: Index {NOM_UPPER: table_dict} pré-calculé depuis la configuration
-            result: Résultat d'import pour cette table
-
-        Returns:
-            True si table trouvée et mise à jour
-        """
-        table_name = result['table_name'].upper()
-
-        table = tables_index.get(table_name)
-        if table is None:
-            logger.warning(f"Table {table_name} non trouvée dans la configuration")
-            return False
-
-        # Mise à jour des métadonnées
-        old_fp_api = table.get('fingerprint_API', 'none')
-        old_fp_ul = table.get('fingerprint_UL', 'none')
-        new_fp_api = result.get('fingerprint_API', '')
-        new_fp_ul = result.get('fingerprint_UL', '')
-
-        table['fingerprint_API'] = new_fp_api
-        table['fingerprint_UL'] = new_fp_ul
-        # Supprimer l'ancien champ s'il existe
-        table.pop('finger_print', None)
-
-        # Mise à jour des clés primaires uniquement si pas déjà définies
-        if result.get('primary_keys') and not table.get('primary_key'):
-            table['primary_key'] = result['primary_keys']
-            logger.info(f"{table_name}: Clés primaires initialisées: {result['primary_keys']}")
-
-        logger.info(f"{table_name}:")
-        logger.info(f"  - fingerprint_API: {old_fp_api[:8] if old_fp_api else 'none'}... -> {new_fp_api[:8] if new_fp_api else 'none'}...")
-        logger.info(f"  - fingerprint_UL: {old_fp_ul[:8] if old_fp_ul else 'none'}... -> {new_fp_ul[:8] if new_fp_ul else 'none'}...")
-
-        return True
-
-    def _save_tables_config(self, tables_config: List[Dict]) -> None:
-        """
-        Sauvegarde la configuration des tables dans splus_admin.amue_tables.
-
-        Args:
-            tables_config: Configuration à sauvegarder
-
-        Raises:
-            Exception: Si sauvegarde échoue (pour déclencher le retry du caller)
-        """
-        from amue.services.table_config_manager import TableConfigManager
-        TableConfigManager().save_tables_config(tables_config)
-        logger.info("Configuration sauvegardée")
 
     def _save_last_success(self) -> None:
         """
