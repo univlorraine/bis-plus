@@ -1,5 +1,6 @@
 """Task d'import des données depuis l'API vers PostgreSQL."""
 import logging
+from datetime import timedelta
 from typing import Dict
 
 from airflow.sdk import task
@@ -20,7 +21,7 @@ _COLUMNS_SQL = """
 """
 
 
-@task(task_id='import_data')
+@task(task_id='import_data', retries=2, retry_delay=timedelta(seconds=30))
 def import_data(table_info: Dict) -> Dict:
     """
     Importe les données d'une table depuis l'API vers PostgreSQL.

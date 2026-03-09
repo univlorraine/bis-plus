@@ -15,33 +15,52 @@ def select_setup_tables(conf: Dict) -> List[Dict]:
     """
     Sélectionne les tables à initialiser pour le setup.
 
-    En mode standalone : détermine le schéma cible via BlueGreenManager.
-    Quand déclenché par la DAG principale : utilise target_schema depuis conf.
+    En mode standalone : traite les deux schémas (actif + inactif), en détectant
+    si le schéma inactif existe sous son nom canonique ou avec le suffixe _offline.
+    Quand déclenché par la DAG principale : utilise uniquement target_schema depuis conf.
 
     Args:
         conf: Configuration du dag_run (peut contenir 'target_schema')
 
     Returns:
         Liste de dicts de configuration de tables (format amue_tables),
-        chacun enrichi avec 'target_schema'.
+        chacun enrichi avec 'target_schema'. En standalone : N tables × 2 schémas.
     """
-    target_schema = conf.get('target_schema') if conf else None
-
-    if not target_schema:
-        manager = BlueGreenManager()
-        target_schema = manager.get_target_schema()
-        logger.info(f"[SETUP] Mode standalone — schéma cible: {target_schema}")
-    else:
+    if target_schema := (conf.get('target_schema') if conf else None):
+        schemas = [target_schema]
         logger.info(f"[SETUP] Déclenché par la DAG principale — schéma cible: {target_schema}")
+    else:
+        manager = BlueGreenManager()
+        active = manager.get_active_schema()
+
+        inactive_canonical = manager.get_target_schema()
+        inactive_offline = inactive_canonical + BlueGreenManager.OFFLINE_SUFFIX
+
+        if manager.schema_exists(inactive_canonical):
+            inactive = inactive_canonical
+        elif manager.schema_exists(inactive_offline):
+            inactive = inactive_offline
+        else:
+            inactive = None  # premier lancement, schéma pas encore créé
+
+        schemas = [s for s in [active, inactive] if s]
+        logger.info(f"[SETUP] Mode standalone — schémas: {schemas}")
 
     tables = TableConfigManager().get_tables_config()
     enabled = [t for t in tables if t.get('enable', False)]
 
-    for t in enabled:
-        t['target_schema'] = target_schema
+    result = []
+    for schema in schemas:
+        for t in enabled:
+            result.append({**t, 'target_schema': schema})
 
-    logger.info(f"[SETUP] {len(enabled)} table(s) activée(s) à traiter")
-    for t in enabled:
-        logger.info(f"  - {t.get('name')} (setup_status={t.get('setup_status', 'pending')})")
+    logger.info(
+        f"[SETUP] {len(result)} entrée(s) à traiter "
+        f"({len(enabled)} table(s) × {len(schemas)} schéma(s))"
+    )
+    for schema in schemas:
+        logger.info(f"  Schéma {schema}:")
+        for t in enabled:
+            logger.info(f"    - {t.get('name')} (setup_status={t.get('setup_status', 'pending')})")
 
-    return enabled
+    return result
