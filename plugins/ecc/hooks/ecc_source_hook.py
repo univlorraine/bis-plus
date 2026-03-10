@@ -6,7 +6,10 @@ directement via oracledb (ou cx_Oracle en fallback) en lisant les
 métadonnées de la connexion Airflow 'ecc_data'.
 """
 import logging
+import time
 from typing import Iterator, List, Tuple
+
+from amue.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +28,6 @@ def _get_oracle_driver():
         raise ImportError(
             "Aucun driver Oracle trouvé. Installez 'oracledb' ou 'cx_Oracle'."
         )
-
-
-def _get_airflow_connection(conn_id: str):
-    """Récupère une connexion Airflow depuis le store de secrets."""
-    try:
-        from airflow.sdk import Connection
-        return Connection.get_connection_from_secrets(conn_id)
-    except (ImportError, AttributeError):
-        from airflow.models import Connection
-        return Connection.get_connection_from_secrets(conn_id)
 
 
 class ECCSourceHook:
@@ -71,17 +64,46 @@ class ECCSourceHook:
         # Format TNS descriptor avec SID (≠ service_name)
         return oracle.makedsn(host, port, sid=sid)
 
-    def get_conn(self):
-        """Retourne une connexion Oracle native."""
+    def get_conn(self, max_retries: int = 3, retry_delay_seconds: float = 5.0):
+        """
+        Retourne une connexion Oracle native avec retry automatique.
+
+        Args:
+            max_retries: Nombre maximum de tentatives (défaut: 3)
+            retry_delay_seconds: Délai entre tentatives en secondes (défaut: 5)
+
+        Returns:
+            Connexion Oracle active
+
+        Raises:
+            Exception: Dernière exception Oracle si toutes les tentatives échouent
+        """
         oracle = _get_oracle_driver()
-        airflow_conn = _get_airflow_connection(self.conn_id)
+        airflow_conn = get_airflow_connection(self.conn_id)
 
         dsn = self._build_dsn(oracle, airflow_conn)
         login = airflow_conn.login or ''
         password = airflow_conn.password or ''
 
-        logger.info(f"[ECC] Connexion Oracle: {login}@{airflow_conn.host} (SID={airflow_conn.schema})")
-        return oracle.connect(user=login, password=password, dsn=dsn)
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(
+                    f"[ECC] Connexion Oracle: {login}@{airflow_conn.host} "
+                    f"(SID={airflow_conn.schema}, tentative {attempt}/{max_retries})"
+                )
+                return oracle.connect(user=login, password=password, dsn=dsn)
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(
+                        f"[ECC] Échec connexion Oracle (tentative {attempt}/{max_retries}): {e}"
+                    )
+                    time.sleep(retry_delay_seconds)
+                else:
+                    logger.error(f"[ECC] Toutes les tentatives de connexion Oracle ont échoué: {e}")
+
+        raise last_error
 
     def execute_sql_file(
         self,

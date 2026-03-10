@@ -84,20 +84,7 @@ def amue_table_setup():
             ↓
         send_setup_report(results)
     """
-    from airflow.sdk import task, get_current_context
-
-    @task(task_id='read_conf')
-    def read_conf() -> dict:
-        """Lit la configuration du dag_run (target_schema, etc.)."""
-        try:
-            ctx = get_current_context()
-            dag_run = ctx.get('dag_run')
-            return dag_run.conf if dag_run and dag_run.conf else {}
-        except Exception:
-            return {}
-
-    conf = read_conf()
-    tables = select_setup_tables(conf)
+    tables = select_setup_tables()
     results = setup_table.expand(table_info=tables)
     send_setup_report(results)
 

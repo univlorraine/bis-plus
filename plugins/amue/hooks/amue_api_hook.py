@@ -82,9 +82,9 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import requests
-from airflow.sdk import Connection
 
 from amue.services.retry_service import get_retry_service, ErrorCategory
+from amue.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +155,18 @@ class AMUEAPIHook:
         >>> data = hook.call_api('finances/cdv/v1/preprod/{CODE_UNIV}/table', {'nom': 'CSKS'})
     """
 
-    def __init__(self):
+    def __init__(self, conn_id: str = 'oauth_api'):
         """
         Initialise le hook avec la connexion Airflow.
 
         Le token OAuth est géré via un cache global thread-safe
         pour éviter les requêtes de token multiples en parallèle.
+
+        Args:
+            conn_id: ID de la connexion Airflow OAuth (défaut: 'oauth_api')
         """
-        self.connection = Connection.get('oauth_api')
+        self.conn_id = conn_id
+        self.connection = get_airflow_connection(conn_id)
         self._token_cache = _token_cache  # Utilise le cache global
 
     def _is_token_expired(self) -> bool:

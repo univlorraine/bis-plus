@@ -55,9 +55,10 @@ def select_tables(bluegreen_ctx: Dict) -> List[Dict]:
         or {}
     )
 
-    current_status = polling_result.get('tables_status', {})
-    if not current_status:
+    current_status = polling_result.get('tables_status')
+    if current_status is None:
         logger.warning("[INIT] tables_status non disponible, appel API de secours")
+        current_status = {}
         api_hook = AMUEAPIHook()
         status_checker = AMUEStatusChecker(api_hook)
         current_status = status_checker.get_current_status()

@@ -34,6 +34,7 @@ from psycopg2 import sql
 
 from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.database.connection_manager import PostgresConnectionManager
+from amue.utils.database.schema_utils import list_tables, list_views
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +82,7 @@ class ViewSwitcher:
         Returns:
             Liste des noms de tables
         """
-        query = """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_type = 'BASE TABLE'
-            ORDER BY table_name
-        """
-        result = self.postgres_hook.get_records(query, parameters=(schema_name,))
-        tables = [row[0] for row in result] if result else []
+        tables = list_tables(self.postgres_hook, schema_name)
         logger.info(f"[VIEW_SWITCH] {len(tables)} tables trouvées dans {schema_name}")
         return tables
 
@@ -103,14 +96,7 @@ class ViewSwitcher:
         Returns:
             Liste des noms de vues
         """
-        query = """
-            SELECT table_name
-            FROM information_schema.views
-            WHERE table_schema = %s
-            ORDER BY table_name
-        """
-        result = self.postgres_hook.get_records(query, parameters=(schema_name,))
-        views = [row[0] for row in result] if result else []
+        views = list_views(self.postgres_hook, schema_name)
         logger.info(f"[VIEW_SWITCH] {len(views)} vues trouvées dans {schema_name}")
         return views
 

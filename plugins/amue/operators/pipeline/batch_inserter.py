@@ -10,7 +10,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from airflow.exceptions import AirflowException
-from psycopg2 import sql, OperationalError, InterfaceError
+from psycopg2 import sql, OperationalError, InterfaceError, ProgrammingError
 from psycopg2.errors import UniqueViolation
 from psycopg2.extras import execute_values
 
@@ -186,6 +186,17 @@ class AMUEBatchInserter:
             self._handle_unique_violation(
                 e, cursor, conn, batch, table_name, columns, primary_keys, commit, batch_num
             )
+
+        except ProgrammingError as e:
+            if commit:
+                try:
+                    conn.rollback()
+                except Exception as rollback_err:
+                    logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Rollback échoué: {rollback_err}")
+            # Diagnostic spécifique : ON CONFLICT sans contrainte UNIQUE (pgcode 42P10)
+            if getattr(e, 'pgcode', None) == '42P10' or 'on conflict' in str(e).lower():
+                self._log_on_conflict_details(table_name, batch, columns, primary_keys, batch_num, conn)
+            raise
 
         except (OperationalError, InterfaceError) as e:
             # Erreurs de connexion DB
@@ -427,6 +438,74 @@ class AMUEBatchInserter:
             # Ces erreurs ne sont pas des erreurs de connexion
             logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Erreur recuperation ligne: {e}")
             return None
+
+    def _log_on_conflict_details(
+        self,
+        table_name: str,
+        batch: List[tuple],
+        columns: List[str],
+        primary_keys: List[str],
+        batch_num: Optional[int],
+        conn=None,
+    ) -> None:
+        """
+        Logge un comparatif existant-DB vs données-API pour chaque ligne du batch.
+
+        Pour chaque ligne (5 max) : récupère la ligne existante en base via les valeurs PK,
+        puis affiche colonne par colonne les différences (MODIFIÉ) et les valeurs inchangées.
+        Si la ligne n'existe pas en base, affiche les données API telles quelles.
+        """
+        label = f"batch#{batch_num}" if batch_num is not None else "batch"
+        data_cols = [c for c in columns if c not in primary_keys and c not in ('_source', '_imported_at')]
+
+        logger.error(
+            f"{Defaults.LOG_PREFIX_BATCH} [{label}] {table_name} : "
+            f"pas de contrainte UNIQUE/PRIMARY KEY sur {primary_keys} dans PostgreSQL"
+        )
+        logger.error(
+            f"{Defaults.LOG_PREFIX_BATCH}   {len(batch)} ligne(s) dans le batch — "
+            f"comparatif base existante vs données API (5 premières) :"
+        )
+        sample = batch[:5]
+        for i, row in enumerate(sample, 1):
+            row_dict = dict(zip(columns, row))
+            pk_vals = {pk: row_dict.get(pk, '?') for pk in primary_keys}
+            logger.error(f"{Defaults.LOG_PREFIX_BATCH}   ── [{i}/{len(batch)}] PK = {pk_vals}")
+
+            existing = None
+            if conn is not None:
+                try:
+                    with conn.cursor() as cur:
+                        existing = self.fetch_existing_row(
+                            cur, conn, table_name, columns, primary_keys, pk_vals
+                        )
+                except Exception as fetch_err:
+                    logger.debug(f"{Defaults.LOG_PREFIX_BATCH}     (fetch existant impossible: {fetch_err})")
+
+            if existing is not None:
+                changed = [
+                    (col, existing.get(col), row_dict.get(col))
+                    for col in data_cols
+                    if existing.get(col) != row_dict.get(col)
+                ]
+                unchanged_count = len(data_cols) - len(changed)
+                if changed:
+                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}     {len(changed)} colonne(s) MODIFIÉE(S) :")
+                    for col, old_val, new_val in changed:
+                        logger.error(
+                            f"{Defaults.LOG_PREFIX_BATCH}       {col:<25} : {old_val!r:>30}  →  {new_val!r}"
+                        )
+                if unchanged_count:
+                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}     {unchanged_count} colonne(s) inchangée(s)")
+            else:
+                logger.error(f"{Defaults.LOG_PREFIX_BATCH}     → Absent en base — données API :")
+                for col in data_cols:
+                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}       {col:<25} : {row_dict.get(col)!r}")
+
+        if len(batch) > 5:
+            logger.error(
+                f"{Defaults.LOG_PREFIX_BATCH}   ... {len(batch) - 5} ligne(s) supplémentaire(s) non affichées"
+            )
 
     def _handle_unique_violation(
         self,

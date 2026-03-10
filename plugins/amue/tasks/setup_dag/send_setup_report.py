@@ -20,7 +20,7 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
     Returns:
         Résumé : {tables_ready, tables_blocked, tables_created, tables_error}
     """
-    tables_ready = [r for r in setup_results if r.get('setup_status') == 'ready']
+    tables_ready = [r for r in setup_results if r.get('setup_status') == 'ready' and r.get('status') != 'error']
     tables_blocked = [r for r in setup_results if r.get('setup_status') == 'blocked']
     tables_error = [r for r in setup_results if r.get('status') == 'error' and r.get('setup_status') != 'blocked']
     tables_created = [r for r in tables_ready if r.get('created')]
@@ -32,10 +32,45 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
     logger.info(f"  - Erreurs  : {len(tables_error)}")
 
     for t in tables_blocked:
-        logger.error(f"  [BLOCKED] {t['table_name']}: {t.get('error', 'structure modifiée')}")
+        name = t['table_name']
+        fp_api_changed = t.get('fp_api_changed')
+        fp_ul_changed = t.get('fp_ul_changed')
+        cols = t.get('columns_count')
+        sep = '═' * (40 - len(name))
+        logger.error(f"[SETUP_REPORT] ══ BLOQUÉE : {name} {sep}")
+        if cols is not None:
+            logger.error(f"[SETUP_REPORT]   Colonnes détectées : {cols}")
+        if fp_api_changed is not None and fp_ul_changed is not None:
+            api_label = 'MODIFIÉ  → structure côté serveur AMUE' if fp_api_changed else 'inchangé'
+            ul_label = 'MODIFIÉ  → config locale (PKs / types PG)' if fp_ul_changed else 'inchangé'
+            logger.error(f"[SETUP_REPORT]   fingerprint_API    : {api_label}")
+            logger.error(f"[SETUP_REPORT]   fingerprint_UL     : {ul_label}")
+            if fp_api_changed and fp_ul_changed:
+                cause = "colonnes ajoutées/supprimées (API + UL affectés)"
+            elif fp_api_changed:
+                cause = "types ou colonnes côté API uniquement"
+            else:
+                cause = "clés primaires UL ou types PG modifiés (config locale)"
+            logger.error(f"[SETUP_REPORT]   → Cause probable   : {cause}")
+            if fp_ul_changed:
+                ul_diff = t.get('ul_diff')
+                if ul_diff:
+                    logger.error(f"[SETUP_REPORT]   Diff colonnes (PG existant → API) :")
+                    for line in ul_diff.splitlines():
+                        logger.error(f"[SETUP_REPORT]     {line}")
+                else:
+                    logger.error(f"[SETUP_REPORT]   (table absente en PG — diff non disponible)")
+        else:
+            # Fallback : parser le champ error ligne par ligne
+            for line in t.get('error', 'structure modifiée').splitlines():
+                logger.error(f"[SETUP_REPORT]   {line.strip()}")
+        logger.error(f"[SETUP_REPORT]   → Action requise   : relancer amue_table_setup après vérification")
 
     for t in tables_error:
-        logger.error(f"  [ERROR] {t['table_name']}: {t.get('error')}")
+        name = t['table_name']
+        sep = '═' * (41 - len(name))
+        logger.error(f"[SETUP_REPORT] ══ ERREUR : {name} {sep}")
+        logger.error(f"[SETUP_REPORT]   {t.get('error')}")
 
     if tables_blocked or tables_error:
         blocked_names = [t['table_name'] for t in tables_blocked]

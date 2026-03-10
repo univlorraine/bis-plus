@@ -5,6 +5,7 @@ from typing import Dict
 from airflow.sdk import task, get_current_context
 
 from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.logging_context import set_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ def init_bluegreen() -> Dict:
     except Exception as e:
         logger.debug(f"[BLUEGREEN] run_id non disponible dans le contexte: {e}")
         run_id = "unknown"
+
+    # Propage le correlation_id à tous les logs du run (ContextVar thread-safe)
+    set_correlation_id(run_id)
+    logger.info(f"[BLUEGREEN] Correlation ID: {run_id}")
 
     # Marque le début de l'import avec correlation_id
     manager.mark_import_started(correlation_id=run_id)

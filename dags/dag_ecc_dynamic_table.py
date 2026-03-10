@@ -38,12 +38,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag
 
 from amue import send_failure_notification
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, send_ecc_report
-
-
-# Schedule configurable via variable Airflow
-_import_schedule = VarMgr.get('ecc_import_schedule', default='0 4 * * *')
+from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, save_ecc_metadata, send_ecc_report
 
 
 @dag(
@@ -80,6 +75,8 @@ def ecc_multi_table_import():
             ↓
         imported = import_ecc_data.expand(table_config=tables)
             ↓
+        metadata = save_ecc_metadata.expand(import_result=imported)
+            ↓
         send_ecc_report(imported)
     """
 
@@ -89,7 +86,10 @@ def ecc_multi_table_import():
     # ── Phase 2 : Import parallèle Oracle → PostgreSQL ────────────────────────
     imported = import_ecc_data.expand(table_config=tables)
 
-    # ── Phase 3 : Rapport ─────────────────────────────────────────────────────
+    # ── Phase 3 : Sauvegarde des métadonnées (audit trail par table) ──────────
+    save_ecc_metadata.expand(import_result=imported)
+
+    # ── Phase 4 : Rapport ─────────────────────────────────────────────────────
     send_ecc_report(imported)
 
 

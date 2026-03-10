@@ -57,6 +57,7 @@ from psycopg2 import sql as pgsql
 from amue.exceptions import AMUESchemaError, AMUEDatabaseError
 from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.database.schema_utils import SchemaQualifier
+from common.config import PROTECTED_SOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class AMUETableManager:
         """
         self._schema_qualifier = SchemaQualifier(target_schema)
         self.postgres_hook = postgres_hook or self._create_default_hook()
-        self.default_source = 'sifac_plus'
+        self.default_source = PROTECTED_SOURCE
 
     @property
     def target_schema(self) -> Optional[str]:

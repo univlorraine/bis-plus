@@ -24,10 +24,9 @@ class TestMetadataManagerUpdateMetadata:
 
     @patch('amue.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_success(self, mock_admin_cls):
-        """Mise à jour réussie — sauvegarde uniquement les timestamps"""
+        """Mise à jour réussie — sauvegarde atomique des timestamps"""
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
-        mock_admin.get_last_finish_timestamp.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -45,9 +44,8 @@ class TestMetadataManagerUpdateMetadata:
 
         manager.update_metadata(import_results, finish_timestamp='2024-01-15T10:00:00')
 
-        # Vérifie que les timestamps sont sauvegardés
-        mock_admin.set_last_finish_timestamp.assert_called_once()
-        mock_admin.set_last_successful_run.assert_called_once()
+        # Vérifie que l'UPDATE atomique est appelé
+        mock_admin.update_import_timestamps.assert_called_once()
 
     @patch('amue.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_empty_results(self, mock_admin_cls):
@@ -61,8 +59,8 @@ class TestMetadataManagerUpdateMetadata:
 
         manager.update_metadata([])
 
-        # last_success toujours sauvegardé
-        mock_admin.set_last_successful_run.assert_called_once()
+        # L'UPDATE atomique est toujours appelé (last_successful_run inclus)
+        mock_admin.update_import_timestamps.assert_called_once()
 
     @patch('amue.services.metadata_manager.time.sleep')
     @patch('amue.services.admin_state_manager.AdminStateManager')
@@ -70,8 +68,8 @@ class TestMetadataManagerUpdateMetadata:
         """Retry en cas d'erreur de sauvegarde"""
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
-        # Premier appel à set_last_successful_run échoue, deuxième réussit
-        mock_admin.set_last_successful_run.side_effect = [ValueError("test"), None]
+        # Premier appel à update_import_timestamps échoue, deuxième réussit
+        mock_admin.update_import_timestamps.side_effect = [ValueError("test"), None]
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -90,7 +88,7 @@ class TestMetadataManagerUpdateMetadata:
 
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
-        mock_admin.set_last_successful_run.side_effect = Exception("DB connection failed")
+        mock_admin.update_import_timestamps.side_effect = Exception("DB connection failed")
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
@@ -101,7 +99,7 @@ class TestMetadataManagerUpdateMetadata:
 
     @patch('amue.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_saves_report_start(self, mock_admin_cls):
-        """update_metadata sauvegarde le report_start via AdminStateManager"""
+        """update_metadata sauvegarde le report_start via update_import_timestamps"""
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
 
@@ -111,7 +109,8 @@ class TestMetadataManagerUpdateMetadata:
 
         manager.update_metadata([], report_start='2026-02-17T10:08:19+00:00')
 
-        mock_admin.set_last_report_start.assert_called_with('2026-02-17T10:08:19+00:00')
+        call_kwargs = mock_admin.update_import_timestamps.call_args
+        assert call_kwargs.kwargs.get('report_start') == '2026-02-17T10:08:19+00:00'
 
 
 class TestMetadataManagerGetLastSuccess:
@@ -257,49 +256,19 @@ class TestMetadataManagerFinishTimestamp:
     """Tests pour la sauvegarde du finish timestamp"""
 
     @patch('amue.services.admin_state_manager.AdminStateManager')
-    def test_save_finish_timestamp(self, mock_admin_cls):
-        """Sauvegarde du finish timestamp via AdminStateManager"""
+    def test_update_metadata_with_finish_timestamp(self, mock_admin_cls):
+        """update_metadata transmet le finish_timestamp à update_import_timestamps"""
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
-        mock_admin.get_last_finish_timestamp.return_value = None
-
-        from amue.services.metadata_manager import AMUEMetadataManager
-
-        manager = AMUEMetadataManager()
-        manager._save_finish_timestamp('2024-01-15T10:00:00')
-
-        mock_admin.set_last_finish_timestamp.assert_called_once_with('2024-01-15T10:00:00')
-
-    @patch('amue.services.admin_state_manager.AdminStateManager')
-    @patch('amue.services.table_config_manager.TableConfigManager')
-    def test_update_metadata_with_finish_timestamp(self, mock_tcm_cls, mock_admin_cls):
-        """update_metadata sauvegarde le finish_timestamp via AdminStateManager"""
-        mock_tcm = MagicMock()
-        mock_tcm_cls.return_value = mock_tcm
-        mock_tcm.get_tables_config.return_value = [
-            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''}
-        ]
-
-        mock_admin = MagicMock()
-        mock_admin_cls.return_value = mock_admin
-        mock_admin.get_last_finish_timestamp.return_value = None
 
         from amue.services.metadata_manager import AMUEMetadataManager
 
         manager = AMUEMetadataManager()
 
-        import_results = [
-            {
-                'table_name': 'csks',
-                'status': 'success',
-                'fingerprint_API': 'new_api_fp_123',
-                'fingerprint_UL': 'new_ul_fp_456'
-            }
-        ]
+        manager.update_metadata([], finish_timestamp='2024-01-15T10:00:00')
 
-        manager.update_metadata(import_results, finish_timestamp='2024-01-15T10:00:00')
-
-        mock_admin.set_last_finish_timestamp.assert_called_with('2024-01-15T10:00:00')
+        call_kwargs = mock_admin.update_import_timestamps.call_args
+        assert call_kwargs.kwargs.get('finish_timestamp') == '2024-01-15T10:00:00'
 
 
 class TestTableMetadata:

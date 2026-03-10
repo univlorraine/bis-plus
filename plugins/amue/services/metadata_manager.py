@@ -118,13 +118,12 @@ class AMUEMetadataManager:
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                if finish_timestamp:
-                    self._save_finish_timestamp(finish_timestamp)
-
-                if report_start:
-                    self._save_report_start(report_start)
-
-                self._save_last_success()
+                from amue.services.admin_state_manager import AdminStateManager
+                AdminStateManager().update_import_timestamps(
+                    finish_timestamp=finish_timestamp or None,
+                    report_start=report_start or None,
+                    last_successful_run=datetime.now().isoformat(),
+                )
 
                 logger.info("Mise à jour des timestamps terminée avec succès")
                 return
@@ -141,52 +140,6 @@ class AMUEMetadataManager:
         error_msg = f"Impossible de sauvegarder les métadonnées après {self.MAX_RETRIES} tentatives: {last_error}"
         logger.error(error_msg)
         raise AirflowException(error_msg)
-
-    def _save_last_success(self) -> None:
-        """
-        Enregistre la date du dernier succès global dans la BDD.
-
-        Cette date est utilisée pour déterminer l'historique à vérifier
-        lors de la prochaine exécution.
-        """
-        from amue.services.admin_state_manager import AdminStateManager
-        success_date = datetime.now().isoformat()
-        AdminStateManager().set_last_successful_run(success_date)
-        logger.info(f"Dernier succès: {success_date}")
-
-    def _save_report_start(self, report_start: str) -> None:
-        """
-        Sauvegarde le timestamp de début du rapport AMUE dans la BDD.
-
-        Ce timestamp est utilisé pour les imports différentiels : toutes les
-        tables delta filtrent leurs données avec delta_column >= last_report_start.
-
-        Args:
-            report_start: Valeur ISO 8601 du champ 'start' retourné par l'API AMUE
-        """
-        from amue.services.admin_state_manager import AdminStateManager
-        AdminStateManager().set_last_report_start(report_start)
-        logger.info(f"Report start enregistré: {report_start}")
-
-    def _save_finish_timestamp(self, finish_timestamp: str) -> None:
-        """
-        Sauvegarde le timestamp finish de l'API dans la BDD.
-
-        Ce timestamp est utilisé par le polling pour détecter si de nouvelles
-        données sont disponibles. Si le timestamp est identique au précédent,
-        l'import est ignoré.
-
-        Args:
-            finish_timestamp: Valeur du timestamp finish retourné par l'API
-        """
-        from amue.services.admin_state_manager import AdminStateManager
-        mgr = AdminStateManager()
-        old_timestamp = mgr.get_last_finish_timestamp()
-        mgr.set_last_finish_timestamp(finish_timestamp)
-        if old_timestamp:
-            logger.info(f"Finish timestamp mis à jour: {old_timestamp} -> {finish_timestamp}")
-        else:
-            logger.info(f"Finish timestamp enregistré: {finish_timestamp}")
 
     def get_last_success_date(self) -> Optional[datetime]:
         """

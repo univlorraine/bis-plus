@@ -86,6 +86,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.config import PROTECTED_SOURCE  # noqa: F401 — re-export pour rétro-compatibilité
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ class Defaults:
     SMTP_TIMEOUT_SECONDS: int = 30
 
     # --- Data ---
-    DEFAULT_SOURCE: str = "sifac_plus"
+    DEFAULT_SOURCE: str = PROTECTED_SOURCE
     META_COLUMN_SOURCE: str = "_source"
     META_COLUMN_IMPORTED_AT: str = "_imported_at"
 

@@ -14,34 +14,13 @@ CONDITIONS DE DISPONIBILITÉ :
     2. Variable 'finish' renseignée dans la réponse JSON
        (indique que le traitement AMUE est terminé)
 
-Les deux conditions doivent être satisfaites pour considérer l'API comme "prête".
-
 ================================================================================
-STRATÉGIES DE POLLING
+ARCHITECTURE INTERNE (après refactorisation)
 ================================================================================
 
-INTERVALLE FIXE (par défaut) :
-    Vérifie l'API toutes les N minutes (configurable)
-    Exemple : toutes les 10 minutes pendant 6 heures max
-
-BACKOFF EXPONENTIEL (optionnel) :
-    Augmente progressivement l'intervalle entre les vérifications
-    Utile pour réduire la charge sur l'API si elle est lente à démarrer
-    Exemple : 10min → 20min → 40min → 60min (max)
-
-================================================================================
-GESTION DES ERREURS
-================================================================================
-
-ERREURS CRITIQUES (arrêt immédiat) :
-    - 4xx (sauf 429) : Erreur de configuration ou d'authentification
-    - Le polling s'arrête et le DAG échoue
-
-ERREURS TRANSITOIRES (retry) :
-    - 5xx : Erreur serveur AMUE temporaire
-    - 429 : Rate limit (trop de requêtes)
-    - Timeout : Problème réseau temporaire
-    - Le polling continue jusqu'au timeout global
+AMUEPollingService compose :
+    - FinishTimestampValidator   : validation du timestamp finish + should_skip
+    - PollingStrategyCalculator  : calcul du nombre d'attempts et du wait_time
 
 ================================================================================
 CONFIGURATION
@@ -54,16 +33,6 @@ Variables Airflow :
     - amue_polling_max_backoff_minutes : Intervalle max en backoff (défaut: 60)
 
 ================================================================================
-MÉTRIQUES COLLECTÉES
-================================================================================
-
-Le service collecte des métriques pour le rapport final :
-    - Nombre de tentatives
-    - Temps total d'attente
-    - Valeur de 'finish' (horodatage de fin AMUE)
-    - Codes HTTP reçus
-
-================================================================================
 """
 import logging
 import time
@@ -73,13 +42,15 @@ from typing import Dict, Optional
 
 from airflow.exceptions import AirflowException
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+from amue.services.api.polling_strategy_calculator import PollingStrategyCalculator
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class PollingConfig:
-    """Configuration du service de polling"""
+    """Configuration du service de polling."""
     interval_minutes: int
     max_wait_hours: int
     exponential_backoff: bool = False
@@ -88,7 +59,7 @@ class PollingConfig:
 
 @dataclass
 class PollingResult:
-    """Résultat d'une opération de polling"""
+    """Résultat d'une opération de polling."""
     ready: bool
     attempts: int
     total_wait_minutes: float
@@ -99,20 +70,18 @@ class PollingResult:
 
 class AMUEPollingService:
     """
-    Service de polling pour attendre la disponibilité de l'API AMUE
+    Service de polling pour attendre la disponibilité de l'API AMUE.
 
-    Fonctionnalités :
-    - Retry configurable avec intervalle fixe ou exponentiel
-    - Timeout global pour éviter les attentes infinies
-    - Logs détaillés de progression
-    - Métriques d'exécution (tentatives, temps d'attente)
-    - Cache du tables_status pour éviter un appel API supplémentaire
+    Compose FinishTimestampValidator et PollingStrategyCalculator
+    pour orchestrer la boucle de polling.
+
+    Example:
+        >>> service = AMUEPollingService(status_checker)
+        >>> result = service.wait_for_ready()
     """
 
     def __init__(self, status_checker, config: Optional[PollingConfig] = None):
         """
-        Initialise le service de polling
-
         Args:
             status_checker: Instance de AMUEStatusChecker
             config: Configuration personnalisée (optionnelle)
@@ -120,11 +89,15 @@ class AMUEPollingService:
         self.status_checker = status_checker
         self.config = config or self._load_default_config()
         self.start_time = None
-        self._cached_tables_status = None  # Cache pour éviter appel API supplémentaire
-        self._cached_report_start = None   # Date start du rapport API AMUE
+        self._cached_tables_status = None
+        self._cached_report_start = None
+
+        # Sous-composants
+        self._ts_validator = FinishTimestampValidator()
+        self._strategy = PollingStrategyCalculator(self.config)
 
     def _load_default_config(self) -> PollingConfig:
-        """Charge la configuration depuis les variables Airflow"""
+        """Charge la configuration depuis les variables Airflow."""
         return PollingConfig(
             interval_minutes=int(VarMgr.get('amue_polling_interval_minutes', default='10')),
             max_wait_hours=int(VarMgr.get('amue_max_wait_hours', default='6')),
@@ -132,112 +105,37 @@ class AMUEPollingService:
             max_backoff_minutes=int(VarMgr.get('amue_polling_max_backoff_minutes', default='60'))
         )
 
+    # ── Délégation aux sous-composants ───────────────────────────────────────
+
     def _validate_finish_timestamp(self, finish_value: str) -> bool:
-        """
-        Valide le format du timestamp finish retourné par l'API.
-
-        Args:
-            finish_value: Valeur du finish à valider
-
-        Returns:
-            True si le format est valide
-        """
-        if not finish_value or not finish_value.strip():
-            logger.warning("[POLLING] Finish timestamp vide ou invalide")
-            return False
-
-        # Vérifie que ce n'est pas une valeur par défaut ou placeholder
-        invalid_values = ['', 'null', 'none', 'undefined', '0', '00000000']
-        if finish_value.lower().strip() in invalid_values:
-            logger.warning(f"[POLLING] Finish timestamp invalide: '{finish_value}'")
-            return False
-
-        # Log le format pour traçabilité
-        logger.info(f"[POLLING] Finish timestamp valide: {finish_value}")
-        return True
+        """Délègue la validation du timestamp à FinishTimestampValidator."""
+        return self._ts_validator.validate(finish_value)
 
     def _should_skip_import(self, current_finish: str) -> bool:
+        """Décide si l'import doit être ignoré.
+
+        Vérifie d'abord force_import localement (patchable dans les tests),
+        puis délègue à FinishTimestampValidator pour la logique timestamp.
         """
-        Vérifie si l'import doit être ignoré car le timestamp finish n'est pas
-        strictement supérieur au précédent.
-
-        Compare le timestamp finish actuel avec celui du dernier import réussi.
-        Seul un timestamp strictement supérieur (plus récent) déclenche l'import.
-
-        Comportement:
-        - Première exécution (pas de timestamp stocké): import exécuté
-        - Force import activé: import toujours exécuté
-        - Même timestamp: import ignoré (pas de nouvelles données)
-        - Timestamp supérieur: import exécuté (nouvelles données)
-        - Timestamp inférieur: import ignoré (cas anormal)
-
-        Args:
-            current_finish: Timestamp finish retourné par l'API
-
-        Returns:
-            True si l'import doit être ignoré
-        """
-        # Option pour forcer l'import (utile pour debug ou réimport manuel)
         force_import = VarMgr.get('amue_force_import', default='false').lower() == 'true'
         if force_import:
-            logger.info("[POLLING] Force import activé (amue_force_import=true)")
-            logger.info("[POLLING] Import sera exécuté même si timestamp inchangé")
+            logger.info("[POLLING] Force import activé — skip désactivé")
             return False
+        return self._ts_validator.should_skip(current_finish)
 
-        # Valide le timestamp courant
-        if not self._validate_finish_timestamp(current_finish):
-            logger.warning("[POLLING] Finish invalide - import exécuté par précaution")
-            return False
+    def _calculate_max_attempts(self) -> int:
+        """Délègue le calcul du nombre de tentatives à PollingStrategyCalculator."""
+        return self._strategy.max_attempts()
 
-        # Récupère le timestamp précédent depuis la BDD
-        from amue.services.admin_state_manager import AdminStateManager
-        stored_finish = AdminStateManager().get_last_finish_timestamp() or ''
+    def _calculate_wait_time(self, attempt: int) -> float:
+        """Délègue le calcul du temps d'attente à PollingStrategyCalculator."""
+        return self._strategy.wait_time(attempt)
 
-        # Première exécution - pas de timestamp précédent
-        if not stored_finish or not stored_finish.strip():
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info("[POLLING] PREMIÈRE EXÉCUTION DÉTECTÉE")
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info("[POLLING] Aucun timestamp précédent enregistré")
-            logger.info(f"[POLLING] Timestamp actuel de l'API: {current_finish}")
-            logger.info("[POLLING] L'import sera exécuté et ce timestamp sera sauvegardé")
-            logger.info("[POLLING] Les prochaines exécutions compareront avec cette valeur")
-            return False
-
-        # Comparaison stricte des timestamps (ISO 8601 : comparaison lexicographique valide)
-        if current_finish > stored_finish:
-            # Timestamp strictement supérieur → nouvelles données disponibles
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info("[POLLING] NOUVEAU TIMESTAMP DÉTECTÉ")
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info(f"[POLLING] Timestamp précédent: {stored_finish}")
-            logger.info(f"[POLLING] Timestamp actuel:    {current_finish}")
-            logger.info("[POLLING] De nouvelles données sont disponibles")
-            return False
-
-        if stored_finish == current_finish:
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info("[POLLING] TIMESTAMP INCHANGÉ")
-            logger.info("[POLLING] ═══════════════════════════════════════════")
-            logger.info(f"[POLLING] Timestamp stocké:  {stored_finish}")
-            logger.info(f"[POLLING] Timestamp actuel:  {current_finish}")
-            logger.info("[POLLING] Pas de nouvelles données disponibles")
-            logger.info("[POLLING] Pour forcer l'import: amue_force_import=true")
-            return True
-
-        # Timestamp inférieur au précédent → cas anormal, on ignore
-        logger.warning("[POLLING] ═══════════════════════════════════════════")
-        logger.warning("[POLLING] TIMESTAMP INFÉRIEUR AU PRÉCÉDENT (ANORMAL)")
-        logger.warning("[POLLING] ═══════════════════════════════════════════")
-        logger.warning(f"[POLLING] Timestamp précédent: {stored_finish}")
-        logger.warning(f"[POLLING] Timestamp actuel:    {current_finish}")
-        logger.warning("[POLLING] Cas anormal - import ignoré par sécurité")
-        logger.warning("[POLLING] Pour forcer l'import: amue_force_import=true")
-        return True
+    # ── Boucle principale ────────────────────────────────────────────────────
 
     def wait_for_ready(self) -> Dict:
         """
-        Attend que l'API soit prête (code 200 ET finish renseigné)
+        Attend que l'API soit prête (code 200 ET finish renseigné).
 
         Returns:
             Dictionnaire avec résultat du polling
@@ -257,11 +155,8 @@ class AMUEPollingService:
 
         while attempt < max_attempts:
             attempt += 1
-
-            # Log de progression
             self._log_attempt(attempt, max_attempts)
 
-            # Vérification du statut - UN SEUL appel API au lieu de 2
             try:
                 status_result = self.status_checker.fetch_full_status()
 
@@ -272,35 +167,27 @@ class AMUEPollingService:
 
                 logger.info(f"[POLLING] Code HTTP reçu: {status_code}")
 
-                # Si code 200, vérifier la variable 'finish'
                 if status_code == 200:
                     logger.info(f"[POLLING] Variable 'finish' : {finish_value}")
 
                     if finish_value:
-                        # Stocke les tables_status pour éviter l'appel supplémentaire
                         self._cached_tables_status = status_result.get('tables_status', {})
-                        # Stocke le start du rapport API pour last_import
                         raw = status_result.get('raw_response') or {}
                         self._cached_report_start = raw.get('start', '')
 
-                        # Vérifie si le timestamp est nouveau
                         if self._should_skip_import(finish_value):
                             logger.info("[POLLING] Timestamp inchangé - on continue le polling...")
-                            # On continue la boucle au lieu de skip
                         else:
                             logger.info("[POLLING] API prête (finish renseigné, nouvelles données)")
                             return self._build_success_result(attempt, finish_value)
                     else:
                         logger.info("[POLLING] Traitement en cours côté AMUE (finish non renseigné)")
-                        logger.info("[POLLING] Attente de la fin du traitement...")
 
-                # Codes d'erreur critiques (pas besoin de retry)
                 elif self._is_critical_error(status_code):
                     raise AirflowException(
                         f"Code HTTP critique {status_code}. Arrêt du polling."
                     )
 
-                # Erreurs serveur (5xx) - on continue mais on log l'erreur
                 elif self._is_server_error(status_code):
                     logger.warning(f"[POLLING] Erreur serveur {status_code}. Retry en cours...")
 
@@ -310,66 +197,28 @@ class AMUEPollingService:
                 logger.warning(f"[WARN] Erreur lors du polling: {str(e)}")
                 last_status_code = None
 
-            # Attente avant prochaine tentative
             if attempt < max_attempts:
                 wait_minutes = self._calculate_wait_time(attempt)
                 self._wait_with_progress(wait_minutes)
 
-        # Timeout atteint
         return self._build_timeout_result(attempt, last_status_code, last_finish_value)
 
+    # ── Méthodes utilitaires ─────────────────────────────────────────────────
+
     def _log_config(self) -> None:
-        """Affiche la configuration du polling"""
         logger.info(f"[POLLING] Configuration:")
         logger.info(f"  - Intervalle: {self.config.interval_minutes} minutes")
         logger.info(f"[POLLING] Max wait: {self.config.max_wait_hours} heures")
-
         if self.config.exponential_backoff:
             logger.info(f"  - Backoff exponentiel activé (max: {self.config.max_backoff_minutes}min)")
         else:
             logger.info(f"  - Intervalle fixe")
 
-    def _calculate_max_attempts(self) -> int:
-        """
-        Calcule le nombre maximum de tentatives
-
-        Returns:
-            Nombre de tentatives possibles dans la fenêtre de temps
-        """
-        total_minutes = self.config.max_wait_hours * 60
-        return max(1, total_minutes // self.config.interval_minutes)
-
-    def _calculate_wait_time(self, attempt: int) -> float:
-        """
-        Calcule le temps d'attente selon la stratégie configurée
-
-        Args:
-            attempt: Numéro de la tentative actuelle
-
-        Returns:
-            Temps d'attente en minutes
-        """
-        if not self.config.exponential_backoff:
-            return self.config.interval_minutes
-
-        # Backoff exponentiel: 2^(attempt-1) * interval
-        wait = self.config.interval_minutes * (2 ** (attempt - 1))
-        return min(wait, self.config.max_backoff_minutes)
-
     def _wait_with_progress(self, wait_minutes: float) -> None:
-        """
-        Attend avec affichage de progression
-
-        Args:
-            wait_minutes: Temps d'attente en minutes
-        """
         logger.info(f"[POLLING] Attente de {wait_minutes:.1f} minutes...")
-
-        # Pour les attentes longues, affiche une progression
         if wait_minutes > 5:
-            intervals = 4  # Affiche 4 points de progression
+            intervals = 4
             interval_seconds = (wait_minutes * 60) / intervals
-
             for i in range(intervals):
                 time.sleep(interval_seconds)
                 progress = ((i + 1) / intervals) * 100
@@ -379,7 +228,6 @@ class AMUEPollingService:
             time.sleep(wait_minutes * 60)
 
     def _log_attempt(self, attempt: int, max_attempts: int) -> None:
-        """Log une tentative de polling"""
         elapsed = self._get_elapsed_time()
         logger.info(f"[POLLING] ======================================")
         logger.info(f"[POLLING] Tentative {attempt}/{max_attempts}")
@@ -387,61 +235,25 @@ class AMUEPollingService:
         logger.info(f"[POLLING] ======================================")
 
     def _get_elapsed_time(self) -> str:
-        """
-        Retourne le temps écoulé depuis le début
-
-        Returns:
-            Chaîne formatée (ex: "15m 30s")
-        """
         if not self.start_time:
             return "0m 0s"
-
         elapsed = datetime.now() - self.start_time
         total_seconds = int(elapsed.total_seconds())
-        minutes = total_seconds // 60
-        seconds = total_seconds % 60
-
-        return f"{minutes}m {seconds}s"
+        return f"{total_seconds // 60}m {total_seconds % 60}s"
 
     def _is_critical_error(self, status_code: int) -> bool:
-        """
-        Détermine si un code HTTP est une erreur critique
-
-        Args:
-            status_code: Code HTTP reçu
-
-        Returns:
-            True si erreur critique (pas besoin de retry)
-        """
-        # 4xx : Erreurs client (sauf 429 Too Many Requests qui mérite retry)
-        if 400 <= status_code < 500 and status_code != 429:
-            return True
-
-        return False
+        return 400 <= status_code < 500 and status_code != 429
 
     def _is_server_error(self, status_code: int) -> bool:
-        """
-        Détermine si un code HTTP est une erreur serveur
-
-        Args:
-            status_code: Code HTTP reçu
-
-        Returns:
-            True si erreur serveur (5xx)
-        """
         return 500 <= status_code < 600
 
     def _build_success_result(self, attempt: int, finish_value: str = None) -> Dict:
-        """Construit le résultat en cas de succès"""
         elapsed = datetime.now() - self.start_time
         wait_minutes = elapsed.total_seconds() / 60
 
         result = PollingResult(
-            ready=True,
-            attempts=attempt,
-            total_wait_minutes=wait_minutes,
-            status='success',
-            last_status_code=200
+            ready=True, attempts=attempt,
+            total_wait_minutes=wait_minutes, status='success', last_status_code=200
         )
 
         logger.info(f"[POLLING] API prête après {attempt} tentative(s)")
@@ -453,22 +265,14 @@ class AMUEPollingService:
         result_dict['finish'] = finish_value
         result_dict['report_start'] = self._cached_report_start or ''
         result_dict['start_time'] = self.start_time.isoformat()
-        # Inclut tables_status pour éviter appel API supplémentaire dans le DAG
         result_dict['tables_status'] = self._cached_tables_status or {}
         return result_dict
 
     def _build_timeout_result(
-            self,
-            attempt: int,
-            last_status_code: Optional[int],
-            last_finish_value: Optional[str] = None
+        self, attempt: int,
+        last_status_code: Optional[int],
+        last_finish_value: Optional[str] = None
     ) -> Dict:
-        """
-        Construit le résultat en cas de timeout
-
-        Raises:
-            AirflowException: Toujours (timeout = échec)
-        """
         elapsed = datetime.now() - self.start_time
         wait_minutes = elapsed.total_seconds() / 60
 
@@ -477,22 +281,10 @@ class AMUEPollingService:
             f"({attempt} tentatives, dernier code: {last_status_code}, "
             f"finish: {last_finish_value or 'non renseigné'})"
         )
-
         logger.error(f"[ERROR] {error_msg}")
-
-        result = PollingResult(
-            ready=False,
-            attempts=attempt,
-            total_wait_minutes=wait_minutes,
-            status='timeout',
-            last_status_code=last_status_code,
-            error=error_msg
-        )
-
         raise AirflowException(error_msg)
 
     def _result_to_dict(self, result: PollingResult) -> Dict:
-        """Convertit un résultat en dictionnaire"""
         return {
             'ready': result.ready,
             'attempts': result.attempts,

@@ -10,8 +10,19 @@ from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 logger = logging.getLogger(__name__)
 
 
+def _read_dag_run_conf() -> Dict:
+    """Lit dag_run.conf depuis le contexte Airflow courant."""
+    try:
+        from airflow.sdk import get_current_context
+        ctx = get_current_context()
+        dag_run = ctx.get('dag_run')
+        return dag_run.conf if dag_run and dag_run.conf else {}
+    except Exception:
+        return {}
+
+
 @task(task_id='select_setup_tables')
-def select_setup_tables(conf: Dict) -> List[Dict]:
+def select_setup_tables() -> List[Dict]:
     """
     Sélectionne les tables à initialiser pour le setup.
 
@@ -19,13 +30,11 @@ def select_setup_tables(conf: Dict) -> List[Dict]:
     si le schéma inactif existe sous son nom canonique ou avec le suffixe _offline.
     Quand déclenché par la DAG principale : utilise uniquement target_schema depuis conf.
 
-    Args:
-        conf: Configuration du dag_run (peut contenir 'target_schema')
-
     Returns:
         Liste de dicts de configuration de tables (format amue_tables),
         chacun enrichi avec 'target_schema'. En standalone : N tables × 2 schémas.
     """
+    conf = _read_dag_run_conf()
     if target_schema := (conf.get('target_schema') if conf else None):
         schemas = [target_schema]
         logger.info(f"[SETUP] Déclenché par la DAG principale — schéma cible: {target_schema}")
@@ -59,8 +68,8 @@ def select_setup_tables(conf: Dict) -> List[Dict]:
         f"({len(enabled)} table(s) × {len(schemas)} schéma(s))"
     )
     for schema in schemas:
-        logger.info(f"  Schéma {schema}:")
+        logger.debug(f"  Schéma {schema}:")
         for t in enabled:
-            logger.info(f"    - {t.get('name')} (setup_status={t.get('setup_status', 'pending')})")
+            logger.debug(f"    - {t.get('name')} (setup_status={t.get('setup_status', 'pending')})")
 
     return result

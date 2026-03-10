@@ -102,6 +102,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from typing import Any, List, Dict
 
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -211,6 +212,7 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 
 
 _type_mapping_cache = None
+_type_mapping_lock = threading.Lock()
 
 
 def _get_type_mapping() -> dict:
@@ -218,7 +220,7 @@ def _get_type_mapping() -> dict:
     Charge le mapping SQLite -> PostgreSQL depuis la variable Airflow
     TYPE_MAPPING_SQLITE_TO_POSTGRES.
 
-    Le résultat est mis en cache pour la durée du processus.
+    Le résultat est mis en cache pour la durée du processus (thread-safe).
     Les clés sont normalisées en majuscules.
 
     Returns:
@@ -231,11 +233,15 @@ def _get_type_mapping() -> dict:
     if _type_mapping_cache is not None:
         return _type_mapping_cache
 
-    raw = VarMgr.get('TYPE_MAPPING_SQLITE_TO_POSTGRES')
-    mapping = json.loads(raw) if isinstance(raw, str) else raw
-    # Normalise les clés en majuscules
-    _type_mapping_cache = {k.upper(): v for k, v in mapping.items()}
-    logger.info(f"[TRANSFORMERS] Type mapping charge: {len(_type_mapping_cache)} types")
+    with _type_mapping_lock:
+        # Double-check après acquisition du verrou
+        if _type_mapping_cache is not None:
+            return _type_mapping_cache
+        raw = VarMgr.get('TYPE_MAPPING_SQLITE_TO_POSTGRES')
+        mapping = json.loads(raw) if isinstance(raw, str) else raw
+        # Normalise les clés en majuscules
+        _type_mapping_cache = {k.upper(): v for k, v in mapping.items()}
+        logger.info(f"[TRANSFORMERS] Type mapping charge: {len(_type_mapping_cache)} types")
     return _type_mapping_cache
 
 

@@ -1,6 +1,7 @@
 # ecc/utils/config/settings.py
 """Configuration centralisée ECC."""
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.config import PROTECTED_SOURCE
 
 
 class ECCDefaults:
@@ -15,7 +16,7 @@ class ECCDefaults:
     IMPORT_SCHEDULE: str = '0 4 * * *'
     IMPORT_BATCH_SIZE: int = 5000
     SOURCE_NAME: str = 'ecc'
-    PROTECTED_SOURCE: str = 'sifac_plus'
+    PROTECTED_SOURCE: str = PROTECTED_SOURCE  # centralisé dans common.config
     ORACLE_CONN_ID: str = 'oracle_data'
     SQL_DIR: str = '/opt/airflow/scripts/sql/ECC'
 

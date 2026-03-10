@@ -439,6 +439,29 @@ class TracingContext:
 # HELPERS
 # =============================================================================
 
+def to_iso_str(v) -> Optional[str]:
+    """
+    Convertit une valeur datetime-like en chaîne ISO 8601.
+
+    Args:
+        v: Valeur à convertir (datetime, date, ou déjà une chaîne)
+
+    Returns:
+        Chaîne ISO 8601 ou None si v est None
+
+    Example:
+        >>> to_iso_str(datetime(2026, 3, 9, 12, 0))
+        '2026-03-09T12:00:00'
+        >>> to_iso_str('2026-03-09T12:00:00')
+        '2026-03-09T12:00:00'
+        >>> to_iso_str(None)
+        None
+    """
+    if v is None:
+        return None
+    return v.isoformat() if hasattr(v, 'isoformat') else str(v)
+
+
 def log_with_correlation(
     logger_instance,
     level: str,

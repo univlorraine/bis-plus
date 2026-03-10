@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Optional
 
 from amue.utils.database.hooks import create_postgres_hook
+from amue.utils.tracing import to_iso_str
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,7 @@ class AdminStateManager:
                 parameters=(_ROW_ID,)
             )
             if row and row[0] is not None:
-                v = row[0]
-                return v.isoformat() if hasattr(v, 'isoformat') else str(v)
+                return to_iso_str(row[0])
             return None
         except Exception as e:
             logger.warning(f"[ADMIN_STATE] Impossible de lire last_finish_timestamp: {e}")
@@ -99,8 +99,7 @@ class AdminStateManager:
                 parameters=(_ROW_ID,)
             )
             if row and row[0] is not None:
-                v = row[0]
-                return v.isoformat() if hasattr(v, 'isoformat') else str(v)
+                return to_iso_str(row[0])
             return None
         except Exception as e:
             logger.warning(f"[ADMIN_STATE] Impossible de lire last_successful_run: {e}")
@@ -139,8 +138,7 @@ class AdminStateManager:
                 parameters=(_ROW_ID,)
             )
             if row and row[0] is not None:
-                v = row[0]
-                return v.isoformat() if hasattr(v, 'isoformat') else str(v)
+                return to_iso_str(row[0])
             return None
         except Exception as e:
             logger.warning(f"[ADMIN_STATE] Impossible de lire last_report_start: {e}")
@@ -189,10 +187,10 @@ class AdminStateManager:
                 return BlueGreenState()
             return BlueGreenState(
                 last_import_schema=row[0] or "",
-                last_switch_timestamp=row[1].isoformat() if row[1] else "",
-                last_sync_timestamp=row[2].isoformat() if row[2] else "",
+                last_switch_timestamp=to_iso_str(row[1]) or "",
+                last_sync_timestamp=to_iso_str(row[2]) or "",
                 import_in_progress=bool(row[3]),
-                import_started_at=row[4].isoformat() if row[4] else "",
+                import_started_at=to_iso_str(row[4]) or "",
                 import_correlation_id=row[5] or "",
             )
         except Exception as e:
@@ -367,6 +365,39 @@ class AdminStateManager:
         except Exception as e:
             logger.error(f"[ADMIN_STATE] Erreur mark_switch_completed: {e}")
             return False
+
+    def update_import_timestamps(
+        self,
+        finish_timestamp: Optional[str] = None,
+        report_start: Optional[str] = None,
+        last_successful_run: Optional[str] = None,
+    ) -> None:
+        """
+        Met à jour les trois timestamps post-import en une seule transaction atomique.
+
+        Args:
+            finish_timestamp: Timestamp finish de l'API AMUE (ISO 8601)
+            report_start: Timestamp start du rapport AMUE (ISO 8601)
+            last_successful_run: Date du dernier succès global (ISO 8601)
+
+        Raises:
+            Exception: Si l'UPDATE échoue
+        """
+        self._hook.run(
+            f"""
+            UPDATE {_TABLE} SET
+                last_finish_timestamp = COALESCE(%s, last_finish_timestamp),
+                last_report_start     = COALESCE(%s, last_report_start),
+                last_successful_run   = COALESCE(%s, last_successful_run),
+                updated_at            = NOW()
+            WHERE id = %s
+            """,
+            parameters=(finish_timestamp, report_start, last_successful_run, _ROW_ID)
+        )
+        logger.info(
+            f"[ADMIN_STATE] Timestamps mis à jour (finish={finish_timestamp},"
+            f" report_start={report_start}, last_success={last_successful_run})"
+        )
 
     def mark_sync_completed(self) -> bool:
         """

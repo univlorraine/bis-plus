@@ -9,24 +9,24 @@ from datetime import datetime, timedelta
 class TestAMUEAPIHookTokenExpiration:
     """Tests pour la gestion d'expiration du token OAuth"""
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_is_token_expired_no_token(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_is_token_expired_no_token(self, mock_get_conn):
         """Sans token, _is_token_expired doit retourner True"""
         mock_conn = MagicMock()
         mock_conn.extra = '{}'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook
 
         hook = AMUEAPIHook()
         assert hook._is_token_expired() is True
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_is_token_expired_token_still_valid(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_is_token_expired_token_still_valid(self, mock_get_conn):
         """Token avec expiration future doit retourner False"""
         mock_conn = MagicMock()
         mock_conn.extra = '{}'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook, _token_cache
 
@@ -41,12 +41,12 @@ class TestAMUEAPIHookTokenExpiration:
         # Cleanup
         _token_cache.invalidate()
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_is_token_expired_token_expired(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_is_token_expired_token_expired(self, mock_get_conn):
         """Token avec expiration passée doit retourner True"""
         mock_conn = MagicMock()
         mock_conn.extra = '{}'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook
 
@@ -56,15 +56,15 @@ class TestAMUEAPIHookTokenExpiration:
 
         assert hook._is_token_expired() is True
 
-    @patch('amue.hooks.amue_api_hook.Connection')
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
     @patch('amue.hooks.amue_api_hook.requests.post')
-    def test_get_oauth_token_sets_expiration(self, mock_post, mock_connection):
+    def test_get_oauth_token_sets_expiration(self, mock_post, mock_get_conn):
         """get_oauth_token doit définir token_expires_at"""
         mock_conn = MagicMock()
         mock_conn.login = 'client_id'
         mock_conn.password = 'client_secret'
         mock_conn.extra = '{"token_url": "https://auth.example.com/token"}'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -93,12 +93,12 @@ class TestAMUEAPIHookTokenExpiration:
         # Cleanup
         _token_cache.invalidate()
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_parse_connection_extra_valid_json(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_parse_connection_extra_valid_json(self, mock_get_conn):
         """_parse_connection_extra avec JSON valide"""
         mock_conn = MagicMock()
         mock_conn.extra = '{"token_url": "https://auth.example.com/token", "api_base_url": "https://api.example.com"}'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook
 
@@ -108,12 +108,12 @@ class TestAMUEAPIHookTokenExpiration:
         assert extra['token_url'] == 'https://auth.example.com/token'
         assert extra['api_base_url'] == 'https://api.example.com'
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_parse_connection_extra_invalid_json(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_parse_connection_extra_invalid_json(self, mock_get_conn):
         """_parse_connection_extra avec JSON invalide retourne dict vide"""
         mock_conn = MagicMock()
         mock_conn.extra = 'invalid json'
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook
 
@@ -122,12 +122,12 @@ class TestAMUEAPIHookTokenExpiration:
 
         assert extra == {}
 
-    @patch('amue.hooks.amue_api_hook.Connection')
-    def test_parse_connection_extra_empty(self, mock_connection):
+    @patch('amue.hooks.amue_api_hook.get_airflow_connection')
+    def test_parse_connection_extra_empty(self, mock_get_conn):
         """_parse_connection_extra avec extra vide retourne dict vide"""
         mock_conn = MagicMock()
         mock_conn.extra = None
-        mock_connection.get.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
 
         from amue.hooks.amue_api_hook import AMUEAPIHook
 

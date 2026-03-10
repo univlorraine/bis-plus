@@ -62,7 +62,6 @@ _sync_schedule = VarMgr.get('amue_sync_schedule', default='0 6 * * *')
         'owner': 'airflow',
         'retries': 0,
         'retry_delay': timedelta(minutes=5),
-        'on_failure_callback': send_failure_notification,
     }
 )
 def amue_sync_schemas():

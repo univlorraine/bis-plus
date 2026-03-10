@@ -35,6 +35,7 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import sql
 
 from amue.utils.database.hooks import create_postgres_hook
+from amue.utils.database.schema_utils import list_tables, table_exists
 from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
 logger = logging.getLogger(__name__)
@@ -75,15 +76,7 @@ class SchemaSynchronizer:
         Returns:
             Liste des noms de tables
         """
-        query = """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_type = 'BASE TABLE'
-            ORDER BY table_name
-        """
-        result = self.postgres_hook.get_records(query, parameters=(schema_name,))
-        return [row[0] for row in result] if result else []
+        return list_tables(self.postgres_hook, schema_name)
 
     def sync_table(
         self,
@@ -115,7 +108,7 @@ class SchemaSynchronizer:
                 'error': None | 'message'
             }
         """
-        logger.info(f"[SYNC] Table {table_name}: {source_schema} -> {target_schema}")
+        logger.debug(f"[SYNC] Table {table_name}: {source_schema} -> {target_schema}")
 
         conn = self.postgres_hook.get_conn()
         cursor = conn.cursor()
@@ -143,7 +136,7 @@ class SchemaSynchronizer:
                     table=sql.Identifier(table_name)
                 )
                 cursor.execute(create_sql)
-                logger.info(f"[SYNC] Table {table_name} créée dans {target_schema}")
+                logger.debug(f"[SYNC] Table {table_name} créée dans {target_schema}")
                 table_created = True
             else:
                 # TRUNCATE cible
@@ -166,7 +159,7 @@ class SchemaSynchronizer:
             rows_copied = cursor.rowcount
 
             conn.commit()
-            logger.info(f"[SYNC] Table {table_name}: {rows_copied} lignes copiées")
+            logger.debug(f"[SYNC] Table {table_name}: {rows_copied} lignes copiées")
 
             return {
                 'table_name': table_name,
@@ -188,6 +181,7 @@ class SchemaSynchronizer:
             }
         finally:
             cursor.close()
+            conn.close()
 
     def sync_schemas(
         self,
@@ -309,16 +303,7 @@ class SchemaSynchronizer:
 
     def _table_exists(self, table_name: str, schema_name: str) -> bool:
         """Vérifie si une table existe dans un schéma"""
-        query = """
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = %s
-                  AND table_name = %s
-            )
-        """
-        result = self.postgres_hook.get_first(query, parameters=(schema_name, table_name.lower()))
-        return result[0] if result else False
+        return table_exists(self.postgres_hook, schema_name, table_name)
 
     def compare_row_counts(
         self,

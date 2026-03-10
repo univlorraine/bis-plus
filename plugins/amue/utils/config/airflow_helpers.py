@@ -50,6 +50,28 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def get_airflow_connection(conn_id: str):
+    """
+    Récupère une connexion Airflow depuis le store de secrets.
+
+    Compatibilité automatique Airflow 2.x / 3.x :
+        - Airflow 3.x SDK : airflow.sdk.Connection
+        - Airflow 2.x     : airflow.models.Connection
+
+    Args:
+        conn_id: Identifiant de la connexion Airflow
+
+    Returns:
+        Objet Connection Airflow
+    """
+    try:
+        from airflow.sdk import Connection
+        return Connection.get_connection_from_secrets(conn_id)
+    except (ImportError, AttributeError):
+        from airflow.models import Connection
+        return Connection.get_connection_from_secrets(conn_id)
+
+
 class AirflowVariableManager:
     """Gestionnaire centralisé pour variables Airflow avec fallback SDK/API"""
 

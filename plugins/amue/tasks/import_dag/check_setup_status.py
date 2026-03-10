@@ -53,6 +53,14 @@ def check_setup_status(tables: List[Dict]) -> List[Dict]:
                 f"lancer la DAG amue_table_setup avant l'import"
             )
         elif status == 'blocked':
+            fp_api = metadata.get('fingerprint_API', 'N/A')
+            fp_ul = metadata.get('fingerprint_UL', 'N/A')
+            pk = metadata.get('primary_key', 'N/A')
+            logger.error(f"[CHECK_SETUP] {table_name} : BLOQUÉE — changement de structure AMUE détecté")
+            logger.error(f"[CHECK_SETUP]   fingerprint_API stocké : {fp_api} (dernière structure valide connue)")
+            logger.error(f"[CHECK_SETUP]   fingerprint_UL stocké  : {fp_ul}")
+            logger.error(f"[CHECK_SETUP]   primary_key configurée : {pk}")
+            logger.error(f"[CHECK_SETUP]   → Relancer amue_table_setup pour comparer la structure actuelle")
             errors.append(
                 f"{table_name}: setup_status='blocked' — "
                 f"changement de structure détecté, intervention manuelle requise"

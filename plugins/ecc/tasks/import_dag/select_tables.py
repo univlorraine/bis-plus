@@ -62,7 +62,7 @@ def select_ecc_tables() -> List[Dict]:
             'source': ECCDefaults.SOURCE_NAME,
             'protected_source': ECCDefaults.PROTECTED_SOURCE,
         })
-        logger.info(f"[ECC] Table sélectionnée: {table_name} (PKs: {pk_list})")
+        logger.debug(f"[ECC] Table sélectionnée: {table_name} (PKs: {pk_list})")
 
     logger.info(f"[ECC] {len(tables)} table(s) sélectionnée(s) → {active_schema}")
     return tables
