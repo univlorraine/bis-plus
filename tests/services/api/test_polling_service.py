@@ -709,3 +709,76 @@ class TestPollingConfig:
         assert config.max_wait_hours == 2
         assert config.exponential_backoff is True
         assert config.max_backoff_minutes == 30
+
+
+class TestFinishTimestampValidatorNormalize:
+    """
+    Tests de normalisation des timestamps.
+
+    Régression : la comparaison brute de chaînes échouait quand l'API retourne
+    '2026-03-09 10:00:00' (espace) mais la DB retourne '2026-03-09T10:00:00' (T).
+    """
+
+    def test_normalize_space_separator(self):
+        """Espace → T."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('2026-03-09 10:00:00') == '2026-03-09T10:00:00'
+
+    def test_normalize_t_separator_unchanged(self):
+        """T reste T."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('2026-03-09T10:00:00') == '2026-03-09T10:00:00'
+
+    def test_normalize_strips_timezone_offset(self):
+        """Timezone +00:00 supprimé."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('2026-03-09T10:00:00+00:00') == '2026-03-09T10:00:00'
+
+    def test_normalize_strips_z_suffix(self):
+        """Timezone Z supprimé."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('2026-03-09T10:00:00Z') == '2026-03-09T10:00:00'
+
+    def test_normalize_strips_microseconds(self):
+        """Microsecondes supprimées."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('2026-03-09T10:00:00.123456') == '2026-03-09T10:00:00'
+
+    def test_normalize_empty_string(self):
+        """Chaîne vide retourne vide."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+        assert FinishTimestampValidator._normalize_ts('') == ''
+
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_should_skip_detects_same_timestamp_despite_format_mismatch(self, mock_admin_cls):
+        """
+        Régression : API retourne espace, DB retourne T — doit quand même détecter INCHANGÉ.
+
+        Avant le fix, cette comparaison retournait False (import lancé à tort).
+        """
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        # DB retourne via datetime.isoformat() : format avec T
+        mock_admin.get_last_finish_timestamp.return_value = '2026-03-09T10:00:00'
+
+        validator = FinishTimestampValidator()
+        # API retourne format avec espace
+        result = validator.should_skip('2026-03-09 10:00:00')
+
+        assert result is True, "Même timestamp (format différent) doit déclencher le skip"
+
+    @patch('amue.services.admin_state_manager.AdminStateManager')
+    def test_should_not_skip_newer_timestamp_despite_format_mismatch(self, mock_admin_cls):
+        """Timestamp plus récent côté API → import doit être lancé, quel que soit le format."""
+        from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
+
+        mock_admin = MagicMock()
+        mock_admin_cls.return_value = mock_admin
+        mock_admin.get_last_finish_timestamp.return_value = '2026-03-09T10:00:00'
+
+        validator = FinishTimestampValidator()
+        result = validator.should_skip('2026-03-10 08:00:00')
+
+        assert result is False, "Timestamp plus récent ne doit pas déclencher le skip"

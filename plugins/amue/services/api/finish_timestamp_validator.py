@@ -5,6 +5,8 @@ Ce module détermine si un import doit être exécuté en comparant
 le timestamp finish actuel avec celui stocké en base.
 """
 import logging
+import re
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,38 @@ class FinishTimestampValidator:
         logger.info(f"[POLLING] Finish timestamp valide: {finish_value}")
         return True
 
+    @staticmethod
+    def _normalize_ts(ts: str) -> str:
+        """
+        Normalise un timestamp en 'YYYY-MM-DDTHH:MM:SS' UTC pour comparaison fiable.
+
+        Problèmes résolus :
+            1. L'API retourne '2026-03-09 10:00:00' (espace) ou '2026-03-09T10:00:00+00:00'
+            2. psycopg2 retourne le timestamp en timezone locale (ex: +01:00 CET)
+               alors que la valeur stockée en BDD est UTC — supprimer naïvement le suffixe
+               donne '2026-03-10T00:36:44' vs '2026-03-09T23:36:44' pour le même instant.
+
+        Normalisation : parse avec timezone si présent → conversion UTC → formatage ISO.
+        Fallback chaîne si le parsing échoue.
+        """
+        if not ts:
+            return ''
+        try:
+            # Prépare la chaîne pour fromisoformat : espace → T, supprime microsecondes
+            ts_clean = ts.strip().replace(' ', 'T', 1)
+            ts_clean = re.sub(r'\.\d+', '', ts_clean)
+            dt = datetime.fromisoformat(ts_clean)
+            if dt.tzinfo is not None:
+                # Convertit en UTC avant de supprimer l'info timezone
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt.strftime('%Y-%m-%dT%H:%M:%S')
+        except (ValueError, OverflowError):
+            # Fallback : normalisation purement chaîne
+            normalized = ts.strip().replace(' ', 'T', 1)
+            normalized = re.sub(r'\.\d+', '', normalized)
+            normalized = re.sub(r'[+-]\d{2}:?\d{2}$', '', normalized)
+            return normalized.rstrip('Z')
+
     def should_skip(self, current_finish: str) -> bool:
         """
         Détermine si l'import doit être ignoré (timestamp inchangé ou invalide).
@@ -81,7 +115,14 @@ class FinishTimestampValidator:
             logger.info("[POLLING] L'import sera exécuté et ce timestamp sera sauvegardé")
             return False
 
-        if current_finish > stored_finish:
+        norm_current = self._normalize_ts(current_finish)
+        norm_stored = self._normalize_ts(stored_finish)
+
+        logger.info(f"[POLLING] Comparaison timestamps :")
+        logger.info(f"[POLLING]   API brut     : {current_finish!r}  →  normalisé : {norm_current!r}")
+        logger.info(f"[POLLING]   Stocké brut  : {stored_finish!r}  →  normalisé : {norm_stored!r}")
+
+        if norm_current > norm_stored:
             logger.info("[POLLING] ═══════════════════════════════════════════")
             logger.info("[POLLING] NOUVEAU TIMESTAMP DÉTECTÉ")
             logger.info("[POLLING] ═══════════════════════════════════════════")
@@ -90,7 +131,7 @@ class FinishTimestampValidator:
             logger.info("[POLLING] De nouvelles données sont disponibles")
             return False
 
-        if stored_finish == current_finish:
+        if norm_stored == norm_current:
             logger.info("[POLLING] ═══════════════════════════════════════════")
             logger.info("[POLLING] TIMESTAMP INCHANGÉ")
             logger.info("[POLLING] ═══════════════════════════════════════════")

@@ -13,7 +13,6 @@ Usage dans le DAG :
     )
 """
 import logging
-import pprint
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +20,7 @@ from airflow.sdk.bases.sensor import BaseSensorOperator
 
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.services.api.status_checker import AMUEStatusChecker
+from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
@@ -81,10 +81,11 @@ class AMUEAPISensor(BaseSensorOperator):
             logger.info("[SENSOR] Traitement AMUE en cours (finish vide)")
             return False
 
-        # Vérifie que le timestamp est nouveau (lu depuis la BDD)
-        from amue.services.admin_state_manager import AdminStateManager
-        last_finish = AdminStateManager().get_last_finish_timestamp() or ''
-        if finish == last_finish:
+        # Vérifie que le timestamp est nouveau (avec normalisation de format)
+        force_import = VarMgr.get('amue_force_import', default='false').lower() == 'true'
+        if force_import:
+            logger.info("[SENSOR] Force import activé — contrainte finish ignorée")
+        elif FinishTimestampValidator().should_skip(finish):
             logger.info(f"[SENSOR] Même timestamp finish ({finish}), en attente de nouveau traitement")
             return False
 
