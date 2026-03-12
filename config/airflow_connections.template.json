@@ -17,7 +17,7 @@
     }
   },
   "oracle_data": {
-    "conn_type": "oracle",
+    "conn_type": "odbc",
     "host": "${ORACLE_DATA_HOST}",
     "schema": "${ORACLE_DATA_DB}",
     "port": "${ORACLE_DATA_PORT}",

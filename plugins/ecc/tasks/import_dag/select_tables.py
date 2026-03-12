@@ -18,22 +18,36 @@ def select_ecc_tables() -> List[Dict]:
     Lit la liste des tables ECC activées depuis splus_admin.amue_tables.
 
     Sélectionne les lignes dont ecc_query est non-NULL et non-vide.
-    Détermine le schéma actif via BlueGreenManager (ECC insère directement
-    dans le schéma actif, sans switch de schéma).
+    Détermine le schéma actif et le schéma inactif via BlueGreenManager.
+    ECC importe dans les deux schémas pour garantir la cohérence après un
+    switch Blue/Green déclenché par AMUE.
 
     Returns:
-        Liste de dicts par table :
+        Liste de dicts par table × schéma :
         {
             'table_name': str,
             'ecc_query': str,
             'primary_keys': List[str],
-            'target_schema': str,       ← schéma actif (ex: 'splus_blue')
+            'target_schema': str,       ← schéma actif ou inactif
             'source': str,
             'protected_source': str
         }
     """
-    active_schema = BlueGreenManager().get_active_schema()
-    logger.info(f"[ECC] Schéma actif pour l'import: {active_schema}")
+    manager = BlueGreenManager()
+    active = manager.get_active_schema()
+
+    inactive_canonical = manager.get_target_schema()
+    inactive_offline = inactive_canonical + BlueGreenManager.OFFLINE_SUFFIX
+
+    if manager.schema_exists(inactive_canonical):
+        inactive = inactive_canonical
+    elif manager.schema_exists(inactive_offline):
+        inactive = inactive_offline
+    else:
+        inactive = None  # premier lancement
+
+    schemas = [s for s in [active, inactive] if s]
+    logger.info(f"[ECC] Import dans les schémas: {schemas}")
 
     pg_hook = create_postgres_hook(schema='splus_admin')
     rows = pg_hook.get_records(
@@ -51,18 +65,19 @@ def select_ecc_tables() -> List[Dict]:
         logger.warning("[ECC] Aucune table ECC activée dans splus_admin.amue_tables (ecc_query non-NULL)")
         return []
 
-    tables = []
-    for table_name, ecc_query, primary_key in rows:
-        pk_list = [pk.strip() for pk in primary_key.split(',') if pk.strip()]
-        tables.append({
-            'table_name': table_name,
-            'ecc_query': ecc_query,
-            'primary_keys': pk_list,
-            'target_schema': active_schema,
-            'source': ECCDefaults.SOURCE_NAME,
-            'protected_source': ECCDefaults.PROTECTED_SOURCE,
-        })
-        logger.debug(f"[ECC] Table sélectionnée: {table_name} (PKs: {pk_list})")
+    result = []
+    for schema in schemas:
+        for table_name, ecc_query, primary_key in rows:
+            pk_list = [pk.strip() for pk in primary_key.split(',') if pk.strip()]
+            result.append({
+                'table_name': table_name,
+                'ecc_query': ecc_query,
+                'primary_keys': pk_list,
+                'target_schema': schema,
+                'source': ECCDefaults.SOURCE_NAME,
+                'protected_source': ECCDefaults.PROTECTED_SOURCE,
+            })
+            logger.debug(f"[ECC] Table sélectionnée: {table_name} → {schema} (PKs: {pk_list})")
 
-    logger.info(f"[ECC] {len(tables)} table(s) sélectionnée(s) → {active_schema}")
-    return tables
+    logger.info(f"[ECC] {len(result)} entrée(s) ({len(rows)} table(s) × {len(schemas)} schéma(s))")
+    return result

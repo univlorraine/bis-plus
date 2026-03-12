@@ -15,5 +15,12 @@
     "extra": {
       "options": "-c search_path=splus"
     }
+  },
+  "oracle_data": {
+    "conn_type": "odbc",
+    "host": "oracle.example.fr",
+    "schema": "SAPSR3",
+    "port": 1521,
+    "extra": {}
   }
 }

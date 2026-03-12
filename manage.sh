@@ -66,7 +66,6 @@ Commandes disponibles:
     fix                 Corrige la configuration (avec attente API)
     auto-fix            Correction automatique complète (détecte et corrige)
     verify              Vérifie la configuration actuelle
-    verify-email        Vérifie le correctif email Airflow 3.x
     export              Exporte la configuration actuelle
     diagnose            Diagnostic complet du système
     test-config         Test rapide de la configuration
@@ -375,12 +374,6 @@ cmd_verify() {
     ./scripts/install/setup_airflow_config.sh --verify
 }
 
-cmd_verify_email() {
-    log_info "Vérification du correctif email Airflow 3.x..."
-    chmod +x scripts/dev/verify_email_fix.sh
-    ./scripts/dev/verify_email_fix.sh
-}
-
 cmd_diagnose() {
     log_info "Diagnostic complet du système..."
     chmod +x scripts/manage/diagnose.sh
@@ -389,8 +382,8 @@ cmd_diagnose() {
 
 cmd_test_config() {
     log_info "Test rapide de la configuration..."
-    chmod +x scripts/quick_test.sh
-    ./scripts/quick_test.sh
+    chmod +x scripts/manage/quick_fix.sh
+    ./scripts/manage/quick_fix.sh
 }
 
 cmd_export() {
@@ -847,7 +840,6 @@ cmd_config_validate() {
     # 3. Vérification des variables Airflow
     log_info "=== Variables Airflow ==="
     local airflow_vars=(
-        "amue_tables_to_import"
         "oauth_api_connection_id"
         "amue_import_batch_size"
     )
@@ -1071,223 +1063,212 @@ cmd_delete_user() {
     log_success "Utilisateur $username supprimé"
 }
 
-cmd_add_table() {
-    # Vérifie que jq est disponible
-    if ! command -v jq &> /dev/null; then
-        log_error "jq est requis pour cette opération"
-        log_info "Installation: sudo apt-get install jq"
+###############################################################################
+# Helper : chargement des credentials PostgreSQL depuis .env
+###############################################################################
+
+_load_pg_creds() {
+    # Lit host/port/db/user depuis config/airflow_connections.json + .env
+    # Demande le mot de passe interactivement s'il est absent du .env
+    if [[ ! -f "config/airflow_connections.json" ]]; then
+        log_error "config/airflow_connections.json introuvable (lancez 'make setup')"
+        exit 1
+    fi
+    PG_HOST=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('host',''))" 2>/dev/null)
+    PG_PORT=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('port',5432))" 2>/dev/null)
+    PG_DB=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('schema',''))" 2>/dev/null)
+
+    PG_USER=""
+    PG_PASSWORD=""
+    if [[ -f ".env" ]]; then
+        PG_USER=$(grep -E "^POSTGRES_DATA_LOGIN=" .env | cut -d'=' -f2- | tr -d '"')
+        PG_PASSWORD=$(grep -E "^POSTGRES_DATA_PASSWORD=" .env | cut -d'=' -f2- | tr -d '"')
+    fi
+
+    if [[ -z "$PG_HOST" || -z "$PG_DB" || -z "$PG_USER" ]]; then
+        log_error "Paramètres PostgreSQL incomplets (config/airflow_connections.json + .env)"
         exit 1
     fi
 
-    local tables=("$@")
-
-    # Mode interactif si aucun argument
-    if [[ ${#tables[@]} -eq 0 ]]; then
-        log_info "Ajout de table(s) - Mode interactif"
-        log_info "Tapez les noms des tables séparés par des espaces, ou un par ligne (ligne vide pour terminer)"
-        echo ""
-
-        while true; do
-            echo -n "Table(s) à ajouter : " >&2
-            read -r input </dev/tty
-            [[ -z "$input" ]] && break
-
-            # Ajoute toutes les tables de la ligne
-            for t in $input; do
-                tables+=("$t")
-            done
-        done
-
-        if [[ ${#tables[@]} -eq 0 ]]; then
-            log_error "Aucune table spécifiée"
-            exit 1
-        fi
+    if [[ -z "$PG_PASSWORD" ]]; then
+        echo -n "Mot de passe PostgreSQL ($PG_USER@$PG_HOST/$PG_DB) : " >&2
+        read -rs PG_PASSWORD </dev/tty
+        echo "" >&2
     fi
+}
 
-    log_info "Ajout de ${#tables[@]} table(s)..."
+_pg_exec() {
+    PG_HOST="$PG_HOST" PG_PORT="$PG_PORT" PG_DB="$PG_DB" \
+    PG_USER="$PG_USER" PG_PASSWORD="$PG_PASSWORD" \
+        python3 scripts/lib/pg_client.py "$@"
+}
 
-    # Récupère la configuration actuelle
-    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
+###############################################################################
+# Gestion des tables (splus_admin.amue_tables)
+###############################################################################
 
-    local added=0
-    local skipped=0
+cmd_list_tables() {
+    _load_pg_creds
+    log_info "Tables configurées dans splus_admin.amue_tables:"
+    echo ""
+    _pg_exec -c "
+        SELECT
+            CASE WHEN enabled THEN ' ✓' ELSE ' ✗' END AS \"état\",
+            table_name AS table,
+            CASE WHEN ecc_query IS NOT NULL AND ecc_query != '' THEN 'ECC ' ELSE 'AMUE' END AS type,
+            COALESCE(NULLIF(delta,''), '-') AS delta,
+            setup_status AS setup
+        FROM splus_admin.amue_tables
+        ORDER BY type DESC, table_name;
+    "
+    echo ""
+    echo "  ✓ = activée  ✗ = désactivée  |  type ECC = requête Oracle"
+    echo ""
+}
 
-    for table in "${tables[@]}"; do
-        # Convertit en majuscules
-        TABLE_NAME=$(echo "$table" | tr '[:lower:]' '[:upper:]')
+cmd_add_table() {
+    local tables=("$@")
+    _load_pg_creds
 
-        # Vérifie si la table existe déjà
-        TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$TABLE_NAME\")] | length")
+    if [[ ${#tables[@]} -eq 0 ]]; then
+        # Mode interactif
+        log_info "Ajout de table — Mode interactif (ligne vide pour terminer)"
+        echo ""
+        local added=0
+        while true; do
+            echo -n "Nom de la table (vide pour terminer) : " >&2
+            read -r TABLE_NAME </dev/tty
+            [[ -z "$TABLE_NAME" ]] && break
 
-        if [[ "$TABLE_EXISTS" != "0" ]]; then
-            log_warning "  $TABLE_NAME : existe déjà (ignorée)"
-            ((skipped+=1))
-            continue
-        fi
+            echo -n "Colonne delta pour import différentiel (vide si aucun) : " >&2
+            read -r TABLE_DELTA </dev/tty
 
-        # Ajoute la table à la configuration
-        CURRENT_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c \
-            --arg name "$TABLE_NAME" \
-            '. + [{name: $name, enable: true, primary_key: "", delta: "", last_import: "", finger_print: ""}]')
+            echo -n "Table ECC avec requête Oracle ? [y/N] : " >&2
+            read -r IS_ECC </dev/tty
 
-        log_success "  $TABLE_NAME : ajoutée"
-        ((added+=1))
-    done
+            local ECC_SQL="NULL"
+            if [[ "${IS_ECC,,}" == "y" ]]; then
+                log_info "Entrez la requête Oracle ECC (terminez avec une ligne contenant uniquement 'EOF') :"
+                local ECC_LINES=""
+                while IFS= read -r line </dev/tty; do
+                    [[ "$line" == "EOF" ]] && break
+                    ECC_LINES+="$line"$'\n'
+                done
+                # Échappe les apostrophes pour psql
+                ECC_SQL="'$(echo "$ECC_LINES" | sed "s/'/''/g")'"
+            fi
 
-    # Met à jour la variable si des tables ont été ajoutées
-    if [[ $added -gt 0 ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$CURRENT_CONFIG"
+            RESULT=$(_pg_exec -At -c "
+                INSERT INTO splus_admin.amue_tables (table_name, enabled, delta, ecc_query, setup_status)
+                VALUES ('$TABLE_NAME', true, '$TABLE_DELTA', $ECC_SQL, 'pending')
+                ON CONFLICT (table_name) DO NOTHING
+                RETURNING table_name
+            " 2>&1 || true)
+
+            if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+                log_success "  $TABLE_NAME : ajoutée"
+                ((added+=1))
+            else
+                log_warning "  $TABLE_NAME : existe déjà ou erreur (ignorée)"
+            fi
+        done
+        echo ""
+        log_success "$added table(s) ajoutée(s)"
+    else
+        # Mode non-interactif : noms passés en arguments
+        local added=0
+        local skipped=0
+        for table in "${tables[@]}"; do
+            RESULT=$(_pg_exec -At -c "
+                INSERT INTO splus_admin.amue_tables (table_name, enabled, setup_status)
+                VALUES ('$table', true, 'pending')
+                ON CONFLICT (table_name) DO NOTHING
+                RETURNING table_name
+            " 2>&1 || true)
+            if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+                log_success "  $table : ajoutée"
+                ((added+=1))
+            else
+                log_warning "  $table : existe déjà (ignorée)"
+                ((skipped+=1))
+            fi
+        done
         echo ""
         log_success "$added table(s) ajoutée(s), $skipped ignorée(s)"
-    else
-        log_warning "Aucune table ajoutée"
     fi
 
     echo ""
     cmd_list_tables
 }
 
-cmd_list_tables() {
-    log_info "Tables configurées pour l'import:"
-    echo ""
-
-    TABLES_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
-
-    if command -v jq &> /dev/null; then
-        # Affiche le statut enable avec un indicateur visuel
-        echo "$TABLES_CONFIG" | jq -r '.[] |
-            (if .enable == false then "  ✗ " else "  ✓ " end) +
-            .name +
-            (if .delta != "" then " (delta: \(.delta))" else "" end) +
-            (if .last_import != "" then " [dernier import: \(.last_import)]" else "" end)'
-        echo ""
-        echo "  ✓ = activée, ✗ = désactivée"
-    else
-        echo "$TABLES_CONFIG"
-    fi
-    echo ""
-}
-
 cmd_remove_table() {
     local tables=("$@")
-
     if [[ ${#tables[@]} -eq 0 ]]; then
-        log_error "Usage: ./manage.sh remove-table <table1> [table2] [table3] ..."
+        log_error "Usage: ./manage.sh remove-table <table1> [table2] ..."
         echo ""
         cmd_list_tables
         exit 1
     fi
 
-    # Vérifie que jq est disponible
-    if ! command -v jq &> /dev/null; then
-        log_error "jq est requis pour cette opération"
-        log_info "Installation: sudo apt-get install jq"
-        exit 1
-    fi
-
-    log_info "Suppression de ${#tables[@]} table(s)..."
-
-    # Récupère la configuration actuelle
-    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
-
+    _load_pg_creds
     local removed=0
     local not_found=0
 
     for table in "${tables[@]}"; do
-        # Convertit en majuscules
-        table_name=$(echo "$table" | tr '[:lower:]' '[:upper:]')
-
-        # Vérifie si la table existe
-        TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$table_name\")] | length")
-
-        if [[ "$TABLE_EXISTS" == "0" ]]; then
-            log_warning "  $table_name : non trouvée (ignorée)"
+        RESULT=$(_pg_exec -At -c "
+            DELETE FROM splus_admin.amue_tables
+            WHERE table_name = '$table'
+            RETURNING table_name
+        " 2>&1 || true)
+        if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+            log_success "  $table : supprimée"
+            ((removed+=1))
+        else
+            log_warning "  $table : non trouvée (ignorée)"
             ((not_found+=1))
-            continue
         fi
-
-        # Supprime la table
-        CURRENT_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c "[.[] | select(.name != \"$table_name\")]")
-        log_success "  $table_name : supprimée"
-        ((removed+=1))
     done
 
-    # Met à jour la variable si des tables ont été supprimées
-    if [[ $removed -gt 0 ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$CURRENT_CONFIG"
-        echo ""
-        log_success "$removed table(s) supprimée(s), $not_found non trouvée(s)"
-    else
-        log_warning "Aucune table supprimée"
-    fi
-
+    echo ""
+    log_success "$removed table(s) supprimée(s), $not_found non trouvée(s)"
     echo ""
     cmd_list_tables
 }
 
 cmd_toggle_table() {
     local tables=("$@")
-
     if [[ ${#tables[@]} -eq 0 ]]; then
-        log_error "Usage: ./manage.sh toggle-table <table1> [table2] [table3] ..."
+        log_error "Usage: ./manage.sh toggle-table <table1> [table2] ..."
         echo ""
         cmd_list_tables
         exit 1
     fi
 
-    # Vérifie que jq est disponible
-    if ! command -v jq &> /dev/null; then
-        log_error "jq est requis pour cette opération"
-        log_info "Installation: sudo apt-get install jq"
-        exit 1
-    fi
-
-    # Récupère la configuration actuelle
-    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
-
-    local toggled_count=0
+    _load_pg_creds
+    local toggled=0
     local not_found=()
 
     for table in "${tables[@]}"; do
-        # Convertit en majuscules
-        local table_name=$(echo "$table" | tr '[:lower:]' '[:upper:]')
-
-        # Vérifie si la table existe avec jq
-        TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$table_name\")] | length")
-
-        if [[ "$TABLE_EXISTS" == "0" ]]; then
-            not_found+=("$table_name")
-            continue
-        fi
-
-        # Récupère le statut actuel (true si enable n'existe pas ou est true)
-        CURRENT_STATUS=$(echo "$CURRENT_CONFIG" | jq -r ".[] | select(.name == \"$table_name\") | .enable // true")
-
-        # Toggle le statut
-        if [[ "$CURRENT_STATUS" == "true" ]]; then
-            NEW_STATUS="false"
-            log_info "Désactivation de la table $table_name..."
+        RESULT=$(_pg_exec -At -c "
+            UPDATE splus_admin.amue_tables
+            SET enabled = NOT enabled, updated_at = NOW()
+            WHERE table_name = '$table'
+            RETURNING table_name, enabled
+        " 2>&1 || true)
+        if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+            local new_status
+            new_status=$(echo "$RESULT" | cut -d'|' -f2)
+            if [[ "$new_status" == "t" ]]; then
+                log_success "  $table : activée"
+            else
+                log_info "  $table : désactivée"
+            fi
+            ((toggled+=1))
         else
-            NEW_STATUS="true"
-            log_info "Activation de la table $table_name..."
+            not_found+=("$table")
         fi
-
-        # Met à jour la configuration avec jq
-        CURRENT_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c \
-            --arg name "$table_name" \
-            --argjson enable "$NEW_STATUS" \
-            '[.[] | if .name == $name then .enable = $enable else . end]')
-
-        ((toggled_count+=1))
     done
 
-    # Sauvegarde si au moins une table a été modifiée
-    if [[ $toggled_count -gt 0 ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$CURRENT_CONFIG"
-        log_success "$toggled_count table(s) modifiée(s)"
-    fi
-
-    # Affiche les tables non trouvées
     if [[ ${#not_found[@]} -gt 0 ]]; then
         log_warning "Tables non trouvées: ${not_found[*]}"
     fi
@@ -1298,100 +1279,66 @@ cmd_toggle_table() {
 
 cmd_enable_table() {
     local tables=("$@")
-
     if [[ ${#tables[@]} -eq 0 ]]; then
-        log_error "Usage: ./manage.sh enable-table <table1> [table2] [table3] ..."
+        log_error "Usage: ./manage.sh enable-table <table1> [table2] ..."
         exit 1
     fi
 
-    # Vérifie que jq est disponible
-    if ! command -v jq &> /dev/null; then
-        log_error "jq est requis pour cette opération"
-        exit 1
-    fi
-
-    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
-
-    local enabled_count=0
+    _load_pg_creds
+    local count=0
     local not_found=()
 
     for table in "${tables[@]}"; do
-        local table_name=$(echo "$table" | tr '[:lower:]' '[:upper:]')
-
-        TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$table_name\")] | length")
-
-        if [[ "$TABLE_EXISTS" == "0" ]]; then
-            not_found+=("$table_name")
-            continue
+        RESULT=$(_pg_exec -At -c "
+            UPDATE splus_admin.amue_tables
+            SET enabled = true, updated_at = NOW()
+            WHERE table_name = '$table'
+            RETURNING table_name
+        " 2>&1 || true)
+        if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+            log_success "  $table : activée"
+            ((count+=1))
+        else
+            not_found+=("$table")
         fi
-
-        log_info "Activation de $table_name..."
-        CURRENT_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c \
-            --arg name "$table_name" \
-            '[.[] | if .name == $name then .enable = true else . end]')
-
-        ((enabled_count+=1))
     done
-
-    if [[ $enabled_count -gt 0 ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$CURRENT_CONFIG"
-        log_success "$enabled_count table(s) activée(s)"
-    fi
 
     if [[ ${#not_found[@]} -gt 0 ]]; then
         log_warning "Tables non trouvées: ${not_found[*]}"
     fi
-
     echo ""
     cmd_list_tables
 }
 
 cmd_disable_table() {
     local tables=("$@")
-
     if [[ ${#tables[@]} -eq 0 ]]; then
-        log_error "Usage: ./manage.sh disable-table <table1> [table2] [table3] ..."
+        log_error "Usage: ./manage.sh disable-table <table1> [table2] ..."
         exit 1
     fi
 
-    # Vérifie que jq est disponible
-    if ! command -v jq &> /dev/null; then
-        log_error "jq est requis pour cette opération"
-        exit 1
-    fi
-
-    CURRENT_CONFIG=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null || echo "[]")
-
-    local disabled_count=0
+    _load_pg_creds
+    local count=0
     local not_found=()
 
     for table in "${tables[@]}"; do
-        local table_name=$(echo "$table" | tr '[:lower:]' '[:upper:]')
-
-        TABLE_EXISTS=$(echo "$CURRENT_CONFIG" | jq -r "[.[] | select(.name == \"$table_name\")] | length")
-
-        if [[ "$TABLE_EXISTS" == "0" ]]; then
-            not_found+=("$table_name")
-            continue
+        RESULT=$(_pg_exec -At -c "
+            UPDATE splus_admin.amue_tables
+            SET enabled = false, updated_at = NOW()
+            WHERE table_name = '$table'
+            RETURNING table_name
+        " 2>&1 || true)
+        if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
+            log_info "  $table : désactivée"
+            ((count+=1))
+        else
+            not_found+=("$table")
         fi
-
-        log_info "Désactivation de $table_name..."
-        CURRENT_CONFIG=$(echo "$CURRENT_CONFIG" | jq -c \
-            --arg name "$table_name" \
-            '[.[] | if .name == $name then .enable = false else . end]')
-
-        ((disabled_count+=1))
     done
-
-    if [[ $disabled_count -gt 0 ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_tables_to_import "$CURRENT_CONFIG"
-        log_success "$disabled_count table(s) désactivée(s)"
-    fi
 
     if [[ ${#not_found[@]} -gt 0 ]]; then
         log_warning "Tables non trouvées: ${not_found[*]}"
     fi
-
     echo ""
     cmd_list_tables
 }
@@ -1876,7 +1823,6 @@ main() {
         fix)            cmd_fix "$@" ;;
         auto-fix)       cmd_auto_fix "$@" ;;
         verify)         cmd_verify "$@" ;;
-        verify-email)   cmd_verify_email "$@" ;;
         export)         cmd_export "$@" ;;
         diagnose)       cmd_diagnose "$@" ;;
         test-config)    cmd_test_config "$@" ;;

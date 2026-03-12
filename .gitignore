@@ -6,6 +6,9 @@
 # .env contient TOUS les secrets (credentials, passwords)
 .env
 
+# Artefact Windows (redirection >nul)
+nul
+
 # Exports de configuration (peuvent contenir des credentials)
 config/exports/
 

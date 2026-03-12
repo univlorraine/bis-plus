@@ -143,6 +143,9 @@ setup_connections_internal() {
         elif [[ "$conn_id" == "postgres_data" ]]; then
             login="${POSTGRES_DATA_LOGIN:-}"
             password="${POSTGRES_DATA_PASSWORD:-}"
+        elif [[ "$conn_id" == "oracle_data" ]]; then
+            login="${ORACLE_DATA_LOGIN:-}"
+            password="${ORACLE_DATA_PASSWORD:-}"
         fi
 
         # Construction de la commande
@@ -246,12 +249,16 @@ setup_connections_external() {
        --arg oauth_pass "${OAUTH_CLIENT_SECRET:-}" \
        --arg pg_login "${POSTGRES_DATA_LOGIN:-}" \
        --arg pg_pass "${POSTGRES_DATA_PASSWORD:-}" \
+       --arg ora_login "${ORACLE_DATA_LOGIN:-}" \
+       --arg ora_pass "${ORACLE_DATA_PASSWORD:-}" \
        '
        to_entries | map(
          if .key == "oauth_api" then
            .value += {login: $oauth_login, password: $oauth_pass}
          elif .key == "postgres_data" then
            .value += {login: $pg_login, password: $pg_pass}
+         elif .key == "oracle_data" then
+           .value += {login: $ora_login, password: $ora_pass}
          else
            .
          end
@@ -261,6 +268,7 @@ setup_connections_external() {
     # Vérifie les credentials manquants
     [[ -z "${OAUTH_CLIENT_ID:-}" ]] && log_warning "OAUTH_CLIENT_ID non défini dans .env"
     [[ -z "${POSTGRES_DATA_LOGIN:-}" ]] && log_warning "POSTGRES_DATA_LOGIN non défini dans .env"
+    [[ -z "${ORACLE_DATA_LOGIN:-}" ]] && log_warning "ORACLE_DATA_LOGIN non défini dans .env (connexion ECC désactivée)"
 
     # Supprime les connexions existantes en une seule commande
     local conn_ids=$(jq -r 'keys | join(" ")' "$CONNECTIONS_FILE")
@@ -369,6 +377,8 @@ Variables d'environnement attendues dans .env:
   - OAUTH_CLIENT_SECRET     : Client Secret pour l'API AMUE
   - POSTGRES_DATA_LOGIN     : Login PostgreSQL
   - POSTGRES_DATA_PASSWORD  : Password PostgreSQL
+  - ORACLE_DATA_LOGIN       : Login Oracle ECC (optionnel)
+  - ORACLE_DATA_PASSWORD    : Password Oracle ECC (optionnel)
 
 EOF
 }

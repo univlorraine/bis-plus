@@ -40,19 +40,28 @@ def select_setup_tables() -> List[Dict]:
         logger.info(f"[SETUP] Déclenché par la DAG principale — schéma cible: {target_schema}")
     else:
         manager = BlueGreenManager()
-        active = manager.get_active_schema()
 
+        # Schéma actif : vérification physique (peut être _offline après sync)
+        active_canonical = manager.get_active_schema()
+        active_offline = active_canonical + BlueGreenManager.OFFLINE_SUFFIX
+        if manager.schema_exists(active_canonical):
+            active = active_canonical
+        elif manager.schema_exists(active_offline):
+            active = active_offline
+        else:
+            active = active_canonical  # premier lancement : sera créé par init DB
+
+        # Schéma inactif
         inactive_canonical = manager.get_target_schema()
         inactive_offline = inactive_canonical + BlueGreenManager.OFFLINE_SUFFIX
-
         if manager.schema_exists(inactive_canonical):
             inactive = inactive_canonical
         elif manager.schema_exists(inactive_offline):
             inactive = inactive_offline
         else:
-            inactive = None  # premier lancement, schéma pas encore créé
+            inactive = inactive_canonical  # ne devrait pas arriver per garantie architecture
 
-        schemas = [s for s in [active, inactive] if s]
+        schemas = [active, inactive]
         logger.info(f"[SETUP] Mode standalone — schémas: {schemas}")
 
     tables = TableConfigManager().get_tables_config()

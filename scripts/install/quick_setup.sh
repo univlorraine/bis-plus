@@ -181,52 +181,9 @@ AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par d
 SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue-project.local")
 
 echo ""
-log_info "=== Tables AMUE à importer ==="
-log_info "Entrez les tables une par une. Laissez vide pour terminer."
-
-TABLES_JSON="[]"
-
-while true; do
-    TABLE_NAME=$(ask "Nom de la table AMUE (vide pour terminer)" "")
-    [[ -z "$TABLE_NAME" ]] && break
-
-    TABLE_DELTA=$(ask "Colonne delta pour import différentiel (optionnel)" "")
-
-    TABLES_JSON=$(echo "$TABLES_JSON" | jq \
-        --arg name "$TABLE_NAME" \
-        --arg delta "$TABLE_DELTA" \
-        '. + [{
-            name: $name,
-            enable: true,
-            primary_key: "",
-            delta: $delta,
-            last_import: "",
-            finger_print: ""
-        }]')
-done
-
-# Si aucune table, ajouter les tables par défaut
-if [[ "$TABLES_JSON" == "[]" ]]; then
-    log_info "Aucune table spécifiée, utilisation des tables par défaut"
-    TABLES_JSON='[
-  {"name": "CSKS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "COBK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "COVP", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "CEPC", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "FMBDT", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "FMBH", "enable": true, "primary_key": "", "delta": "crtdate", "last_import": "", "finger_print": ""},
-  {"name": "FMMEASURE", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "FM01H", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "KNA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "KBLK", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "LFA1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "LFB1", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "PRPS", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "PRPS_RH", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "SRGBTBREL", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""},
-  {"name": "TFKB", "enable": true, "primary_key": "", "delta": "", "last_import": "", "finger_print": ""}
-]'
-fi
+log_info "=== Tables AMUE / ECC ==="
+log_info "Les tables sont pré-configurées dans splus_admin.amue_tables (init_db.sql)."
+log_info "Pour ajouter/modifier des tables après le setup : ./manage.sh add-table"
 
 echo ""
 log_info "=== Credentials AMUE API (stockés dans .env uniquement) ==="
@@ -241,6 +198,25 @@ PG_SCHEMA=$(ask "PostgreSQL schema" "public")
 PG_PORT=$(ask "PostgreSQL port" "5432")
 PG_LOGIN=$(ask "PostgreSQL login" "datauser")
 PG_PASSWORD=$(ask_secret "PostgreSQL password")
+
+echo ""
+log_info "=== Connexion Oracle ECC (optionnel) ==="
+log_info "Requis uniquement si vous utilisez le DAG ECC (tables lfa1, lfb1, pa0001, pa0002...)"
+USE_ECC=$(ask_confirm "Configurer la connexion Oracle ECC ?" "n")
+ORACLE_HOST=""
+ORACLE_PORT="1521"
+ORACLE_SID=""
+ORACLE_SCHEMA=""
+ORACLE_LOGIN=""
+ORACLE_PASSWORD=""
+if [[ "${USE_ECC,,}" == "y" ]]; then
+    ORACLE_HOST=$(ask "Hôte Oracle" "oracle.example.fr")
+    ORACLE_PORT=$(ask "Port Oracle" "1521")
+    ORACLE_SID=$(ask "SID / Service Oracle" "SAPSR3")
+    ORACLE_SCHEMA=$(ask "Schéma Oracle (ex: sapsr3)" "sapsr3")
+    ORACLE_LOGIN=$(ask "Login Oracle" "")
+    ORACLE_PASSWORD=$(ask_secret "Mot de passe Oracle")
+fi
 
 ###############################################################################
 # Étape 5: Génération des fichiers de configuration
@@ -286,6 +262,14 @@ POSTGRES_DATA_PORT=$PG_PORT
 POSTGRES_DATA_LOGIN=$PG_LOGIN
 POSTGRES_DATA_PASSWORD="$PG_PASSWORD"
 
+# Oracle ECC Credentials (optionnel — laisser vide si non utilisé)
+ORACLE_DATA_HOST=$ORACLE_HOST
+ORACLE_DATA_PORT=$ORACLE_PORT
+ORACLE_DATA_DB=$ORACLE_SID
+ORACLE_DATA_SCHEMA=$ORACLE_SCHEMA
+ORACLE_DATA_LOGIN=$ORACLE_LOGIN
+ORACLE_DATA_PASSWORD="$ORACLE_PASSWORD"
+
 # SMTP
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=$SMTP_PORT
@@ -311,7 +295,6 @@ cat > "config/airflow_variables.json" << EOFVARS
   "smtp_host": "$SMTP_HOST",
   "smtp_port": "$SMTP_PORT",
   "smtp_mail_from": "$SMTP_MAIL_FROM",
-  "amue_tables_to_import": $TABLES_JSON,
   "amue_last_successful_run": "",
   "last_import_report": "",
   "TYPE_MAPPING_SQLITE_TO_POSTGRES": {
@@ -352,7 +335,14 @@ cat > "config/airflow_connections.json" << EOFCONNS
     "extra": {
       "options": "-c search_path=$PG_SCHEMA"
     }
-  }
+  }$(if [[ -n "$ORACLE_HOST" ]]; then echo ',
+  "oracle_data": {
+    "conn_type": "odbc",
+    "host": "'"$ORACLE_HOST"'",
+    "schema": "'"$ORACLE_SID"'",
+    "port": '"$ORACLE_PORT"',
+    "extra": {}
+  }'; fi)
 }
 EOFCONNS
 
