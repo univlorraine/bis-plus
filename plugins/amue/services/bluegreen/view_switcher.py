@@ -138,7 +138,7 @@ class ViewSwitcher:
             cursor = conn.cursor()
 
             try:
-                # DROP puis CREATE chaque vue dans une transaction unique
+                # DROP puis CREATE chaque vue dans une transaction atomique
                 for table_name in tables:
                     drop_sql = sql.SQL(
                         "DROP VIEW IF EXISTS {view_schema}.{table}"
@@ -156,24 +156,35 @@ class ViewSwitcher:
                     cursor.execute(create_sql)
                     logger.debug(f"[VIEW_SWITCH] Vue {self.VIEW_SCHEMA}.{table_name} -> {target_schema}.{table_name}")
 
-                # Vues personnalisées (fichiers .sql) dans la même transaction
-                custom_sqls = self._load_custom_view_sqls(target_schema)
-                for custom_sql_str in custom_sqls:
-                    cursor.execute(custom_sql_str)
-                if custom_sqls:
-                    logger.info(f"[VIEW_SWITCH] {len(custom_sqls)} vue(s) personnalisée(s) appliquée(s)")
-
-                # Commit atomique de toutes les vues
+                # Commit atomique des vues standard
                 conn_mgr.commit()
                 logger.info(f"[VIEW_SWITCH] SUCCESS - {len(tables)} vues basculées vers {target_schema}")
-                return True
 
             except Exception as e:
                 conn_mgr.rollback()
                 logger.error(f"[VIEW_SWITCH] ERREUR - Rollback: {e}")
-                return False
-            finally:
                 cursor.close()
+                return False
+
+            # Vues custom : une par une, best-effort (échec non bloquant)
+            if self.custom_views_dir.exists():
+                ok = ko = 0
+                for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
+                    content = sql_file.read_text(encoding="utf-8").replace("{target_schema}", target_schema)
+                    try:
+                        cursor.execute(content)
+                        conn_mgr.commit()
+                        logger.info(f"[VIEW_SWITCH] Vue custom OK: {sql_file.name}")
+                        ok += 1
+                    except Exception as e:
+                        conn_mgr.rollback()
+                        logger.warning(f"[VIEW_SWITCH] Vue custom ÉCHEC ({sql_file.name}): {e}")
+                        ko += 1
+                if ok or ko:
+                    logger.info(f"[VIEW_SWITCH] Vues custom: {ok} OK, {ko} en échec")
+
+            cursor.close()
+            return True
 
     def verify_views_point_to(self, expected_schema: str) -> bool:
         """

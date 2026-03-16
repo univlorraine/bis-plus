@@ -11,9 +11,16 @@
     "conn_type": "postgres",
     "host": "postgres-data",
     "schema": "business_data",
-    "port": 5432,
+    "port": 5433,
     "extra": {
       "options": "-c search_path=splus"
     }
+  },
+  "oracle_data": {
+    "conn_type": "odbc",
+    "host": "sifac-db-test.univ-lorraine.fr",
+    "schema": "T91",
+    "port": 1521,
+    "extra": {}
   }
 }

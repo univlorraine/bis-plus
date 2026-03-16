@@ -92,6 +92,7 @@ Commandes disponibles:
     add-user            Crée un nouvel utilisateur
     delete-user [user]  Supprime un utilisateur
     add-table [t1 t2..] Ajoute une ou plusieurs tables (enable=true)
+    load-tables          Ajouter/mettre à jour des tables dans splus_admin.amue_tables (interactif)
     list-tables         Liste les tables configurées avec leur statut
     remove-table <t1..> Supprime une ou plusieurs tables
     toggle-table <t1..> Active/désactive une ou plusieurs tables
@@ -221,42 +222,24 @@ cmd_setup() {
 cmd_setup_bluegreen() {
     log_info "Configuration de l'architecture Blue/Green..."
 
-    # Charge les variables depuis .env
-    if [[ ! -f ".env" ]]; then
-        log_error "Fichier .env non trouvé"
+    local PG_DB PG_USER PG_PASSWORD
+    PG_DB=$(_get_airflow_conn postgres_data schema)
+    PG_USER=$(_get_airflow_conn postgres_data login)
+    PG_PASSWORD=$(_get_airflow_conn postgres_data password)
+
+    if [[ -z "$PG_DB" ]] || [[ -z "$PG_USER" ]] || [[ -z "$PG_PASSWORD" ]]; then
+        log_error "Connexion postgres_data introuvable dans Airflow DB"
+        log_info "Assurez-vous que quick_setup.sh a été exécuté correctement"
         return 1
     fi
 
-    # Récupère les paramètres de connexion depuis .env
-    local PG_HOST=$(grep -E "^POSTGRES_DATA_HOST=" .env | cut -d'=' -f2-)
-    local PG_PORT=$(grep -E "^POSTGRES_DATA_PORT=" .env | cut -d'=' -f2- || echo "5432")
-    local PG_DB=$(grep -E "^POSTGRES_DATA_DB=" .env | cut -d'=' -f2-)
-    local PG_USER=$(grep -E "^POSTGRES_DATA_LOGIN=" .env | cut -d'=' -f2-)
-    local PG_PASSWORD=$(grep -E "^POSTGRES_DATA_PASSWORD=" .env | cut -d'=' -f2-)
+    log_info "Connexion à PostgreSQL: postgres-data/$PG_DB (user: $PG_USER)"
 
-    # Valeurs par défaut si non définies
-    PG_PORT=${PG_PORT:-5432}
-
-    # Depuis le host, postgres-data n'est accessible que via le port mappé
-    if [[ "$PG_HOST" == "postgres-data" ]]; then
-        PG_HOST="localhost"
-        PG_PORT="5433"
-    fi
-
-    # Vérifie les paramètres obligatoires
-    if [[ -z "$PG_HOST" ]] || [[ -z "$PG_DB" ]] || [[ -z "$PG_USER" ]] || [[ -z "$PG_PASSWORD" ]]; then
-        log_error "Paramètres de connexion PostgreSQL incomplets dans .env"
-        log_info "Variables requises: POSTGRES_DATA_HOST, POSTGRES_DATA_DB, POSTGRES_DATA_LOGIN, POSTGRES_DATA_PASSWORD"
-        return 1
-    fi
-
-    log_info "Connexion à PostgreSQL: $PG_HOST:$PG_PORT/$PG_DB (user: $PG_USER)"
-
-    # Vérifie que PostgreSQL est accessible
+    # Vérifie que PostgreSQL est accessible (via docker exec — psql n'est pas requis sur le host)
     log_info "Vérification de la connexion..."
     local retries=30
     while [[ $retries -gt 0 ]]; do
-        if PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "SELECT 1" > /dev/null 2>&1; then
+        if $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -c "SELECT 1" > /dev/null 2>&1; then
             break
         fi
         log_warning "PostgreSQL n'est pas prêt. Attente... ($retries)"
@@ -273,7 +256,7 @@ cmd_setup_bluegreen() {
 
     # Crée les schémas Blue/Green
     log_info "Création des schémas splus_blue et splus_green..."
-    PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" << EOSQL
+    $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" << EOSQL
 -- Création des schémas Blue/Green
 CREATE SCHEMA IF NOT EXISTS splus;
 CREATE SCHEMA IF NOT EXISTS splus_blue;
@@ -322,7 +305,7 @@ EOSQL
     log_info "Vérification et création des vues dans splus..."
 
     # Récupère la liste des tables dans splus_blue qui n'ont pas de vue correspondante dans splus
-    local tables_without_views=$(PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -A << 'EOSQL'
+    local tables_without_views=$($DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -t -A << 'EOSQL'
 SELECT t.table_name
 FROM information_schema.tables t
 WHERE t.table_schema = 'splus_blue'
@@ -345,7 +328,7 @@ EOSQL
             [[ -z "$table_name" ]] && continue
 
             log_info "  Création de la vue splus.$table_name -> splus_blue.$table_name"
-            PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -q << EOSQL
+            $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -q << EOSQL
 CREATE OR REPLACE VIEW splus.$table_name AS SELECT * FROM splus_blue.$table_name;
 GRANT SELECT ON splus.$table_name TO $PG_USER;
 EOSQL
@@ -794,13 +777,8 @@ cmd_config_validate() {
     log_info "=== Fichier .env ==="
     if [[ -f ".env" ]]; then
         local required_vars=(
-            "AMUE_API_HOST"
-            "OAUTH_CLIENT_ID"
-            "OAUTH_CLIENT_SECRET"
-            "POSTGRES_DATA_HOST"
-            "POSTGRES_DATA_DB"
-            "POSTGRES_DATA_LOGIN"
-            "POSTGRES_DATA_PASSWORD"
+            "AIRFLOW__CORE__FERNET_KEY"
+            "AIRFLOW_IMAGE_NAME"
         )
 
         for var in "${required_vars[@]}"; do
@@ -863,13 +841,13 @@ cmd_config_validate() {
 
     # 4. Vérification des connexions Airflow
     log_info "=== Connexions Airflow ==="
-    local airflow_conns=("oauth_api" "postgres_data")
-
-    for conn in "${airflow_conns[@]}"; do
-        if $DOCKER_CMD exec -T airflow-apiserver airflow connections get "$conn" &> /dev/null; then
-            echo "  ✓ $conn"
+    for conn_id in oauth_api postgres_data; do
+        local login
+        login=$(_get_airflow_conn "$conn_id" login 2>/dev/null)
+        if [[ -n "$login" ]]; then
+            echo "  ✓ $conn_id (login: $login)"
         else
-            echo "  ✗ $conn (non configurée)"
+            echo "  ✗ $conn_id (connexion absente ou sans credentials)"
             ((errors+=1))
         fi
     done
@@ -880,7 +858,6 @@ cmd_config_validate() {
     log_info "=== Fichiers de configuration ==="
     local config_files=(
         "config/airflow_variables.json"
-        "config/airflow_connections.json"
         "docker-compose.yml"
     )
 
@@ -1070,35 +1047,42 @@ cmd_delete_user() {
 }
 
 ###############################################################################
-# Helper : chargement des credentials PostgreSQL depuis .env
+# Helper : récupère un champ d'une connexion Airflow via docker exec
+###############################################################################
+
+# Usage: _get_airflow_conn <conn_id> <field>
+# Champs disponibles: host, port, schema, login, password, conn_type
+_get_airflow_conn() {
+    local conn_id=$1 field=$2
+    $DOCKER_CMD exec -T airflow-apiserver airflow connections get "$conn_id" \
+        --output json 2>/dev/null \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('$field') or '')"
+}
+
+###############################################################################
+# Helper : chargement des credentials PostgreSQL depuis Airflow DB
 ###############################################################################
 
 _load_pg_creds() {
-    # Lit host/port/db/user depuis config/airflow_connections.json + .env
-    # Demande le mot de passe interactivement s'il est absent du .env
-    if [[ ! -f "config/airflow_connections.json" ]]; then
-        log_error "config/airflow_connections.json introuvable (lancez 'make setup')"
-        exit 1
-    fi
-    PG_HOST=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('host',''))" 2>/dev/null)
-    PG_PORT=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('port',5432))" 2>/dev/null)
-    PG_DB=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('schema',''))" 2>/dev/null)
+    local _json
+    _json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections get postgres_data \
+        --output json 2>/dev/null)
 
+    PG_HOST=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('host') or '')")
+    PG_PORT=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('port') or '')")
+    PG_DB=$(echo "$_json"     | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('schema') or '')")
+    PG_USER=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('login') or '')")
+    PG_PASSWORD=$(echo "$_json" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('password') or '')")
+
+    PG_PORT=${PG_PORT:-5432}
     # Depuis le host, postgres-data n'est accessible que via le port mappé
     if [[ "$PG_HOST" == "postgres-data" ]]; then
         PG_HOST="localhost"
         PG_PORT="5433"
     fi
 
-    PG_USER=""
-    PG_PASSWORD=""
-    if [[ -f ".env" ]]; then
-        PG_USER=$(grep -E "^POSTGRES_DATA_LOGIN=" .env | cut -d'=' -f2- | tr -d '"')
-        PG_PASSWORD=$(grep -E "^POSTGRES_DATA_PASSWORD=" .env | cut -d'=' -f2- | tr -d '"')
-    fi
-
     if [[ -z "$PG_HOST" || -z "$PG_DB" || -z "$PG_USER" ]]; then
-        log_error "Paramètres PostgreSQL incomplets (config/airflow_connections.json + .env)"
+        log_error "Connexion postgres_data introuvable dans Airflow DB"
         exit 1
     fi
 
@@ -1210,6 +1194,54 @@ cmd_add_table() {
     fi
 
     echo ""
+    cmd_list_tables
+}
+
+cmd_load_tables() {
+    _load_pg_creds
+    log_info "Chargement interactif des tables dans splus_admin.amue_tables"
+    log_info "(ON CONFLICT DO UPDATE — les entrées existantes sont mises à jour)"
+    echo ""
+
+    local count=0
+    while true; do
+        echo -n "Ajouter une table ? (o/N) : " >&2
+        read -r ADD_TABLE </dev/tty
+        [[ ! "$ADD_TABLE" =~ ^[oOyY]$ ]] && break
+
+        echo -n "  Nom de la table : " >&2
+        read -r T_NAME </dev/tty
+        [[ -z "$T_NAME" ]] && continue
+
+        echo -n "  Clé primaire (séparée par virgules) : " >&2
+        read -r T_PK </dev/tty
+
+        echo -n "  Colonne delta (vide = import complet) : " >&2
+        read -r T_DELTA </dev/tty
+
+        RESULT=$(_pg_exec -q -c "
+            INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
+            VALUES ('$T_NAME', '$T_PK', '$T_DELTA')
+            ON CONFLICT (table_name) DO UPDATE
+              SET primary_key = EXCLUDED.primary_key,
+                  delta       = EXCLUDED.delta,
+                  updated_at  = NOW();
+        " 2>&1 || true)
+
+        echo "$RESULT"
+
+        if [[ "$RESULT" != *"ERROR"* ]]; then
+            log_success "  '$T_NAME' enregistrée"
+        else
+            log_warning "  Erreur pour '$T_NAME'"
+        fi
+
+        ((count+=1))
+        echo ""
+    done
+
+    echo ""
+    log_success "$count table(s) enregistrée(s)"
     cmd_list_tables
 }
 
@@ -1861,6 +1893,7 @@ main() {
         add-user)       cmd_add_user "$@" ;;
         delete-user)    cmd_delete_user "$@" ;;
         add-table)      cmd_add_table "$@" ;;
+        load-tables)    cmd_load_tables ;;
         list-tables)    cmd_list_tables "$@" ;;
         remove-table)   cmd_remove_table "$@" ;;
         toggle-table)   cmd_toggle_table "$@" ;;

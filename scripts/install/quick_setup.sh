@@ -3,7 +3,8 @@
 ###############################################################################
 # Script de setup rapide pour Airflow AMUE
 # Configure l'environnement complet en une commande
-# Les credentials sont stockés dans .env uniquement (jamais dans les fichiers JSON)
+# Les credentials ne sont JAMAIS écrits sur disque : ils sont saisis
+# interactivement et injectés directement dans la base de données Airflow.
 ###############################################################################
 
 set -e
@@ -95,7 +96,7 @@ ask_confirm() {
 # Étape 1: Vérification des prérequis
 ###############################################################################
 
-log_info "Étape 1/8: Vérification des prérequis"
+log_info "Étape 1/9: Vérification des prérequis"
 
 if ! command -v docker &> /dev/null; then
     log_error "Docker n'est pas installé"
@@ -132,7 +133,7 @@ log_success "Prérequis OK"
 # Étape 2: Choix de l'environnement
 ###############################################################################
 
-log_info "Étape 2/8: Choix de l'environnement"
+log_info "Étape 2/9: Choix de l'environnement"
 
 echo ""
 ENV_CHOICE=$(ask_choice "Quel environnement voulez-vous configurer ?" "1")
@@ -170,7 +171,7 @@ echo ""
 # Étape 3: Création de la structure de dossiers
 ###############################################################################
 
-log_info "Étape 3/8: Création de la structure"
+log_info "Étape 3/9: Création de la structure"
 
 cd "$PROJECT_DIR"
 
@@ -186,7 +187,7 @@ log_success "Structure créée"
 # Étape 4: Configuration des paramètres
 ###############################################################################
 
-log_info "Étape 4/8: Configuration des paramètres"
+log_info "Étape 4/9: Configuration des paramètres"
 
 echo ""
 log_info "=== Configuration générale ==="
@@ -200,12 +201,12 @@ log_info "Les tables sont pré-configurées dans splus_admin.amue_tables (init_d
 log_info "Pour ajouter/modifier des tables après le setup : ./manage.sh add-table"
 
 echo ""
-log_info "=== Credentials AMUE API (stockés dans .env uniquement) ==="
+log_info "=== Credentials AMUE API (stockés dans Airflow DB uniquement) ==="
 OAUTH_CLIENT_ID=$(ask "OAuth Client ID" "")
 OAUTH_CLIENT_SECRET=$(ask_secret "OAuth Client Secret")
 
 echo ""
-log_info "=== Credentials PostgreSQL (stockés dans .env uniquement) ==="
+log_info "=== Credentials PostgreSQL (stockés dans Airflow DB uniquement) ==="
 PG_HOST=$(ask "PostgreSQL host" "postgres-data")
 PG_DATABASE=$(ask "PostgreSQL database" "business_data")
 PG_SCHEMA=$(ask "PostgreSQL schema" "splus")
@@ -223,7 +224,7 @@ ORACLE_SID=""
 ORACLE_SCHEMA=""
 ORACLE_LOGIN=""
 ORACLE_PASSWORD=""
-if [[ "${USE_ECC,,}" == "y" ]]; then
+if [[ "${USE_ECC,,}" =~ ^[oOyY]$ ]]; then
     ORACLE_HOST=$(ask "Hôte Oracle" "oracle.example.fr")
     ORACLE_PORT=$(ask "Port Oracle" "1521")
     ORACLE_SID=$(ask "SID / Service Oracle" "SAPSR3")
@@ -236,7 +237,7 @@ fi
 # Étape 5: Génération des fichiers de configuration
 ###############################################################################
 
-log_info "Étape 5/8: Génération des fichiers de configuration"
+log_info "Étape 5/9: Génération des fichiers de configuration"
 
 # Génération de la clé Fernet
 generate_fernet_key() {
@@ -244,52 +245,41 @@ generate_fernet_key() {
     openssl rand -base64 32
 }
 
-# Création du fichier .env avec TOUS les secrets
+# Préserver la clé Fernet existante si .env est déjà présent
+FERNET_KEY=""
+if [[ -f ".env" ]]; then
+    FERNET_KEY=$(grep "^AIRFLOW__CORE__FERNET_KEY=" ".env" | cut -d'=' -f2-)
+fi
+if [[ -z "$FERNET_KEY" ]]; then
+    FERNET_KEY=$(generate_fernet_key)
+    log_info "Nouvelle clé Fernet générée"
+else
+    log_info "Clé Fernet existante préservée"
+fi
+
+# Création du fichier .env (sans credentials)
 cat > ".env" << EOFENV
 ###############################################################################
 # Configuration Airflow AMUE
-# ATTENTION: Ce fichier contient des secrets, ne pas le commiter !
+# ATTENTION: Ce fichier contient des secrets de configuration, ne pas le commiter !
+# Les credentials des connexions (OAuth, PostgreSQL, Oracle) sont stockés
+# directement dans la base de données Airflow (chiffrés) et n'apparaissent pas ici.
 ###############################################################################
 
 # Airflow
 AIRFLOW_UID=1001
 AIRFLOW_IMAGE_NAME=apache/airflow:3.1.7
-AIRFLOW__CORE__FERNET_KEY=$(generate_fernet_key)
+AIRFLOW__CORE__FERNET_KEY=$FERNET_KEY
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
 _PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib oracledb"
-
-# Environnement
-AMUE_ENVIRONMENT=$ENVIRONMENT
-
-# AMUE API Credentials
-AMUE_API_HOST=$AMUE_API_HOST
-AMUE_TOKEN_URL=$AMUE_TOKEN_URL
-OAUTH_CLIENT_ID=$OAUTH_CLIENT_ID
-OAUTH_CLIENT_SECRET=$OAUTH_CLIENT_SECRET
-
-# PostgreSQL Data Credentials
-POSTGRES_DATA_HOST=$PG_HOST
-POSTGRES_DATA_DB=$PG_DATABASE
-POSTGRES_DATA_SCHEMA=$PG_SCHEMA
-POSTGRES_DATA_PORT=$PG_PORT
-POSTGRES_DATA_LOGIN=$PG_LOGIN
-POSTGRES_DATA_PASSWORD="$PG_PASSWORD"
-
-# Oracle ECC Credentials (optionnel — laisser vide si non utilisé)
-ORACLE_DATA_HOST=$ORACLE_HOST
-ORACLE_DATA_PORT=$ORACLE_PORT
-ORACLE_DATA_DB=$ORACLE_SID
-ORACLE_DATA_SCHEMA=$ORACLE_SCHEMA
-ORACLE_DATA_LOGIN=$ORACLE_LOGIN
-ORACLE_DATA_PASSWORD="$ORACLE_PASSWORD"
 
 # SMTP
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=$SMTP_PORT
 EOFENV
 
-log_success "Fichier .env créé (contient les secrets)"
+log_success "Fichier .env créé (sans credentials — stockés dans Airflow DB)"
 
 # Création du fichier de variables (sans secrets)
 cat > "config/airflow_variables.json" << EOFVARS
@@ -330,47 +320,14 @@ EOFVARS
 
 log_success "Fichier config/airflow_variables.json créé (sans secrets)"
 
-# Création du fichier de connexions (structure uniquement, sans credentials)
-cat > "config/airflow_connections.json" << EOFCONNS
-{
-  "oauth_api": {
-    "conn_type": "http",
-    "host": "$AMUE_API_HOST",
-    "extra": {
-      "token_url": "$AMUE_TOKEN_URL",
-      "api_base_url": "$AMUE_API_HOST"
-    }
-  },
-  "postgres_data": {
-    "conn_type": "postgres",
-    "host": "$PG_HOST",
-    "schema": "$PG_DATABASE",
-    "port": $PG_PORT,
-    "extra": {
-      "options": "-c search_path=$PG_SCHEMA"
-    }
-  }$(if [[ -n "$ORACLE_HOST" ]]; then echo ',
-  "oracle_data": {
-    "conn_type": "odbc",
-    "host": "'"$ORACLE_HOST"'",
-    "schema": "'"$ORACLE_SID"'",
-    "port": '"$ORACLE_PORT"',
-    "extra": {}
-  }'; fi)
-}
-EOFCONNS
-
-log_success "Fichier config/airflow_connections.json créé (sans credentials)"
-log_warning "Les credentials sont lus depuis .env lors de la configuration"
-
 ###############################################################################
 # Étape 6: Démarrage des containers
 ###############################################################################
 
-log_info "Étape 6/8: Démarrage des containers Docker"
+log_info "Étape 6/9: Démarrage des containers Docker"
 
 log_info "Arrêt des containers existants..."
-$DOCKER_CMD down 2>/dev/null || true
+$DOCKER_CMD down -v 2>/dev/null || true
 
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d
@@ -392,7 +349,7 @@ log_success "Containers démarrés"
 # Étape 7: Configuration d'Airflow
 ###############################################################################
 
-log_info "Étape 7/8: Configuration d'Airflow"
+log_info "Étape 7/9: Configuration d'Airflow"
 
 # Attendre que l'API soit disponible
 log_info "Attente de l'API Airflow..."
@@ -408,18 +365,109 @@ for i in {1..30}; do
     sleep 5
 done
 
-# Lancer le script de configuration (qui lira les credentials depuis .env)
-log_info "Configuration des variables et connexions..."
+# Lancer le script de configuration (variables uniquement)
+log_info "Configuration des variables Airflow..."
 chmod +x "$SCRIPT_DIR/setup_airflow_config.sh"
-"$SCRIPT_DIR/setup_airflow_config.sh" --external
+"$SCRIPT_DIR/setup_airflow_config.sh" --variables-only
+
+# Injection directe des credentials dans Airflow (jamais sur disque)
+log_info "Injection des credentials dans les connexions Airflow..."
+
+$DOCKER_CMD exec -T airflow-apiserver airflow connections delete oauth_api 2>/dev/null || true
+if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add oauth_api \
+    --conn-type http \
+    --conn-host "$AMUE_API_HOST" \
+    --conn-login "$OAUTH_CLIENT_ID" \
+    --conn-password "$OAUTH_CLIENT_SECRET" \
+    --conn-extra "{\"token_url\": \"$AMUE_TOKEN_URL\", \"api_base_url\": \"$AMUE_API_HOST\"}"; then
+    log_error "Échec création connexion oauth_api"
+fi
+
+$DOCKER_CMD exec -T airflow-apiserver airflow connections delete postgres_data 2>/dev/null || true
+if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add postgres_data \
+    --conn-type postgres \
+    --conn-host "$PG_HOST" \
+    --conn-schema "$PG_DATABASE" \
+    --conn-port "$PG_PORT" \
+    --conn-login "$PG_LOGIN" \
+    --conn-password "$PG_PASSWORD" \
+    --conn-extra "{\"options\": \"-c search_path=$PG_SCHEMA\"}"; then
+    log_error "Échec création connexion postgres_data"
+fi
+
+if [[ -n "$ORACLE_HOST" ]]; then
+    $DOCKER_CMD exec -T airflow-apiserver airflow connections delete oracle_data 2>/dev/null || true
+    if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add oracle_data \
+        --conn-type odbc \
+        --conn-host "$ORACLE_HOST" \
+        --conn-schema "$ORACLE_SID" \
+        --conn-port "$ORACLE_PORT" \
+        --conn-login "$ORACLE_LOGIN" \
+        --conn-password "$ORACLE_PASSWORD"; then
+        log_error "Échec création connexion oracle_data"
+    fi
+fi
+
+log_success "Credentials injectés directement dans Airflow DB"
 
 log_success "Configuration Airflow terminée"
 
 ###############################################################################
-# Étape 8: Configuration des utilisateurs
+# Étape 8/9: Configuration des tables à importer
 ###############################################################################
 
-log_info "Étape 8/8: Configuration des utilisateurs"
+log_info "Étape 8/9: Configuration des tables à importer"
+
+echo ""
+log_info "Saisissez les tables AMUE à importer (table_name, primary_key, delta)."
+log_info "Vous pourrez en ajouter/modifier plus tard via : ./manage.sh load-tables"
+echo ""
+
+TABLE_COUNT=0
+while true; do
+    echo -n "Ajouter une table ? (o/N) : " >&2
+    read -r ADD_TABLE </dev/tty
+    [[ ! "$ADD_TABLE" =~ ^[oOyY]$ ]] && break
+
+    echo -n "  Nom de la table : " >&2
+    read -r T_NAME </dev/tty
+    [[ -z "$T_NAME" ]] && continue
+
+    echo -n "  Clé primaire (séparée par virgules, ex: MANDT,BUKRS,BELNR) : " >&2
+    read -r T_PK </dev/tty
+
+    echo -n "  Colonne delta (laisser vide si import complet) : " >&2
+    read -r T_DELTA </dev/tty
+
+    $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -q -c \
+        "INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
+         VALUES ('$T_NAME', '$T_PK', '$T_DELTA')
+         ON CONFLICT (table_name) DO UPDATE
+           SET primary_key = EXCLUDED.primary_key,
+               delta       = EXCLUDED.delta,
+               updated_at  = NOW();" \
+    && log_success "  Table '$T_NAME' enregistrée" \
+    || log_warning  "  Erreur pour '$T_NAME'"
+
+    ((TABLE_COUNT+=1))
+    echo ""
+done
+
+if [[ $TABLE_COUNT -gt 0 ]]; then
+    log_success "$TABLE_COUNT table(s) configurée(s)"
+    echo ""
+    log_info "Tables enregistrées :"
+    $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -c \
+        "SELECT table_name, primary_key, delta, enabled FROM splus_admin.amue_tables ORDER BY table_name;"
+else
+    log_info "Aucune table ajoutée. Utilisez ./manage.sh load-tables plus tard."
+fi
+
+###############################################################################
+# Étape 9/9: Configuration des utilisateurs
+###############################################################################
+
+log_info "Étape 9/9: Configuration des utilisateurs"
 
 echo ""
 log_info "=== Configuration des utilisateurs Airflow ==="
@@ -533,9 +581,9 @@ cat << EOF
    - Password: airflow
 
 🔒 Sécurité:
-   - Les credentials sont stockés UNIQUEMENT dans .env
-   - Les fichiers JSON ne contiennent PAS de secrets
-   - Ne commitez JAMAIS le fichier .env
+   - Les credentials sont stockés UNIQUEMENT dans la base de données Airflow (chiffrés)
+   - Le fichier .env et les fichiers JSON ne contiennent PAS de credentials
+   - Ne commitez JAMAIS le fichier .env (contient la clé Fernet)
 
 ⚙️ Commandes utiles:
    - Logs:              ./manage.sh logs airflow-scheduler

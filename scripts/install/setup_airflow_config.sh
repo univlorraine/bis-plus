@@ -2,8 +2,9 @@
 
 ###############################################################################
 # Script de configuration Airflow
-# Configure les variables et connexions depuis des fichiers JSON
-# Les credentials sont lus depuis .env (jamais stockés dans les fichiers JSON)
+# Configure les variables et connexions (structure) depuis des fichiers JSON
+# Les credentials ne sont JAMAIS écrits sur disque : ils sont injectés
+# directement dans Airflow DB lors du setup initial via quick_setup.sh.
 # Utilisation: ./setup_airflow_config.sh [--internal|--external]
 ###############################################################################
 
@@ -82,7 +83,6 @@ setup_internal() {
     check_file "$VARIABLES_FILE"
     check_file "$CONNECTIONS_FILE"
     check_jq
-    load_env
 
     log_info "Configuration des variables Airflow..."
     setup_variables_internal
@@ -127,44 +127,29 @@ setup_connections_internal() {
     local count=0
 
     for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
+        # Skip si la connexion existe déjà (credentials préservés dans Airflow DB)
+        if airflow connections get "$conn_id" > /dev/null 2>&1; then
+            log_info "Connexion existante ignorée (credentials préservés): $conn_id"
+            continue
+        fi
+
         local conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
         local host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
         local port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
         local schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
         local extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
 
-        # Récupération des credentials depuis les variables d'environnement
-        local login=""
-        local password=""
-
-        if [[ "$conn_id" == "oauth_api" ]]; then
-            login="${OAUTH_CLIENT_ID:-}"
-            password="${OAUTH_CLIENT_SECRET:-}"
-        elif [[ "$conn_id" == "postgres_data" ]]; then
-            login="${POSTGRES_DATA_LOGIN:-}"
-            password="${POSTGRES_DATA_PASSWORD:-}"
-        elif [[ "$conn_id" == "oracle_data" ]]; then
-            login="${ORACLE_DATA_LOGIN:-}"
-            password="${ORACLE_DATA_PASSWORD:-}"
-        fi
-
-        # Construction de la commande
+        # Construction de la commande (champs structurels uniquement, sans credentials)
         local cmd="airflow connections add '$conn_id' --conn-type '$conn_type'"
 
-        [[ -n "$host" ]] && cmd="$cmd --conn-host '$host'"
-        [[ -n "$login" ]] && cmd="$cmd --conn-login '$login'"
-        [[ -n "$password" ]] && cmd="$cmd --conn-password '$password'"
-        [[ -n "$port" ]] && cmd="$cmd --conn-port '$port'"
+        [[ -n "$host" ]]   && cmd="$cmd --conn-host '$host'"
+        [[ -n "$port" ]]   && cmd="$cmd --conn-port '$port'"
         [[ -n "$schema" ]] && cmd="$cmd --conn-schema '$schema'"
         [[ "$extra" != "{}" ]] && cmd="$cmd --conn-extra '$extra'"
 
-        # Supprime la connexion existante si elle existe
-        airflow connections delete "$conn_id" 2>/dev/null || true
-
-        # Crée la nouvelle connexion
         if eval "$cmd" 2>/dev/null; then
-            log_success "Connexion créée: $conn_id ($conn_type)"
-            ((count++))
+            log_success "Connexion créée (structure): $conn_id ($conn_type)"
+            count=$((count + 1))
         else
             log_warning "Échec création connexion: $conn_id"
         fi
@@ -183,7 +168,6 @@ setup_external() {
     check_file "$VARIABLES_FILE"
     check_file "$CONNECTIONS_FILE"
     check_jq
-    load_env
 
     # Vérifie que docker-compose est disponible
     if ! command -v docker-compose &> /dev/null && ! command -v docker &> /dev/null; then
@@ -239,54 +223,40 @@ setup_variables_external() {
 setup_connections_external() {
     local docker_cmd=$1
 
-    log_info "Import des connexions..."
+    log_info "Import des connexions (structure uniquement, sans credentials)..."
 
-    # Génère le fichier de connexions avec les credentials injectés depuis .env
-    local temp_file="/tmp/airflow_conns_import.json"
+    local count=0
 
-    # Construit le JSON avec les credentials
-    jq --arg oauth_login "${OAUTH_CLIENT_ID:-}" \
-       --arg oauth_pass "${OAUTH_CLIENT_SECRET:-}" \
-       --arg pg_login "${POSTGRES_DATA_LOGIN:-}" \
-       --arg pg_pass "${POSTGRES_DATA_PASSWORD:-}" \
-       --arg ora_login "${ORACLE_DATA_LOGIN:-}" \
-       --arg ora_pass "${ORACLE_DATA_PASSWORD:-}" \
-       '
-       to_entries | map(
-         if .key == "oauth_api" then
-           .value += {login: $oauth_login, password: $oauth_pass}
-         elif .key == "postgres_data" then
-           .value += {login: $pg_login, password: $pg_pass}
-         elif .key == "oracle_data" then
-           .value += {login: $ora_login, password: $ora_pass}
-         else
-           .
-         end
-       ) | from_entries
-       ' "$CONNECTIONS_FILE" > "$temp_file"
+    for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
+        # Skip si la connexion existe déjà (credentials préservés dans Airflow DB)
+        if $docker_cmd exec -T airflow-apiserver airflow connections get "$conn_id" \
+                > /dev/null 2>&1; then
+            log_info "Connexion existante ignorée (credentials préservés): $conn_id"
+            continue
+        fi
 
-    # Vérifie les credentials manquants
-    [[ -z "${OAUTH_CLIENT_ID:-}" ]] && log_warning "OAUTH_CLIENT_ID non défini dans .env"
-    [[ -z "${POSTGRES_DATA_LOGIN:-}" ]] && log_warning "POSTGRES_DATA_LOGIN non défini dans .env"
-    [[ -z "${ORACLE_DATA_LOGIN:-}" ]] && log_warning "ORACLE_DATA_LOGIN non défini dans .env (connexion ECC désactivée)"
+        local conn_type host port schema extra cmd
+        conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
+        host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
+        port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
+        schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
+        extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
 
-    # Supprime les connexions existantes en une seule commande
-    local conn_ids=$(jq -r 'keys | join(" ")' "$CONNECTIONS_FILE")
-    $docker_cmd exec -T airflow-apiserver bash -c "for c in $conn_ids; do airflow connections delete \$c 2>/dev/null || true; done"
+        cmd="airflow connections add '$conn_id' --conn-type '$conn_type'"
+        [[ -n "$host" ]]   && cmd="$cmd --conn-host '$host'"
+        [[ -n "$port" ]]   && cmd="$cmd --conn-port '$port'"
+        [[ -n "$schema" ]] && cmd="$cmd --conn-schema '$schema'"
+        [[ "$extra" != "{}" ]] && cmd="$cmd --conn-extra '$extra'"
 
-    # Copie et importe
-    $docker_cmd cp "$temp_file" airflow-apiserver:/tmp/airflow_conns_import.json
+        if $docker_cmd exec -T airflow-apiserver bash -c "$cmd" 2>/dev/null; then
+            log_success "Connexion créée (structure): $conn_id"
+            count=$((count + 1))
+        else
+            log_warning "Échec création connexion: $conn_id"
+        fi
+    done
 
-    if $docker_cmd exec -T airflow-apiserver airflow connections import /tmp/airflow_conns_import.json 2>&1 | grep -v "^$"; then
-        local count=$(jq 'keys | length' "$CONNECTIONS_FILE")
-        log_success "$count connexions importées"
-    else
-        log_warning "Import des connexions échoué"
-    fi
-
-    # Nettoyage
-    rm -f "$temp_file"
-    $docker_cmd exec -T airflow-apiserver rm -f /tmp/airflow_conns_import.json 2>/dev/null || true
+    log_info "Total: $count connexions créées"
 }
 
 ###############################################################################
@@ -347,38 +317,44 @@ export_configuration() {
 # Menu principal
 ###############################################################################
 
+detect_docker_cmd() {
+    if command -v docker-compose &> /dev/null; then
+        echo "docker-compose"
+    else
+        echo "docker compose"
+    fi
+}
+
 show_usage() {
     cat << EOF
 Usage: $0 [OPTION]
 
 Configure les variables et connexions Airflow depuis des fichiers JSON.
-Les credentials (login/password) sont lus depuis le fichier .env.
+Les credentials (login/password) sont saisis lors du setup initial (quick_setup.sh)
+et stockés directement dans la base de données Airflow (chiffrés).
 
 Options:
-  --internal, -i     Configuration depuis l'intérieur du container (défaut)
-  --external, -e     Configuration depuis l'extérieur via docker-compose
-  --verify, -v       Vérifie la configuration actuelle
-  --export, -x       Exporte la configuration actuelle
-  --help, -h         Affiche cette aide
+  --internal, -i       Configuration depuis l'intérieur du container
+  --external, -e       Configuration depuis l'extérieur via docker-compose
+  --variables-only, -V Import des variables uniquement (sans toucher aux connexions)
+                        Utilisé par quick_setup.sh qui crée les connexions avec credentials
+  --verify, -v         Vérifie la configuration actuelle
+  --export, -x         Exporte la configuration actuelle
+  --help, -h           Affiche cette aide
 
 Exemples:
-  $0 --external              # Configure depuis l'hôte
-  $0 --internal              # Configure depuis le container
+  $0 --external              # Configure variables + connexions (structure seule) depuis l'hôte
+  $0 --internal              # Configure variables + connexions depuis le container
+  $0 --variables-only        # Import des variables uniquement (connexions gérées par quick_setup.sh)
   $0 --verify                # Vérifie la config
   $0 --export                # Exporte la config
 
 Fichiers requis:
   - config/airflow_variables.json (sans secrets)
-  - config/airflow_connections.json (sans credentials)
-  - .env (contient les credentials)
+  - config/airflow_connections.json (structure uniquement, sans credentials) — requis sauf en mode --variables-only
 
-Variables d'environnement attendues dans .env:
-  - OAUTH_CLIENT_ID         : Client ID pour l'API AMUE
-  - OAUTH_CLIENT_SECRET     : Client Secret pour l'API AMUE
-  - POSTGRES_DATA_LOGIN     : Login PostgreSQL
-  - POSTGRES_DATA_PASSWORD  : Password PostgreSQL
-  - ORACLE_DATA_LOGIN       : Login Oracle ECC (optionnel)
-  - ORACLE_DATA_PASSWORD    : Password Oracle ECC (optionnel)
+Note: Les connexions avec credentials doivent être créées via quick_setup.sh.
+Les connexions existantes sont ignorées en mode --external/--internal (credentials préservés).
 
 EOF
 }
@@ -394,6 +370,19 @@ main() {
             ;;
         --external|-e)
             setup_external
+            ;;
+        --variables-only|-V)
+            local docker_cmd
+            docker_cmd="$(detect_docker_cmd)"
+            check_file "$VARIABLES_FILE"
+            check_jq
+            if ! $docker_cmd ps | grep -q "airflow-apiserver"; then
+                log_error "Le service airflow-apiserver n'est pas en cours d'exécution"
+                exit 1
+            fi
+            log_info "Import des variables Airflow (connexions ignorées)..."
+            setup_variables_external "$docker_cmd"
+            log_success "Variables configurées. Les connexions sont gérées par quick_setup.sh."
             ;;
         --verify|-v)
             verify_configuration
