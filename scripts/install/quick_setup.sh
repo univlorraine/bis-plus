@@ -327,7 +327,7 @@ log_success "Fichier config/airflow_variables.json créé (sans secrets)"
 log_info "Étape 6/9: Démarrage des containers Docker"
 
 log_info "Arrêt des containers existants..."
-$DOCKER_CMD down -v 2>/dev/null || true
+$DOCKER_CMD down 2>/dev/null || true
 
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d
