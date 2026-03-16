@@ -237,6 +237,12 @@ cmd_setup_bluegreen() {
     # Valeurs par défaut si non définies
     PG_PORT=${PG_PORT:-5432}
 
+    # Depuis le host, postgres-data n'est accessible que via le port mappé
+    if [[ "$PG_HOST" == "postgres-data" ]]; then
+        PG_HOST="localhost"
+        PG_PORT="5433"
+    fi
+
     # Vérifie les paramètres obligatoires
     if [[ -z "$PG_HOST" ]] || [[ -z "$PG_DB" ]] || [[ -z "$PG_USER" ]] || [[ -z "$PG_PASSWORD" ]]; then
         log_error "Paramètres de connexion PostgreSQL incomplets dans .env"
@@ -1077,6 +1083,12 @@ _load_pg_creds() {
     PG_HOST=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('host',''))" 2>/dev/null)
     PG_PORT=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('port',5432))" 2>/dev/null)
     PG_DB=$(python3 -c "import json; d=json.load(open('config/airflow_connections.json')); print(d['postgres_data'].get('schema',''))" 2>/dev/null)
+
+    # Depuis le host, postgres-data n'est accessible que via le port mappé
+    if [[ "$PG_HOST" == "postgres-data" ]]; then
+        PG_HOST="localhost"
+        PG_PORT="5433"
+    fi
 
     PG_USER=""
     PG_PASSWORD=""

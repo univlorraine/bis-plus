@@ -9,18 +9,11 @@
   },
   "postgres_data": {
     "conn_type": "postgres",
-    "host": "sifacplus-db-pg-test.dc.univ-lorraine.fr",
-    "schema": "sifacplus",
+    "host": "postgres-data",
+    "schema": "business_data",
     "port": 5432,
     "extra": {
       "options": "-c search_path=splus"
     }
-  },
-  "oracle_data": {
-    "conn_type": "odbc",
-    "host": "oracle.example.fr",
-    "schema": "SAPSR3",
-    "port": 1521,
-    "extra": {}
   }
 }

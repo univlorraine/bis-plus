@@ -56,11 +56,16 @@ ask() {
 
 ask_secret() {
     local prompt="$1"
+    local default="$2"
     local result
-    echo -n "$prompt : " >&2
+    if [[ -n "$default" ]]; then
+        echo -n "$prompt [$default] : " >&2
+    else
+        echo -n "$prompt : " >&2
+    fi
     read -rs result </dev/tty
     echo "" >&2
-    echo "$result"
+    echo "${result:-$default}"
 }
 
 ask_choice() {
@@ -73,6 +78,15 @@ ask_choice() {
     echo "  1) dev (sandbox - pour les tests)" >&2
     echo "  2) prod (production)" >&2
     echo -n "Votre choix [$default] : " >&2
+    read -r result </dev/tty
+    echo "${result:-$default}"
+}
+
+ask_confirm() {
+    local prompt="$1"
+    local default="$2"
+    local result
+    echo -n "$prompt (o/N) : " >&2
     read -r result </dev/tty
     echo "${result:-$default}"
 }
@@ -194,10 +208,10 @@ echo ""
 log_info "=== Credentials PostgreSQL (stockés dans .env uniquement) ==="
 PG_HOST=$(ask "PostgreSQL host" "postgres-data")
 PG_DATABASE=$(ask "PostgreSQL database" "business_data")
-PG_SCHEMA=$(ask "PostgreSQL schema" "public")
+PG_SCHEMA=$(ask "PostgreSQL schema" "splus")
 PG_PORT=$(ask "PostgreSQL port" "5432")
 PG_LOGIN=$(ask "PostgreSQL login" "datauser")
-PG_PASSWORD=$(ask_secret "PostgreSQL password")
+PG_PASSWORD=$(ask_secret "PostgreSQL password" "datapass")
 
 echo ""
 log_info "=== Connexion Oracle ECC (optionnel) ==="
@@ -239,7 +253,7 @@ cat > ".env" << EOFENV
 
 # Airflow
 AIRFLOW_UID=1001
-AIRFLOW_IMAGE_NAME=apache/airflow:3.1.3
+AIRFLOW_IMAGE_NAME=apache/airflow:3.1.7
 AIRFLOW__CORE__FERNET_KEY=$(generate_fernet_key)
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
@@ -356,7 +370,7 @@ log_warning "Les credentials sont lus depuis .env lors de la configuration"
 log_info "Étape 6/8: Démarrage des containers Docker"
 
 log_info "Arrêt des containers existants..."
-$DOCKER_CMD down -v 2>/dev/null || true
+$DOCKER_CMD down 2>/dev/null || true
 
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d

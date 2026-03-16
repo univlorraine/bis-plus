@@ -55,6 +55,8 @@ x-airflow-common:
     &airflow-common-depends-on
     postgres:
       condition: service_healthy
+    postgres-data:
+      condition: service_healthy
 
 services:
   postgres:

@@ -1,0 +1,16 @@
+CREATE VIEW splus.v_sbv_z_udl_check_auth_sbv AS
+    SELECT DISTINCT uname,
+        max(
+            CASE agr_name
+                WHEN 'YC_SBV_CONSULTATION'::bpchar THEN '7'::text
+                WHEN 'YC_SBV_GEST_ORDO'::bpchar THEN '6'::text
+                WHEN 'YC_SBV_GEST_DRV_DBF'::bpchar THEN '5'::text
+                WHEN 'YC_SBV_GEST_AC'::bpchar THEN '4'::text
+                WHEN 'YC_SBV_ADMIN_ORDO'::bpchar THEN '3'::text
+                WHEN 'YC_SBV_ADMIN_AC'::bpchar THEN '2'::text
+                WHEN 'YC_SBV_ADMIN_DN'::bpchar THEN '1'::text
+                ELSE NULL::text
+            END) AS activite
+    FROM {target_schema}.agr_users
+        WHERE (agr_name ~~ 'YC_SBV_%'::text)
+        GROUP BY uname;

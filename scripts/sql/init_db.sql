@@ -104,57 +104,55 @@ CREATE TABLE IF NOT EXISTS splus_admin.amue_tables (
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- Config initiale (ON CONFLICT DO NOTHING = idempotent au redémarrage)
-INSERT INTO splus_admin.amue_tables (table_name, enabled, primary_key, delta) VALUES
-    ('AGR_AGRS',  true,  'AGR_NAME,CHILD_AGR',                                             ''),
-    ('AGR_USERS', true,  'AGR_NAME,UNAME,FROM_DAT,TO_DAT',                                 ''),
-    ('BKPF',      true,  'BUKRS,BELNR,GJAHR',                                              'cpudt'),
-    ('CEPC',      true,  'PRCTR,DATBI,KOKRS',                                              ''),
-    ('COBK',      true,  'KOKRS,BELNR',                                                    ''),
-    ('COVP',      true,  'KOKRS,BELNR,BUZEI',                                              ''),
-    ('CSKS',      true,  'KOKRS,KOSTL,DATBI',                                              ''),
-    ('CSKU',      false, 'SPRAS,KTOPL,KSTAR',                                              ''),
-    ('FM01H',     true,  'FIKRS,GJAHR',                                                    ''),
-    ('FMBDT',     true,  'RLDNR,RRCTY,RVERS,RYEAR,ROBJNR,COBJNR,SOBJNR,RTCUR,DRCRK,RPMAX', ''),
-    ('FMBH',      true,  'DOCNR,FM_AREA,DOCYEAR',                                          'crtdate'),
-    ('FMBL',      true,  'FM_AREA,DOCYEAR,DOCNR,DOCLN,RPMAX',                              ''),
-    ('FMFCTR',    true,  'FIKRS,FICTR,DATBIS',                                             ''),
-    ('FMIFHD',    false, 'FMBELNR,FIKRS',                                                  ''),
-    ('FMIFIIT',   true,  'FIKRS,BTART,RLDNR,GJAHR,STUNR',                                  ''),
-    ('FMFINCODE', true,  'FIKRS,FINCODE',                                                  ''),
-    ('FMHISV',    true,  'FIKRS,HIVARNT,FISTL',                                            ''),
-    ('FMMEASURE', true,  'FMAREA,MEASURE',                                                 ''),
-    ('KBLK',      true,  'BELNR',                                                          ''),
-    ('KNA1',      true,  'KUNNR',                                                          ''),
-    ('LFA1',      true,  'LIFNR',                                                          ''),
-    ('LFB1',      true,  'LIFNR,BUKRS',                                                    ''),
-    ('PA0000',    false, 'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
-    ('PA0001',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
-    ('PA0002',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
-    ('PA0105',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
-    ('PRPS',      false, 'POSID',                                                          ''),
-    ('PRPS_RH',   false, 'POSID',                                                          ''),
-    ('SOOD',      false, '',                                                               ''),
-    ('SRGBTBREL', true,  'BRELGUID',                                                       ''),
-    ('TFKB',      true,  'FKBER',                                                          ''),
-    ('TVARVC',    false, 'NAME,TYPE,NUMB',                                                 ''),
-    ('USR02',     true,  'BNAME',                                                          ''),
-    ('UST04',     false, 'BNAME,PROFILE',                                                  ''),
-    ('UST10S',    false, 'PROFN,AKTPS,OBJCT,AUTH',                                         ''),
-    ('UST12',     true,  'OBJCT,AUTH,AKTPS,FIELD,VON,BIS',                                 ''),
-    ('ZSIFACTAFM',false, 'FKBER',                                                          '')
-ON CONFLICT (table_name) DO NOTHING;
+-- -- Config initiale (ON CONFLICT DO NOTHING = idempotent au redémarrage)
+-- INSERT INTO splus_admin.amue_tables (table_name, enabled, primary_key, delta) VALUES
+--     ('AGR_AGRS',  true,  'AGR_NAME,CHILD_AGR',                                             ''),
+--     ('AGR_USERS', true,  'AGR_NAME,UNAME,FROM_DAT,TO_DAT',                                 ''),
+--     ('BKPF',      true,  'BUKRS,BELNR,GJAHR',                                              'cpudt'),
+--     ('CEPC',      true,  'PRCTR,DATBI,KOKRS',                                              ''),
+--     ('COBK',      true,  'KOKRS,BELNR',                                                    ''),
+--     ('COVP',      true,  'KOKRS,BELNR,BUZEI',                                              ''),
+--     ('CSKS',      true,  'KOKRS,KOSTL,DATBI',                                              ''),
+--     ('CSKU',      false, 'SPRAS,KTOPL,KSTAR',                                              ''),
+--     ('FM01H',     true,  'FIKRS,GJAHR',                                                    ''),
+--     ('FMBDT',     true,  'RLDNR,RRCTY,RVERS,RYEAR,ROBJNR,COBJNR,SOBJNR,RTCUR,DRCRK,RPMAX', ''),
+--     ('FMBH',      true,  'DOCNR,FM_AREA,DOCYEAR',                                          'crtdate'),
+--     ('FMBL',      true,  'FM_AREA,DOCYEAR,DOCNR,DOCLN,RPMAX',                              ''),
+--     ('FMFCTR',    true,  'FIKRS,FICTR,DATBIS',                                             ''),
+--     ('FMIFHD',    false, 'FMBELNR,FIKRS',                                                  ''),
+--     ('FMIFIIT',   true,  'FIKRS,BTART,RLDNR,GJAHR,STUNR',                                  ''),
+--     ('FMFINCODE', true,  'FIKRS,FINCODE',                                                  ''),
+--     ('FMHISV',    true,  'FIKRS,HIVARNT,FISTL',                                            ''),
+--     ('FMMEASURE', true,  'FMAREA,MEASURE',                                                 ''),
+--     ('KBLK',      true,  'BELNR',                                                          ''),
+--     ('KNA1',      true,  'KUNNR',                                                          ''),
+--     ('LFA1',      true,  'LIFNR',                                                          ''),
+--     ('LFB1',      true,  'LIFNR,BUKRS',                                                    ''),
+--     ('PA0000',    false, 'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
+--     ('PA0001',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
+--     ('PA0002',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
+--     ('PA0105',    true,  'PERNR,SUBTY,OBJPS,SPRPS,ENDDA,BEGDA,SEQNR',                      ''),
+--     ('PRPS',      false, 'POSID',                                                          ''),
+--     ('PRPS_RH',   false, 'POSID',                                                          ''),
+--     ('SOOD',      false, '',                                                               ''),
+--     ('SRGBTBREL', true,  'BRELGUID',                                                       ''),
+--     ('TFKB',      true,  'FKBER',                                                          ''),
+--     ('TVARVC',    false, 'NAME,TYPE,NUMB',                                                 ''),
+--     ('USR02',     true,  'BNAME',                                                          ''),
+--     ('UST04',     false, 'BNAME,PROFILE',                                                  ''),
+--     ('UST10S',    false, 'PROFN,AKTPS,OBJCT,AUTH',                                         ''),
+--     ('UST12',     true,  'OBJCT,AUTH,AKTPS,FIELD,VON,BIS',                                 ''),
+--     ('ZSIFACTAFM',false, 'FKBER',                                                          '')
+-- ON CONFLICT (table_name) DO NOTHING;
 
 -- ============================================================================
--- PERMISSIONS SIFACPLUS SUR SPLUS_ADMIN
+-- PERMISSIONS DATAUSER SUR SPLUS_ADMIN
 -- ============================================================================
-GRANT SELECT, INSERT, UPDATE ON splus_admin.amue_tables TO sifacplus;
-
-GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO sifacplus;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO sifacplus;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO sifacplus;
+GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO datauser;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO datauser;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO datauser;
 ALTER DEFAULT PRIVILEGES IN SCHEMA splus_admin
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sifacplus;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datauser;
 
 -- ============================================================================
 -- LOG DE CONFIRMATION

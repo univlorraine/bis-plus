@@ -36,7 +36,19 @@ Le setup crée automatiquement les schémas Blue/Green (`splus`, `splus_blue`, `
 ```
 dags/
 ├── dag_amue_dynamic_table.py      # DAG principal d'import
+├── dag_ecc_dynamic_table.py       # DAG d'import ECC (squelette)
 └── dag_amue_sync.py               # DAG de synchronisation Blue/Green
+
+plugins/common/
+└── tasks/                         # Tâches partagées AMUE + ECC
+    ├── init_bluegreen.py
+    ├── validate_tables.py
+    ├── prepare_table.py
+    └── switch_views.py
+
+plugins/ecc/
+├── hooks/ecc_source_hook.py       # ECCSourceHook (stub)
+└── tasks/import_dag/              # Tâches @task ECC (stubs)
 
 plugins/amue/
 ├── operators/
@@ -89,12 +101,9 @@ config/
 └── log_config.py                  # Configuration logging
 
 scripts/sql/
-├── init_db.sql                    # Initialisation BDD + Blue/Green
-├── init_admin_schema.sql          # Création schéma splus_admin
-├── create_bluegreen_schemas.sql   # Création schémas Blue/Green
-└── migrate_to_bluegreen.sql       # Migration tables existantes
+└── init_db.sql                    # Initialisation BDD + Blue/Green
 
-tests/                             # 539 tests unitaires (pytest)
+tests/                             # 553 tests unitaires (pytest)
 ```
 
 ## Architecture Blue/Green
@@ -153,15 +162,6 @@ Si des données incorrectes sont détectées après un import réussi :
 ```
 
 Le rollback bascule simplement les vues vers le schéma inactif (< 1 seconde).
-
-### Activation
-
-Le mode Blue/Green est contrôlé par la variable Airflow :
-```json
-{
-  "amue_bluegreen_enabled": "true"
-}
-```
 
 ## Workflow du DAG
 
@@ -370,8 +370,6 @@ Stratégies adaptées selon le type d'erreur :
   "amue_polling_max_backoff_minutes": "60",
   "amue_max_wait_hours": "6",
   "amue_api_max_retries": "3",
-  "amue_default_source": "sifac_plus",
-  "amue_bluegreen_enabled": "true",
   "amue_import_schedule": "0 2 * * *",
   "amue_sync_schedule": "0 6 * * *",
   "smtp_host": "mailhog",
@@ -397,12 +395,6 @@ FROM splus_admin.amue_tables;
 | `delta`          | Colonne de date pour import différentiel                            |
 | `fingerprint_api`| Empreinte de structure côté API (auto-générée)                     |
 | `fingerprint_ul` | Empreinte de structure côté PostgreSQL (auto-générée)              |
-
-### Variables Blue/Green
-
-| Variable                 | Description                                       |
-|--------------------------|---------------------------------------------------|
-| `amue_bluegreen_enabled` | Active le mode Blue/Green (`"true"` ou `"false"`) |
 
 ### État Blue/Green (`splus_admin.amue_state`)
 
@@ -435,7 +427,7 @@ SELECT * FROM splus_admin.amue_state WHERE id = 1;
 
 ```bash
 # Via manage.sh (recommandé)
-./manage.sh tests              # Tous les tests (539 tests)
+./manage.sh tests              # Tous les tests (553 tests)
 ./manage.sh tests-cov          # Avec couverture
 
 # Via pytest
@@ -499,7 +491,6 @@ psql -c "SELECT import_in_progress, last_finish_timestamp FROM splus_admin.amue_
 - [ ] Définir destinataires emails
 - [ ] Configurer backups automatiques
 - [ ] Activer HTTPS
-- [ ] Activer Blue/Green (`amue_bluegreen_enabled: "true"`)
 
 ### Création de tables
 En production, les tables doivent être créées manuellement dans les deux schémas :
@@ -523,18 +514,10 @@ CREATE TABLE splus_green.ma_table (
 -- La vue sera créée automatiquement lors du premier switch
 ```
 
-### Migration vers Blue/Green
-
-Pour migrer des tables existantes :
-```bash
-# Exécuter le script de migration
-psql -h $HOST -U $USER -d $DB -f scripts/sql/migrate_to_bluegreen.sql
-```
-
 ## Technologies
 
-- Apache Airflow 3.1.3
+- Apache Airflow 3.1.7
 - PostgreSQL 15
 - Python 3.12
 - Docker & Docker Compose
-- pytest (539 tests)
+- pytest (553 tests)
