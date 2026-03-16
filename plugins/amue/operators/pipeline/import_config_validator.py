@@ -6,6 +6,8 @@ Récupère et valide les clés primaires depuis splus_admin.amue_tables.
 import logging
 from typing import List
 
+from amue.services.table_config_manager import TableConfigManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,6 @@ class ImportConfigValidator:
         Returns:
             Liste des colonnes PK en minuscules, ou [] si absente/erreur
         """
-        from amue.services.table_config_manager import TableConfigManager
         try:
             table = TableConfigManager().get_table_metadata(table_name)
             if table is None:

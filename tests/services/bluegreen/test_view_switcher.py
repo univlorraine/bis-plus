@@ -493,8 +493,8 @@ class TestViewSwitcherCustomViews:
         assert "SELECT 3" in sqls[2]
 
     @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
-    def test_custom_views_applied_in_same_transaction(self, mock_create_hook, tmp_path):
-        """Les vues custom sont exécutées dans le même cursor que les vues standard"""
+    def test_custom_views_applied_individually(self, mock_create_hook, tmp_path):
+        """Les vues custom sont exécutées une à une avec leur propre commit (best-effort)"""
         sql_file = tmp_path / "01_custom.sql"
         sql_file.write_text(
             "DROP VIEW IF EXISTS splus.custom_v;\n"
@@ -524,8 +524,8 @@ class TestViewSwitcherCustomViews:
         assert result is True
         # 2 appels pour csks (DROP + CREATE) + 1 appel pour la vue custom = 3
         assert mock_cursor.execute.call_count == 3
-        # Un seul commit (transaction atomique)
-        mock_conn.commit.assert_called_once()
+        # 2 commits : 1 pour les vues standard, 1 pour la vue custom (best-effort)
+        assert mock_conn.commit.call_count == 2
 
     @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
     def test_custom_views_dir_empty_no_extra_calls(self, mock_create_hook, tmp_path):

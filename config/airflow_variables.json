@@ -1,5 +1,8 @@
 {
   "environment": "dev",
+  "amue_import_schedule": "0 2 * * *",
+  "amue_sync_schedule": "0 6 * * *",
+  "amue_monitor_schedule": "0 22 * * *",
   "oauth_api_connection_id": "oauth_api",
   "universite": "ul",
   "api_endpoint_admin": "finances/cdv/v1/preprod/${univ}/admin",

@@ -101,8 +101,9 @@ class TestTableConfigManagerGetTableMetadata:
 class TestTableConfigManagerSaveTablesConfig:
     """Tests pour save_tables_config"""
 
-    def test_save_tables_config_batch(self):
-        """UPDATE batch de plusieurs tables"""
+    @patch('amue.services.table_config_manager.execute_values')
+    def test_save_tables_config_batch(self, mock_execute_values):
+        """UPDATE batch de plusieurs tables via execute_values"""
         manager, hook = make_manager()
         tables = [
             {'name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2', 'primary_key': 'BUKRS,KOSTL'},
@@ -111,8 +112,12 @@ class TestTableConfigManagerSaveTablesConfig:
 
         manager.save_tables_config(tables)
 
-        # Un run par table
-        assert hook.run.call_count == 2
+        # Un seul appel batch pour les 2 tables
+        mock_execute_values.assert_called_once()
+        call_args = mock_execute_values.call_args
+        rows = call_args[0][2]  # 3ème arg positionnel = rows
+        assert len(rows) == 2
+        hook.get_conn.return_value.commit.assert_called_once()
 
     def test_save_tables_config_empty_list(self):
         """Aucun appel si liste vide"""
@@ -120,12 +125,13 @@ class TestTableConfigManagerSaveTablesConfig:
 
         manager.save_tables_config([])
 
-        hook.run.assert_not_called()
+        hook.get_conn.assert_not_called()
 
-    def test_save_tables_config_raises_on_error(self):
+    @patch('amue.services.table_config_manager.execute_values')
+    def test_save_tables_config_raises_on_error(self, mock_execute_values):
         """Propagation de l'exception si erreur BDD"""
         manager, hook = make_manager()
-        hook.run.side_effect = Exception("DB error")
+        mock_execute_values.side_effect = Exception("DB error")
 
         tables = [
             {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},

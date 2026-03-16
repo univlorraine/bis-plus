@@ -397,15 +397,14 @@ fi
 
 if [[ -n "$ORACLE_HOST" ]]; then
     $DOCKER_CMD exec -T airflow-apiserver airflow connections delete oracle_data 2>/dev/null || true
-    if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add oracle_data \
-        --conn-type odbc \
-        --conn-host "$ORACLE_HOST" \
-        --conn-schema "$ORACLE_SID" \
-        --conn-port "$ORACLE_PORT" \
-        --conn-login "$ORACLE_LOGIN" \
-        --conn-password "$ORACLE_PASSWORD"; then
+    # Passage du mot de passe via stdin (évite l'exposition dans ps aux)
+    _ORACLE_JSON=$(printf '{"oracle_data":{"conn_type":"odbc","host":"%s","schema":"%s","port":%s,"login":"%s","password":"%s"}}' \
+        "$ORACLE_HOST" "$ORACLE_SID" "$ORACLE_PORT" "$ORACLE_LOGIN" "$ORACLE_PASSWORD")
+    if ! echo "$_ORACLE_JSON" | $DOCKER_CMD exec -i airflow-apiserver \
+            bash -c 'cat > /tmp/_oc.json && airflow connections import /tmp/_oc.json; EC=$?; rm -f /tmp/_oc.json; exit $EC'; then
         log_error "Échec création connexion oracle_data"
     fi
+    unset _ORACLE_JSON
 fi
 
 log_success "Credentials injectés directement dans Airflow DB"
@@ -439,9 +438,12 @@ while true; do
     echo -n "  Colonne delta (laisser vide si import complet) : " >&2
     read -r T_DELTA </dev/tty
 
+    T_NAME_ESC="${T_NAME//\'/\'\'}"
+    T_PK_ESC="${T_PK//\'/\'\'}"
+    T_DELTA_ESC="${T_DELTA//\'/\'\'}"
     $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -q -c \
         "INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
-         VALUES ('$T_NAME', '$T_PK', '$T_DELTA')
+         VALUES ('$T_NAME_ESC', '$T_PK_ESC', '$T_DELTA_ESC')
          ON CONFLICT (table_name) DO UPDATE
            SET primary_key = EXCLUDED.primary_key,
                delta       = EXCLUDED.delta,

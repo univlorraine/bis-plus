@@ -22,6 +22,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
 from amue.utils.database.hooks import create_postgres_hook
 from amue.utils.tracing import to_iso_str
 
@@ -164,16 +165,13 @@ class AdminStateManager:
     # ÉTAT BLUE/GREEN
     # =========================================================================
 
-    def get_bluegreen_state(self):
+    def get_bluegreen_state(self) -> BlueGreenState:
         """
         Retourne l'état blue/green depuis la BDD sous forme de BlueGreenState.
 
-        Import lazy de BlueGreenState pour éviter les imports circulaires.
-
         Returns:
-            BlueGreenState ou None si la table est inaccessible
+            BlueGreenState ou état par défaut si la table est inaccessible
         """
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
         try:
             row = self._hook.get_first(
                 f"""
@@ -195,7 +193,6 @@ class AdminStateManager:
             )
         except Exception as e:
             logger.warning(f"[ADMIN_STATE] Impossible de lire l'état blue/green: {e}")
-            from amue.services.bluegreen.bluegreen_manager import BlueGreenState
             return BlueGreenState()
 
     def save_bluegreen_state(self, state) -> bool:

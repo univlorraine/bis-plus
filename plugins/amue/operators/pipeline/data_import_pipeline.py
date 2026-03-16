@@ -184,12 +184,18 @@ class DataImportPipeline:
                     futures.append(executor.submit(consumer, i))
 
                 producer_error = None
+                col_key_map = None  # calculé à la première ligne : col_lower → clé réelle
                 try:
                     for row in self.streamer.stream_data(table_name, import_config):
                         total_fetched += 1
 
-                        row_lower = {k.lower(): v for k, v in row.items()} if isinstance(row, dict) else {}
-                        data_values = [row_lower.get(col, None) for col in data_columns]
+                        if col_key_map is None and isinstance(row, dict):
+                            _lower_to_orig = {k.lower(): k for k in row.keys()}
+                            col_key_map = [_lower_to_orig.get(col) for col in data_columns]
+                        if isinstance(row, dict) and col_key_map is not None:
+                            data_values = [row.get(k) for k in col_key_map]
+                        else:
+                            data_values = [None] * len(data_columns)
                         meta_values = [PROTECTED_SOURCE, import_timestamp]
                         record = tuple(data_values + meta_values)
                         batch.append(record)

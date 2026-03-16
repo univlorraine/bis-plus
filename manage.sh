@@ -1078,7 +1078,7 @@ _load_pg_creds() {
     # Depuis le host, postgres-data n'est accessible que via le port mappé
     if [[ "$PG_HOST" == "postgres-data" ]]; then
         PG_HOST="localhost"
-        PG_PORT="5433"
+        PG_PORT="${PG_DATA_PORT:-5433}"
     fi
 
     if [[ -z "$PG_HOST" || -z "$PG_DB" || -z "$PG_USER" ]]; then
@@ -1219,9 +1219,12 @@ cmd_load_tables() {
         echo -n "  Colonne delta (vide = import complet) : " >&2
         read -r T_DELTA </dev/tty
 
+        T_NAME_ESC="${T_NAME//\'/\'\'}"
+        T_PK_ESC="${T_PK//\'/\'\'}"
+        T_DELTA_ESC="${T_DELTA//\'/\'\'}"
         RESULT=$(_pg_exec -q -c "
             INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
-            VALUES ('$T_NAME', '$T_PK', '$T_DELTA')
+            VALUES ('$T_NAME_ESC', '$T_PK_ESC', '$T_DELTA_ESC')
             ON CONFLICT (table_name) DO UPDATE
               SET primary_key = EXCLUDED.primary_key,
                   delta       = EXCLUDED.delta,

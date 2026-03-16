@@ -93,7 +93,7 @@ services:
       start_period: 5s
     restart: always
     ports:
-      - "5433:5432"
+      - "${PG_DATA_PORT:-5433}:5432"
 
   airflow-apiserver:
     <<: *airflow-common

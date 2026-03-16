@@ -87,10 +87,11 @@ def ecc_multi_table_import():
     imported = import_ecc_data.expand(table_config=tables)
 
     # ── Phase 3 : Sauvegarde des métadonnées (audit trail par table) ──────────
-    save_ecc_metadata.expand(import_result=imported)
+    saved = save_ecc_metadata.expand(import_result=imported)
 
-    # ── Phase 4 : Rapport ─────────────────────────────────────────────────────
-    send_ecc_report(imported)
+    # ── Phase 4 : Rapport (après completion des métadonnées) ──────────────────
+    report = send_ecc_report(imported)
+    saved >> report
 
 
 # ==============================================================================

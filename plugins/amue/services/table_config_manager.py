@@ -23,6 +23,8 @@ Colonnes gérées :
 import logging
 from typing import Dict, List, Optional
 
+from psycopg2.extras import execute_values
+
 from amue.utils.database.hooks import create_postgres_hook
 
 logger = logging.getLogger(__name__)
@@ -113,34 +115,47 @@ class TableConfigManager:
 
     def save_tables_config(self, tables: List[Dict]) -> None:
         """
-        UPDATE batch des métadonnées (fingerprints, primary_key).
+        UPDATE batch des métadonnées (fingerprints, primary_key) en une seule requête.
 
         Args:
             tables: Liste de dicts au format get_tables_config()
 
         Raises:
-            Exception: Si un UPDATE échoue (pour déclencher le retry du caller)
+            Exception: Si l'UPDATE échoue (pour déclencher le retry du caller)
         """
+        rows = [
+            (
+                table.get('fingerprint_API', ''),
+                table.get('fingerprint_UL', ''),
+                table.get('primary_key', ''),
+                table.get('name', '').upper(),
+            )
+            for table in tables
+            if table.get('name', '').strip()
+        ]
+        if not rows:
+            logger.info("[TABLE_CONFIG] Aucune table à sauvegarder")
+            return
         try:
-            for table in tables:
-                table_name = table.get('name', '').upper()
-                if not table_name:
-                    continue
-                self._hook.run(
-                    f"""UPDATE {_TABLE}
-                        SET fingerprint_api = %s,
-                            fingerprint_ul  = %s,
-                            primary_key     = %s,
+            conn = self._hook.get_conn()
+            cursor = conn.cursor()
+            try:
+                execute_values(
+                    cursor,
+                    f"""UPDATE {_TABLE} AS t
+                        SET fingerprint_api = v.fp_api,
+                            fingerprint_ul  = v.fp_ul,
+                            primary_key     = v.pk,
                             updated_at      = NOW()
-                        WHERE table_name = %s""",
-                    parameters=(
-                        table.get('fingerprint_API', ''),
-                        table.get('fingerprint_UL', ''),
-                        table.get('primary_key', ''),
-                        table_name,
-                    )
+                        FROM (VALUES %s) AS v(fp_api, fp_ul, pk, tname)
+                        WHERE t.table_name = v.tname""",
+                    rows,
+                    template="(%s, %s, %s, %s)",
                 )
-            logger.info(f"[TABLE_CONFIG] {len(tables)} table(s) sauvegardée(s)")
+                conn.commit()
+            finally:
+                cursor.close()
+            logger.info(f"[TABLE_CONFIG] {len(rows)} table(s) sauvegardée(s) (batch)")
         except Exception as e:
             logger.error(f"[TABLE_CONFIG] Erreur sauvegarde batch: {e}")
             raise
