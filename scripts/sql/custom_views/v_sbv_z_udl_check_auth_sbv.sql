@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_check_auth_sbv;
 CREATE VIEW splus.v_sbv_z_udl_check_auth_sbv AS
     SELECT DISTINCT uname,
         max(

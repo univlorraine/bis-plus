@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_cf_search;
 CREATE VIEW splus.v_sbv_z_udl_cf_search AS
     SELECT fikrs,
         fictr,

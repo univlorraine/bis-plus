@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_read_eotp_edi;
 CREATE VIEW splus.v_sbv_z_udl_read_eotp_edi AS
     SELECT posid,
         pstrt,

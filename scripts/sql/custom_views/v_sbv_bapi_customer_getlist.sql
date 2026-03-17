@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_bapi_customer_getlist;
 CREATE VIEW splus.v_sbv_bapi_customer_getlist AS
     SELECT kunnr,
         land1,

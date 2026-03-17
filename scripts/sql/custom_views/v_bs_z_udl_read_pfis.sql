@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_bs_z_udl_read_pfis;
 CREATE VIEW splus.v_bs_z_udl_read_pfis AS
     SELECT t1.measure,
         t1.valid_from,

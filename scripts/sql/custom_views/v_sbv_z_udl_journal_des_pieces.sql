@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_journal_des_pieces;
 CREATE VIEW splus.v_sbv_z_udl_journal_des_pieces AS
     SELECT t1.gjahr AS gjahr1,
         t1.perio,

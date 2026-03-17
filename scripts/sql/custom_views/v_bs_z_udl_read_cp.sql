@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_bs_z_udl_read_cp;
 CREATE VIEW splus.v_bs_z_udl_read_cp AS
     SELECT prctr,
         ktext,

@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_cji3;
 CREATE VIEW splus.v_sbv_z_udl_cji3 AS
     SELECT prps.posid,
         covp.gjahr,

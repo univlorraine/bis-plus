@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.V_weber_test;
 CREATE VIEW splus.V_weber_test AS
     SELECT t1.gjahr AS gjahr1,
         t1.perio,

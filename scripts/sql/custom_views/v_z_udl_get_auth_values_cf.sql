@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_z_udl_get_auth_values_cf;
 CREATE VIEW splus.v_z_udl_get_auth_values_cf AS
     SELECT agr_users.uname,
         agr_users.agr_name,

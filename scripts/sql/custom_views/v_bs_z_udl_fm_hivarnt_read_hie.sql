@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_bs_z_udl_fm_hivarnt_read_hie;
 CREATE VIEW splus.v_bs_z_udl_fm_hivarnt_read_hie AS
     SELECT t1.fikrs,
         t1.hivarnt,

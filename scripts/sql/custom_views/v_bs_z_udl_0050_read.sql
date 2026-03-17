@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_bs_z_udl_0050_read;
 CREATE VIEW splus.v_bs_z_udl_0050_read AS
     SELECT t1.docyear,
         t2.docnr,

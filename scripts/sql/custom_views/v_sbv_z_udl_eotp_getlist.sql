@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS splus.v_sbv_z_udl_eotp_getlist;
 CREATE VIEW splus.v_sbv_z_udl_eotp_getlist AS
     SELECT posid,
         post1,
