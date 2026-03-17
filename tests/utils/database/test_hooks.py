@@ -112,8 +112,7 @@ class TestHookManagerSingleton:
     def teardown_method(self):
         """Reset singleton après chaque test."""
         HookManager._instance = None
-        HookManager._api_hook = None
-        HookManager._postgres_hook = None
+        HookManager._local = __import__('threading').local()
 
     def test_singleton_returns_same_instance(self):
         """Test que le singleton retourne la même instance."""
@@ -123,15 +122,15 @@ class TestHookManagerSingleton:
         assert manager1 is manager2
 
     def test_reset_clears_hooks(self):
-        """Test que reset efface les hooks."""
+        """Test que reset efface les hooks (thread-local)."""
         manager = HookManager()
-        manager._api_hook = MagicMock()
-        manager._postgres_hook = MagicMock()
+        manager._local.api_hook = MagicMock()
+        manager._local.postgres_hook = MagicMock()
 
         manager.reset()
 
-        assert manager._api_hook is None
-        assert manager._postgres_hook is None
+        assert manager._local.api_hook is None
+        assert manager._local.postgres_hook is None
 
 
 class TestHookManagerApiHook:
@@ -140,8 +139,7 @@ class TestHookManagerApiHook:
     def teardown_method(self):
         """Reset singleton après chaque test."""
         HookManager._instance = None
-        HookManager._api_hook = None
-        HookManager._postgres_hook = None
+        HookManager._local = __import__('threading').local()
 
     @patch('amue.utils.database.hooks.create_api_hook')
     def test_lazy_loads_api_hook(self, mock_create):
@@ -176,8 +174,7 @@ class TestHookManagerPostgresHook:
     def teardown_method(self):
         """Reset singleton après chaque test."""
         HookManager._instance = None
-        HookManager._api_hook = None
-        HookManager._postgres_hook = None
+        HookManager._local = __import__('threading').local()
 
     @patch('amue.utils.database.hooks.create_postgres_hook')
     def test_lazy_loads_postgres_hook(self, mock_create):

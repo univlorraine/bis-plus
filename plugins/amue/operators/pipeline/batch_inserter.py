@@ -390,30 +390,30 @@ class AMUEBatchInserter:
         Raises:
             AMUEDatabaseError: En cas d'erreur de connexion à la base de données
         """
-        where_clauses = []
+        where_parts = []
         params = []
 
         for pk in primary_keys:
             pk_lower = pk.lower()
             if pk_lower in pk_values:
-                where_clauses.append(f"{pk_lower} = %s")
+                where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(pk_lower)))
                 params.append(pk_values[pk_lower])
             elif pk in pk_values:
-                where_clauses.append(f"{pk.lower()} = %s")
+                where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(pk_lower)))
                 params.append(pk_values[pk])
 
-        if not where_clauses:
+        if not where_parts:
             logger.debug(f"{Defaults.LOG_PREFIX_BATCH} Pas de clause WHERE, retour None")
             return None
 
         # Utilise le nom qualifié si blue/green actif
         qualified_name = self._get_qualified_table_name(table_name)
 
-        select_sql = f"""
-            SELECT {', '.join(columns)}
-            FROM {qualified_name}
-            WHERE {' AND '.join(where_clauses)}
-        """
+        select_sql = sql.SQL("SELECT {cols} FROM {table} WHERE {where}").format(
+            cols=sql.SQL(', ').join(sql.Identifier(c) for c in columns),
+            table=sql.SQL(qualified_name),
+            where=sql.SQL(' AND ').join(where_parts),
+        )
 
         try:
             cursor.execute(select_sql, params)

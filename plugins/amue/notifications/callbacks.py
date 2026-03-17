@@ -62,11 +62,20 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     try:
         task_instance = context.get('task_instance')
         if task_instance:
-            import_results = task_instance.xcom_pull(
+            raw = task_instance.xcom_pull(
                 task_ids='import_data',
-                key='return_value'
+                key='return_value',
+                map_indexes='all',
             )
-            if import_results and isinstance(import_results, list) and len(import_results) > 0:
+            # Avec .expand(), xcom_pull retourne une liste de résultats par instance ;
+            # certaines instances peuvent avoir retourné None en cas d'échec partiel.
+            if isinstance(raw, list):
+                import_results = [r for r in raw if r is not None]
+            elif raw is not None:
+                import_results = [raw]
+            else:
+                import_results = []
+            if import_results:
                 from amue.notifications.report_generator import AMUEReportGenerator
                 generator = AMUEReportGenerator()
                 report = generator.generate_report(import_results, {})

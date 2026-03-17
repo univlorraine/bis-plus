@@ -201,13 +201,13 @@ class TestAdminStateManagerImportLock:
         hook.get_first.assert_called_once()
 
     def test_release_import_lock_error(self):
-        """Retourne False en cas d'erreur BDD"""
+        """Reraise l'exception en cas d'erreur BDD (verrou potentiellement encore actif)"""
+        import pytest
         manager, hook = make_manager()
         hook.get_first.side_effect = Exception("DB error")
 
-        result = manager.release_import_lock('blue')
-
-        assert result is False
+        with pytest.raises(Exception, match="DB error"):
+            manager.release_import_lock('blue')
 
     def test_release_lock_not_held_returns_false(self):
         """Retourne False si le verrou n'était pas tenu (RETURNING retourne None)"""

@@ -68,7 +68,7 @@ class AdminStateManager:
                 return to_iso_str(row[0])
             return None
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible de lire last_finish_timestamp: {e}")
+            logger.debug(f"[ADMIN_STATE] Impossible de lire last_finish_timestamp: {e}")
             return None
 
     def set_last_finish_timestamp(self, ts: str) -> None:
@@ -85,7 +85,7 @@ class AdminStateManager:
             )
             logger.info(f"[ADMIN_STATE] last_finish_timestamp mis à jour: {ts}")
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible d'écrire last_finish_timestamp: {e}")
+            logger.error(f"[ADMIN_STATE] Impossible d'écrire last_finish_timestamp: {e}")
 
     def get_last_successful_run(self) -> Optional[str]:
         """
@@ -103,7 +103,7 @@ class AdminStateManager:
                 return to_iso_str(row[0])
             return None
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible de lire last_successful_run: {e}")
+            logger.debug(f"[ADMIN_STATE] Impossible de lire last_successful_run: {e}")
             return None
 
     def set_last_successful_run(self, ts: str) -> None:
@@ -120,7 +120,7 @@ class AdminStateManager:
             )
             logger.info(f"[ADMIN_STATE] last_successful_run mis à jour: {ts}")
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible d'écrire last_successful_run: {e}")
+            logger.error(f"[ADMIN_STATE] Impossible d'écrire last_successful_run: {e}")
 
     def get_last_report_start(self) -> Optional[str]:
         """
@@ -142,7 +142,7 @@ class AdminStateManager:
                 return to_iso_str(row[0])
             return None
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible de lire last_report_start: {e}")
+            logger.debug(f"[ADMIN_STATE] Impossible de lire last_report_start: {e}")
             return None
 
     def set_last_report_start(self, ts: str) -> None:
@@ -159,7 +159,7 @@ class AdminStateManager:
             )
             logger.info(f"[ADMIN_STATE] last_report_start mis à jour: {ts}")
         except Exception as e:
-            logger.warning(f"[ADMIN_STATE] Impossible d'écrire last_report_start: {e}")
+            logger.error(f"[ADMIN_STATE] Impossible d'écrire last_report_start: {e}")
 
     # =========================================================================
     # ÉTAT BLUE/GREEN
@@ -284,7 +284,10 @@ class AdminStateManager:
             active_schema: Nom court du schéma qui vient d'être importé (ex: 'blue')
 
         Returns:
-            True si le verrou a été libéré, False si non tenu ou erreur
+            True si le verrou a été libéré, False si non tenu
+
+        Raises:
+            Exception: Si l'UPDATE BDD échoue (verrou reste actif)
         """
         try:
             result = self._hook.get_first(
@@ -306,8 +309,8 @@ class AdminStateManager:
             logger.info(f"[ADMIN_STATE] Verrou libéré (schéma: {active_schema})")
             return True
         except Exception as e:
-            logger.error(f"[ADMIN_STATE] Erreur libération verrou: {e}")
-            return False
+            logger.error(f"[ADMIN_STATE] Erreur libération verrou — verrou potentiellement encore actif: {e}")
+            raise
 
     def force_release_lock(self) -> bool:
         """
@@ -317,6 +320,9 @@ class AdminStateManager:
 
         Returns:
             True si succès
+
+        Raises:
+            Exception: Si l'UPDATE BDD échoue (verrou reste actif)
         """
         try:
             self._hook.run(
@@ -334,7 +340,7 @@ class AdminStateManager:
             return True
         except Exception as e:
             logger.error(f"[ADMIN_STATE] Erreur libération forcée: {e}")
-            return False
+            raise
 
     def mark_switch_completed(self, active_schema: str) -> bool:
         """

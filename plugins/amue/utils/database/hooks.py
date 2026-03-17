@@ -60,6 +60,8 @@ USAGE
 
 ================================================================================
 """
+import threading
+
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from amue.hooks.amue_api_hook import AMUEAPIHook
 
@@ -148,9 +150,12 @@ def create_api_hook() -> AMUEAPIHook:
 
 class HookManager:
     """
-    Gestionnaire centralisé de hooks (singleton)
+    Gestionnaire centralisé de hooks (singleton par thread)
 
-    Utilise le pattern singleton pour réutiliser les connexions.
+    Utilise threading.local() pour isoler les connexions par thread :
+    chaque worker Airflow (LocalExecutor) obtient son propre hook,
+    évitant le partage de connexions PostgreSQL entre threads.
+
     Pour des connexions indépendantes, utiliser les factory functions.
 
     Example:
@@ -160,8 +165,7 @@ class HookManager:
     """
 
     _instance = None
-    _api_hook = None
-    _postgres_hook = None
+    _local = threading.local()
 
     def __new__(cls):
         if cls._instance is None:
@@ -170,19 +174,19 @@ class HookManager:
 
     @property
     def api_hook(self) -> AMUEAPIHook:
-        """Retourne le hook API AMUE (lazy loading)"""
-        if self._api_hook is None:
-            self._api_hook = create_api_hook()
-        return self._api_hook
+        """Retourne le hook API AMUE — isolé par thread (lazy loading)"""
+        if not hasattr(self._local, 'api_hook') or self._local.api_hook is None:
+            self._local.api_hook = create_api_hook()
+        return self._local.api_hook
 
     @property
     def postgres_hook(self) -> PostgresHook:
-        """Retourne le hook PostgreSQL (lazy loading)"""
-        if self._postgres_hook is None:
-            self._postgres_hook = create_postgres_hook()
-        return self._postgres_hook
+        """Retourne le hook PostgreSQL — isolé par thread (lazy loading)"""
+        if not hasattr(self._local, 'postgres_hook') or self._local.postgres_hook is None:
+            self._local.postgres_hook = create_postgres_hook()
+        return self._local.postgres_hook
 
     def reset(self) -> None:
-        """Réinitialise les hooks (utile pour les tests)"""
-        self._api_hook = None
-        self._postgres_hook = None
+        """Réinitialise les hooks du thread courant (utile pour les tests)"""
+        self._local.api_hook = None
+        self._local.postgres_hook = None

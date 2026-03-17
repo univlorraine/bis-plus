@@ -62,13 +62,13 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-airflow}"]
       interval: 10s
       retries: 5
       start_period: 5s
@@ -80,9 +80,9 @@ services:
   postgres-data:
     image: postgres:15
     environment:
-      POSTGRES_USER: datauser
-      POSTGRES_PASSWORD: datapass
-      POSTGRES_DB: business_data
+      POSTGRES_USER: ${PG_DATA_USER:-datauser}
+      POSTGRES_PASSWORD: ${PG_DATA_PASSWORD:-datapass}
+      POSTGRES_DB: ${PG_DATA_DB:-business_data}
     volumes:
       - postgres-data-volume:/var/lib/postgresql/data
       - ${AIRFLOW_PROJ_DIR:-.}/scripts/sql/init_db.sql:/docker-entrypoint-initdb.d/init-db.sql

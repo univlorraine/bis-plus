@@ -19,16 +19,10 @@ OBLIGATOIRES :
 
 OPTIONNELLES (avec valeurs par défaut) :
 ----------------------------------------
-  amue_tables_to_import         Liste JSON des tables à importer (OBLIGATOIRE)
-                                Format: [{"name": "CSKS", "enable": true, ...}, ...]
-                                Attributs par table:
-                                  - name: Nom de la table (obligatoire)
-                                  - enable: true/false pour activer/désactiver (défaut: true)
-                                  - primary_key: Clés primaires CSV pour UPSERT
-                                  - delta: Colonne de date pour import différentiel
-                                  - last_import: Date ISO du dernier import
-                                  - fingerprint_API: Hash structure API (géré automatiquement)
-                                  - fingerprint_UL: Hash structure PG (géré automatiquement)
+  [Tables] La liste des tables à importer n'est plus une variable Airflow.
+           Elle est stockée dans la table PostgreSQL splus_admin.amue_tables
+           et gérée via TableConfigManager (plugins/amue/services/table_config_manager.py).
+           Utiliser `./manage.sh load-tables` pour la configurer.
 
   amue_api_max_retries          Nombre max de tentatives API en cas d'erreur
                                 Valeurs: 1-10
@@ -131,8 +125,7 @@ class Defaults:
     DB_SCHEMA_GREEN: str = "splus_green"
     DB_CONNECTION_TIMEOUT_SECONDS: int = 30
 
-    # --- Blue/Green ---
-    BLUEGREEN_ENABLED: bool = False
+    # --- Blue/Green (toujours actif) ---
     BLUEGREEN_DEFAULT_ACTIVE: str = "blue"
     BLUEGREEN_LOCK_TIMEOUT_MINUTES: int = 120  # 2 heures max pour un import
 

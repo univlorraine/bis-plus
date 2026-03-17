@@ -1,39 +1,5 @@
-"""Tests unitaires pour les tasks wait_for_api et select_tables."""
+"""Tests unitaires pour les tasks select_tables."""
 from unittest.mock import MagicMock, patch
-
-
-class TestWaitForApi:
-    """Tests pour la task wait_for_api."""
-
-    @patch('amue.tasks.import_dag.polling.AMUEPollingService')
-    @patch('amue.tasks.import_dag.polling.AMUEStatusChecker')
-    @patch('amue.tasks.import_dag.polling.AMUEAPIHook')
-    def test_returns_polling_result(self, MockAPI, MockChecker, MockPolling):
-        """La task retourne le résultat du service de polling."""
-        from amue.tasks.import_dag.polling import wait_for_api
-
-        expected = {
-            'ready': True, 'attempts': 1, 'total_wait_minutes': 0.1,
-            'status': 'success', 'finish': '2026-03-09T10:00:00', 'tables_status': {}
-        }
-        MockPolling.return_value.wait_for_ready.return_value = expected
-
-        result = wait_for_api.function()
-
-        assert result == expected
-        MockPolling.return_value.wait_for_ready.assert_called_once()
-
-    @patch('amue.tasks.import_dag.polling.AMUEPollingService')
-    @patch('amue.tasks.import_dag.polling.AMUEStatusChecker')
-    @patch('amue.tasks.import_dag.polling.AMUEAPIHook')
-    def test_polling_service_created_with_status_checker(self, MockAPI, MockChecker, MockPolling):
-        """AMUEPollingService est créé avec AMUEStatusChecker."""
-        from amue.tasks.import_dag.polling import wait_for_api
-
-        MockPolling.return_value.wait_for_ready.return_value = {}
-        wait_for_api.function()
-
-        MockPolling.assert_called_once_with(MockChecker.return_value)
 
 
 class TestSelectTables:

@@ -82,7 +82,8 @@ class SchemaSynchronizer:
         self,
         table_name: str,
         source_schema: str,
-        target_schema: str
+        target_schema: str,
+        conn=None,
     ) -> Dict:
         """
         Synchronise une table du schéma source vers le schéma cible.
@@ -97,6 +98,8 @@ class SchemaSynchronizer:
             table_name: Nom de la table
             source_schema: Schéma source (ex: 'splus_blue')
             target_schema: Schéma cible (ex: 'splus_green')
+            conn: Connexion PostgreSQL existante (ouverte par l'appelant pour éviter
+                  32+ connexions séquentielles). Si None, une connexion est créée.
 
         Returns:
             Résultat de la synchronisation :
@@ -110,7 +113,9 @@ class SchemaSynchronizer:
         """
         logger.debug(f"[SYNC] Table {table_name}: {source_schema} -> {target_schema}")
 
-        conn = self.postgres_hook.get_conn()
+        owns_conn = conn is None
+        if owns_conn:
+            conn = self.postgres_hook.get_conn()
         cursor = conn.cursor()
 
         try:
@@ -181,7 +186,8 @@ class SchemaSynchronizer:
             }
         finally:
             cursor.close()
-            conn.close()
+            if owns_conn:
+                conn.close()
 
     def sync_schemas(
         self,
@@ -233,6 +239,9 @@ class SchemaSynchronizer:
 
         logger.info(f"[SYNC] {len(tables)} tables à synchroniser")
 
+        # Connexion unique partagée entre toutes les tables (évite 32+ connexions séquentielles)
+        shared_conn = self.postgres_hook.get_conn()
+
         # Synchronise chaque table
         results = []
         tables_synced = 0
@@ -241,19 +250,22 @@ class SchemaSynchronizer:
         tables_skipped = 0
         total_rows = 0
 
-        for table_name in tables:
-            result = self.sync_table(table_name, source_schema, target_schema)
-            results.append(result)
+        try:
+            for table_name in tables:
+                result = self.sync_table(table_name, source_schema, target_schema, conn=shared_conn)
+                results.append(result)
 
-            if result['status'] == 'success':
-                tables_synced += 1
-                total_rows += result['rows_copied']
-                if result.get('created'):
-                    tables_created += 1
-            elif result['status'] == 'error':
-                tables_failed += 1
-            else:
-                tables_skipped += 1
+                if result['status'] == 'success':
+                    tables_synced += 1
+                    total_rows += result['rows_copied']
+                    if result.get('created'):
+                        tables_created += 1
+                elif result['status'] == 'error':
+                    tables_failed += 1
+                else:
+                    tables_skipped += 1
+        finally:
+            shared_conn.close()
 
         # Détermine le statut global
         if tables_failed == 0:

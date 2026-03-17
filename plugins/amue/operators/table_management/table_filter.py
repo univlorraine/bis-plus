@@ -375,6 +375,12 @@ class AMUETableFilter:
         from amue.services.table_config_manager import TableConfigManager
         tables_config = TableConfigManager().get_tables_config()
 
+        if not tables_config:
+            raise ValueError(
+                "[LOAD_CONFIG] Aucune table configurée dans splus_admin.amue_tables. "
+                "Exécutez scripts/sql/seed_amue_tables.sql ou ./manage.sh load-tables."
+            )
+
         self._last_report_start = self._load_last_report_start()
 
         logger.info(f"[LOAD_CONFIG] {len(tables_config)} tables chargées depuis la BDD")

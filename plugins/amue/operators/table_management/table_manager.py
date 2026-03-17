@@ -48,8 +48,11 @@ Connexion PostgreSQL :
 ================================================================================
 """
 import logging
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+
+_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_.]*$')
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
@@ -308,12 +311,16 @@ class AMUETableManager:
         # Contrainte de clé primaire
         pk_constraint = self._build_primary_key_constraint(primary_keys_str)
 
+        # Validation du nom de table avant interpolation DDL
+        if not _SAFE_IDENTIFIER_RE.match(table_name):
+            raise AMUESchemaError(f"Nom de table non sécurisé pour le DDL : {table_name!r}")
+
         # Assembly du SQL
         columns_sql = ',\n    '.join(column_defs)
 
         create_sql = f"""
             DROP TABLE IF EXISTS {table_name} CASCADE;
-            
+
             CREATE TABLE {table_name} (
                 {columns_sql}{pk_constraint}
             );

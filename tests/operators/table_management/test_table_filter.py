@@ -412,7 +412,8 @@ class TestTableFilterLoadConfig:
     @patch('amue.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_load_config_empty(self, mock_tcm_cls, mock_admin_cls):
-        """Config vide retourne liste vide"""
+        """Config vide lève ValueError (aucune table configurée)"""
+        import pytest
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_tables_config.return_value = []
@@ -423,9 +424,8 @@ class TestTableFilterLoadConfig:
 
         from amue.operators.table_management.table_filter import AMUETableFilter
 
-        filter_obj = AMUETableFilter()
-
-        assert filter_obj.tables_config == []
+        with pytest.raises(ValueError, match="Aucune table configurée"):
+            AMUETableFilter()
 
 
 class TestTableFilterEnableAttribute:

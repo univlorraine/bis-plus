@@ -264,7 +264,9 @@ class AMUEReportGenerator:
         """Sauvegarde le rapport en fichier JSON."""
         # Archivage en fichier JSON
         try:
-            reports_dir = Path('/opt/airflow/logs/reports')
+            from airflow.models import Variable
+            _default_dir = '/opt/airflow/logs/reports'
+            reports_dir = Path(Variable.get('amue_reports_dir', default_var=_default_dir))
             reports_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filepath = reports_dir / f"import_report_{timestamp}.json"

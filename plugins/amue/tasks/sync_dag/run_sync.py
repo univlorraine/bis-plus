@@ -45,12 +45,15 @@ def run_sync(sync_ctx: Dict) -> Dict:
 
     if result.get('status') in ('success', 'partial'):
         BlueGreenManager().mark_sync_completed()
+        BlueGreenManager().rename_schema_to_offline(target)
         logger.info(
             f"[SYNC] Terminée: {result.get('tables_synced', 0)} tables, "
             f"{result.get('total_rows_copied', 0):,} lignes"
         )
     else:
-        logger.error(f"[SYNC] Échec: {result}")
+        logger.error(
+            f"[SYNC] Échec — schéma {target!r} non renommé en offline pour "
+            f"permettre un retry propre: {result}"
+        )
 
-    BlueGreenManager().rename_schema_to_offline(target)
     return result

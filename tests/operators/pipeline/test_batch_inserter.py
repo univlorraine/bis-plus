@@ -443,8 +443,9 @@ class TestFetchExistingRow:
         )
 
         # Vérifie que le schéma est utilisé dans la requête
+        # call_args peut être un Composed psycopg2, on utilise str() pour convertir
         call_args = mock_cursor.execute.call_args[0][0]
-        assert "splus_green.csks" in call_args
+        assert "splus_green" in str(call_args)
 
     def test_fetch_raises_on_connection_error(self):
         """Test erreur de connexion lors de la récupération."""

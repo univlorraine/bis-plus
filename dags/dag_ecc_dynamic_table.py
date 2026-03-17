@@ -35,6 +35,7 @@ Tables configurées dans : splus_admin.ecc_tables
 """
 from datetime import datetime, timedelta
 
+from airflow.models import Variable
 from airflow.sdk import dag
 
 from amue import send_failure_notification
@@ -45,8 +46,8 @@ from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, save_ecc_me
     dag_id='ecc_multi_table_import',
     description='Import ECC Oracle SAP → PostgreSQL avec protection sifac_plus',
 
-    # --- Planification ---
-    schedule=None,
+    # --- Planification (configurable via Variable Airflow 'ecc_import_schedule') ---
+    schedule=Variable.get('ecc_import_schedule', default_var=None),
     start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,

@@ -1,35 +1,15 @@
-"""Task de polling API et sélection des tables."""
+"""Task de sélection des tables après polling API."""
 import logging
 from typing import Dict, List
 
 from airflow.sdk import task
-
 from airflow.sdk import get_current_context
 
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.services.api.status_checker import AMUEStatusChecker
-from amue.services.api.polling_service import AMUEPollingService
 from amue.operators.table_management.table_filter import AMUETableFilter
 
 logger = logging.getLogger(__name__)
-
-
-@task(task_id='wait_for_api')
-def wait_for_api() -> Dict:
-    """
-    Polling seul - attend que l'API soit prête.
-
-    Returns:
-        Résultat du polling avec tables_status, finish, etc.
-    """
-    api_hook = AMUEAPIHook()
-    status_checker = AMUEStatusChecker(api_hook)
-    polling_service = AMUEPollingService(status_checker)
-
-    logger.info("[INIT] Attente disponibilité API...")
-    polling_result = polling_service.wait_for_ready()
-
-    return polling_result
 
 
 @task(task_id='select_tables')
