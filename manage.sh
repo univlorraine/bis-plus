@@ -824,8 +824,14 @@ cmd_config_validate() {
     # 3. Vérification des variables Airflow
     log_info "=== Variables Airflow ==="
     local airflow_vars=(
-        "oauth_api_connection_id"
+        "universite"
+        "api_endpoint_admin"
+        "api_endpoint_table"
         "amue_import_batch_size"
+        "amue_report_recipients"
+        "smtp_host"
+        "smtp_port"
+        "smtp_mail_from"
     )
 
     for var in "${airflow_vars[@]}"; do

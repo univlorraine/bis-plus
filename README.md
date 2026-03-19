@@ -36,8 +36,11 @@ Le setup crée automatiquement les schémas Blue/Green (`splus`, `splus_blue`, `
 ```
 dags/
 ├── dag_amue_dynamic_table.py      # DAG principal d'import
-├── dag_ecc_dynamic_table.py       # DAG d'import ECC (squelette)
-└── dag_amue_sync.py               # DAG de synchronisation Blue/Green
+├── dag_ecc_dynamic_table.py       # DAG d'import ECC (Oracle → PostgreSQL)
+├── dag_amue_sync.py               # DAG de synchronisation Blue/Green
+├── dag_amue_rollback.py           # DAG de rollback Blue/Green
+├── dag_amue_status_monitor.py     # DAG de monitoring d'état
+└── dag_amue_table_setup.py        # DAG de setup des tables
 
 plugins/common/
 └── tasks/                         # Tâches partagées AMUE + ECC
@@ -47,8 +50,12 @@ plugins/common/
     └── switch_views.py
 
 plugins/ecc/
-├── hooks/ecc_source_hook.py       # ECCSourceHook (stub)
-└── tasks/import_dag/              # Tâches @task ECC (stubs)
+├── hooks/ecc_source_hook.py       # Hook Oracle (oracledb / cx_Oracle)
+└── tasks/import_dag/              # Tâches @task ECC
+    ├── select_tables.py
+    ├── import_data.py
+    ├── save_metadata.py
+    └── send_report.py
 
 plugins/amue/
 ├── operators/
@@ -238,7 +245,7 @@ PHASE 5 : SWITCH & FINALISATION
 
 ### Architecture Blue/Green
 - Switch atomique des vues (toutes ou aucune)
-- Vues gérées uniquement lors du switch (schémas `splus_blue`/`splus_green` jamais renommés)
+- Le schéma inactif est renommé en `splus_X_offline` lors du switch (rollback disponible via `dag_amue_rollback`)
 - Rollback instantané vers l'état précédent
 - Verrou d'import atomique via PostgreSQL (sans race condition)
 
@@ -374,7 +381,10 @@ Stratégies adaptées selon le type d'erreur :
   "amue_sync_schedule": "0 6 * * *",
   "smtp_host": "mailhog",
   "smtp_port": "1025",
-  "amue_report_recipients": "admin@example.com"
+  "amue_report_recipients": "admin@example.com",
+  "ecc_import_schedule": "0 4 * * *",
+  "ecc_import_batch_size": "5000",
+  "ecc_report_recipients": "admin@example.com"
 }
 ```
 
@@ -383,7 +393,7 @@ Stratégies adaptées selon le type d'erreur :
 La liste des tables et leur configuration sont stockées dans la table PostgreSQL `splus_admin.amue_tables`. Chaque ligne correspond à une table AMUE :
 
 ```sql
-SELECT table_name, enabled, primary_key, delta, fingerprint_api, fingerprint_ul
+SELECT table_name, enabled, primary_key, delta, fingerprint_api, fingerprint_ul, setup_status, ecc_query
 FROM splus_admin.amue_tables;
 ```
 
@@ -395,6 +405,8 @@ FROM splus_admin.amue_tables;
 | `delta`          | Colonne de date pour import différentiel                            |
 | `fingerprint_api`| Empreinte de structure côté API (auto-générée)                     |
 | `fingerprint_ul` | Empreinte de structure côté PostgreSQL (auto-générée)              |
+| `setup_status`   | État de préparation : `pending` / `ready` / `blocked`              |
+| `ecc_query`      | `NULL` = table AMUE pure ; non-`NULL` = requête Oracle ECC         |
 
 ### État Blue/Green (`splus_admin.amue_state`)
 

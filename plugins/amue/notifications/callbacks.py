@@ -40,8 +40,15 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     # Verifie qu'il y a bien une exception avant d'envoyer
     exception = context.get('exception')
     if not exception:
-        logger.info("Pas d'exception dans le contexte - notification ignoree")
-        return
+        logger.warning(
+            "Callback DAG sans exception dans le contexte (callback niveau DAG) - "
+            "envoi d'une notification generique d'echec"
+        )
+        dag_run = context.get('dag_run')
+        if dag_run:
+            context.setdefault('error_message',
+                "Le DAG a echoue - consulter les logs des taches en echec pour le detail")
+            context.setdefault('error_type', 'DAGFailure')
 
     try:
         # Import local pour eviter les imports circulaires

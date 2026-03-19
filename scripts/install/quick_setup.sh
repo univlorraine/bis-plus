@@ -193,7 +193,7 @@ echo ""
 log_info "=== Configuration générale ==="
 UNIVERSITE=$(ask "Code université (ex: ul pour Lorraine)" "ul")
 AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par des virgules)" "admin@example.com")
-SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue-project.local")
+SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue.local")
 
 echo ""
 log_info "=== Tables AMUE / ECC ==="
@@ -284,33 +284,53 @@ log_success "Fichier .env créé (sans credentials — stockés dans Airflow DB)
 # Création du fichier de variables (sans secrets)
 cat > "config/airflow_variables.json" << EOFVARS
 {
-  "environment": "$ENVIRONMENT",
-  "oauth_api_connection_id": "oauth_api",
+  "amue_import_schedule": "0 2 * * *",
+  "amue_sync_schedule": "0 6 * * *",
+  "amue_monitor_schedule": "0 22 * * *",
+  "ecc_import_schedule": "0 4 * * *",
   "universite": "$UNIVERSITE",
   "api_endpoint_admin": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/admin",
   "api_endpoint_table": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/table",
   "amue_import_batch_size": "5000",
-  "amue_max_history_days": "7",
+  "amue_import_parallel_workers": "1",
+  "amue_api_max_retries": "3",
+  "amue_api_retry_delay_seconds": "30",
+  "amue_force_import": "false",
   "amue_polling_interval_minutes": "10",
   "amue_max_wait_hours": "6",
-  "amue_api_max_retries": "3",
-  "amue_api_retry_delay_seconds": "2",
+  "amue_polling_exponential_backoff": "false",
+  "amue_polling_max_backoff_minutes": "60",
+  "ecc_import_batch_size": "5000",
+  "ecc_report_recipients": "$AMUE_REPORT_RECIPIENTS",
   "amue_report_recipients": "$AMUE_REPORT_RECIPIENTS",
+  "amue_reports_dir": "/opt/airflow/logs/reports",
   "smtp_host": "$SMTP_HOST",
   "smtp_port": "$SMTP_PORT",
   "smtp_mail_from": "$SMTP_MAIL_FROM",
-  "amue_last_successful_run": "",
-  "last_import_report": "",
+  "smtp_use_tls": "false",
+  "smtp_timeout": "30",
   "TYPE_MAPPING_SQLITE_TO_POSTGRES": {
     "TEXT": "TEXT",
-    "CHAR": "CHAR",
+    "CLOB": "TEXT",
     "VARCHAR": "VARCHAR",
+    "NVARCHAR": "VARCHAR",
+    "CHAR": "BPCHAR",
+    "CHARACTER": "BPCHAR",
+    "NCHAR": "BPCHAR",
     "INTEGER": "INTEGER",
+    "TINYINT": "SMALLINT",
+    "SMALLINT": "SMALLINT",
+    "MEDIUMINT": "INTEGER",
     "BIGINT": "BIGINT",
-    "REAL": "DOUBLE PRECISION",
+    "INT2": "SMALLINT",
+    "INT8": "BIGINT",
     "NUMERIC": "NUMERIC",
+    "DECIMAL": "NUMERIC",
     "BOOLEAN": "BOOLEAN",
-    "DATE": "DATE",
+    "REAL": "DOUBLE PRECISION",
+    "DOUBLE": "DOUBLE PRECISION",
+    "FLOAT": "DOUBLE PRECISION",
+    "DATE": "TIMESTAMP",
     "DATETIME": "TIMESTAMP",
     "TIMESTAMP": "TIMESTAMP",
     "BLOB": "BYTEA"

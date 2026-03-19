@@ -123,6 +123,7 @@ _sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
         'owner': 'airflow',
         'retries': 0,               # Pas de retry automatique (géré dans le code)
         'retry_delay': timedelta(minutes=5),
+        'on_failure_callback': send_failure_notification,
     }
 )
 def amue_multi_table_import():
