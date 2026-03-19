@@ -323,12 +323,7 @@ class BlueGreenManager:
             logger.warning(f"[BLUEGREEN] Schéma {schema_name!r} introuvable, rename ignoré")
             return False
         logger.info(f"[BLUEGREEN] Renommage schéma: {schema_name!r} → {offline_name!r}")
-        self._hook.run(
-            sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(
-                sql.Identifier(schema_name),
-                sql.Identifier(offline_name),
-            )
-        )
+        self._hook.run(f'ALTER SCHEMA "{schema_name}" RENAME TO "{offline_name}"')
         logger.info(f"[BLUEGREEN] Schéma renommé: {schema_name!r} → {offline_name!r}")
         return True
 
@@ -341,12 +336,7 @@ class BlueGreenManager:
         offline_name = f"{schema_name}{self.OFFLINE_SUFFIX}"
         if not self.schema_exists(offline_name):
             return False
-        self._hook.run(
-            sql.SQL("ALTER SCHEMA {} RENAME TO {}").format(
-                sql.Identifier(offline_name),
-                sql.Identifier(schema_name),
-            )
-        )
+        self._hook.run(f'ALTER SCHEMA "{offline_name}" RENAME TO "{schema_name}"')
         logger.info(f"[BLUEGREEN] Schéma restauré: {offline_name!r} → {schema_name!r}")
         return True
 
