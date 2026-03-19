@@ -6,8 +6,6 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from amue.notifications.report_generator import AMUEReportGenerator
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,26 +34,43 @@ def send_ecc_report(import_results: List[Dict]) -> Dict:
         f"{total_updated} mises à jour, {total_skipped} protégées (sifac_plus)"
     )
 
-    # Pseudo polling_result (pas de polling dans ECC)
-    polling_result = {
-        'start_time': datetime.now().isoformat(),
-        'attempts': 0,
-        'total_wait_minutes': 0,
+    # Calcul de la durée depuis le début du DAG run
+    duration = 'N/A'
+    execution_date = datetime.now().isoformat()
+    try:
+        from airflow.operators.python import get_current_context
+        ctx = get_current_context()
+        dag_run = ctx.get('dag_run')
+        if dag_run and dag_run.start_date:
+            elapsed = datetime.now(dag_run.start_date.tzinfo) - dag_run.start_date
+            total_seconds = int(elapsed.total_seconds())
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            if hours:
+                duration = f"{hours}h {minutes:02d}m {seconds:02d}s"
+            else:
+                duration = f"{minutes}m {seconds:02d}s"
+            execution_date = dag_run.start_date.isoformat()
+    except Exception as dur_err:
+        logger.warning(f"[ECC] Impossible de calculer la durée: {dur_err}")
+
+    from ecc.notifications.ecc_notifier import ECCNotificationService
+
+    service = ECCNotificationService()
+    service.notify_success({
+        'dag_id': 'ecc_multi_table_import',
+        'execution_date': execution_date,
+        'duration': duration,
+        'tables_imported': import_results,
+    })
+
+    return {
+        'ecc_summary': {
+            'tables_processed': len(import_results),
+            'tables_success': tables_ok,
+            'total_fetched': total_fetched,
+            'total_inserted': total_inserted,
+            'total_updated': total_updated,
+            'total_skipped': total_skipped,
+        }
     }
-
-    generator = AMUEReportGenerator()
-    report = generator.generate_and_send(
-        import_results, polling_result,
-        title='RAPPORT IMPORT ECC'
-    )
-
-    report['ecc_summary'] = {
-        'tables_processed': len(import_results),
-        'tables_success': tables_ok,
-        'total_fetched': total_fetched,
-        'total_inserted': total_inserted,
-        'total_updated': total_updated,
-        'total_skipped': total_skipped,
-    }
-
-    return report

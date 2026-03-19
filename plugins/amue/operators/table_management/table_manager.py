@@ -141,13 +141,10 @@ class AMUETableManager:
         qualified_name = self._get_qualified_table_name(table_name)
         logger.info(f"[TABLE_MGT] Vérification meta colonnes pour {qualified_name}")
 
-        alter_sql = pgsql.SQL("""
-            ALTER TABLE {table}
-            ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT {source},
-            ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-        """).format(
-            table=pgsql.SQL(qualified_name),
-            source=pgsql.Literal(self.default_source)
+        alter_sql = (
+            f"ALTER TABLE {qualified_name} "
+            f"ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT '{self.default_source}', "
+            f"ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
 
         try:

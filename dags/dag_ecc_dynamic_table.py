@@ -38,7 +38,7 @@ from datetime import datetime, timedelta
 from airflow.models import Variable
 from airflow.sdk import dag
 
-from amue import send_failure_notification
+from ecc.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, save_ecc_metadata, send_ecc_report
 
 
@@ -56,7 +56,7 @@ from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, save_ecc_me
     tags=['ecc', 'production'],
 
     # --- Gestion des erreurs ---
-    on_failure_callback=send_failure_notification,
+    on_failure_callback=send_ecc_failure_notification,
 
     # --- Configuration par défaut des tasks ---
     default_args={

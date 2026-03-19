@@ -245,12 +245,13 @@ class AMUEBatchInserter:
         column_list = sql.SQL(', ').join(column_ids)
 
         if use_upsert and primary_keys:
-            pk_ids = [sql.Identifier(pk) for pk in primary_keys]
+            pk_lower = [pk.lower() for pk in primary_keys]
+            pk_ids = [sql.Identifier(pk) for pk in pk_lower]
             # Colonnes à mettre à jour (exclut PKs et _source qui est préservé)
             update_cols = [
                 sql.Identifier(col)
                 for col in columns
-                if col not in primary_keys and col != '_source'
+                if col not in pk_lower and col != '_source'
             ]
 
             if protected_source:
@@ -322,11 +323,12 @@ class AMUEBatchInserter:
         column_list = sql.SQL(', ').join(column_ids)
 
         if use_upsert and primary_keys:
-            pk_ids = [sql.Identifier(pk) for pk in primary_keys]
+            pk_lower = [pk.lower() for pk in primary_keys]
+            pk_ids = [sql.Identifier(pk) for pk in pk_lower]
             update_cols = [
                 sql.Identifier(col)
                 for col in columns
-                if col not in primary_keys and col != '_source'
+                if col not in pk_lower and col != '_source'
             ]
 
             if protected_source:
