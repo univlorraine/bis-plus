@@ -142,7 +142,7 @@ class NotificationTemplates:
         """
 
     @classmethod
-    def _render_footer(cls, dag_id: str = '', airflow_url: str = 'http://localhost:8080') -> str:
+    def _render_footer(cls, dag_id: str = '', airflow_url: str = 'https://airflow-dev.univ-lorraine.fr') -> str:
         """Rendu du footer"""
         button_html = ''
         if dag_id:
