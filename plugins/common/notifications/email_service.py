@@ -1,4 +1,4 @@
-# amue/notifications/email_service.py
+# common/notifications/email_service.py
 """
 Service d'envoi d'emails via SMTP.
 
@@ -7,7 +7,7 @@ RÔLE DU MODULE
 ================================================================================
 
 Ce module fournit un service SMTP générique réutilisable par tous les
-composants du projet. Il est indépendant de la logique métier AMUE.
+composants du projet. Il est indépendant de la logique métier AMUE/ECC.
 
 COMPOSANTS :
     - EmailConfig : Configuration SMTP (host, port, auth, TLS)
@@ -35,7 +35,7 @@ Variables Airflow utilisées :
 USAGE
 ================================================================================
 
-    from amue.notifications.email_service import EmailService, Email
+    from common.notifications.email_service import EmailService, Email
 
     # Configuration automatique depuis Airflow
     service = EmailService()
@@ -70,8 +70,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Optional
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-
 logger = logging.getLogger(__name__)
 
 
@@ -89,6 +87,8 @@ class EmailConfig:
     @classmethod
     def from_airflow_variables(cls) -> 'EmailConfig':
         """Charge la configuration depuis les variables Airflow"""
+        # Import local pour éviter les imports circulaires (common → amue → common)
+        from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
         return cls(
             host=VarMgr.get('smtp_host', default='mailhog'),
             port=int(VarMgr.get('smtp_port', default='1025')),

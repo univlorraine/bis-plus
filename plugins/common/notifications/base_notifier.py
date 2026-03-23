@@ -1,0 +1,126 @@
+# common/notifications/base_notifier.py
+"""Classe de base commune pour les services de notification AMUE et ECC."""
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from common.notifications.email_service import Email, EmailService
+
+logger = logging.getLogger(__name__)
+
+
+class BaseNotificationService:
+    """
+    Classe de base pour les services de notification par email.
+
+    Sous-classes requises :
+        - SYSTEM_NAME     : nom du système ('AMUE' ou 'ECC')
+        - DEFAULT_DAG_ID  : ID du DAG par défaut
+        - TEMPLATES_CLASS : classe de templates à utiliser
+
+    Méthodes abstraites à implémenter :
+        - _load_recipients()
+        - _build_error_subject(context)
+        - _build_success_subject(context)
+    """
+
+    SYSTEM_NAME: str = ''
+    DEFAULT_DAG_ID: str = ''
+    TEMPLATES_CLASS = None
+
+    def __init__(self, email_service: Optional[EmailService] = None):
+        self.email_service = email_service or EmailService()
+        self.recipients = self._load_recipients()
+
+    def _load_recipients(self) -> List[str]:
+        raise NotImplementedError
+
+    def _build_error_subject(self, context: Dict[str, Any]) -> str:
+        raise NotImplementedError
+
+    def _build_success_subject(self, context: Dict[str, Any]) -> str:
+        raise NotImplementedError
+
+    def notify_error(self, data: Dict[str, Any]) -> bool:
+        """Envoie une notification d'erreur."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification d'erreur")
+
+        context = self._build_error_context(data)
+        subject = self._build_error_subject(context)
+        html_content = self.TEMPLATES_CLASS.render_error(context)
+
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
+    def notify_success(self, data: Dict[str, Any]) -> bool:
+        """Envoie une notification de succes."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de succes")
+
+        context = self._build_success_context(data)
+        subject = self._build_success_subject(context)
+        html_content = self.TEMPLATES_CLASS.render_success(context)
+
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
+    def _build_error_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Construit le contexte pour le template d'erreur."""
+        task_instance = data.get('task_instance')
+        exception = data.get('exception')
+
+        if task_instance:
+            dag_id = task_instance.dag_id
+            task_id = task_instance.task_id
+        else:
+            dag_id = data.get('dag_id', self.DEFAULT_DAG_ID)
+            task_id = data.get('task_id', 'unknown')
+
+        if exception:
+            error_message = str(exception)
+            error_type = type(exception).__name__
+        else:
+            error_message = data.get('error_message', 'Erreur inconnue')
+            error_type = data.get('error_type', 'UnknownError')
+
+        execution_date = data.get('execution_date', datetime.now().isoformat())
+
+        return {
+            'title': f"Erreur Import {self.SYSTEM_NAME}",
+            'subtitle': execution_date,
+            'dag_id': dag_id,
+            'task_id': task_id,
+            'error_message': error_message,
+            'error_type': error_type,
+            'execution_date': execution_date,
+            'status': 'failed',
+        }
+
+    def _build_success_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Construit le contexte pour le template de succes."""
+        dag_id = data.get('dag_id', self.DEFAULT_DAG_ID)
+        execution_date = data.get('execution_date', datetime.now().isoformat())
+        duration = data.get('duration', 'N/A')
+        tables_imported = data.get('tables_imported', [])
+
+        total_rows = sum(t.get('rows_inserted', t.get('rows', 0)) for t in tables_imported)
+        total_updated = sum(t.get('rows_updated', 0) for t in tables_imported)
+        total_fetched = sum(t.get('rows_fetched', t.get('rows_inserted', 0)) for t in tables_imported)
+
+        context = {
+            'title': f"Import {self.SYSTEM_NAME} Reussi",
+            'subtitle': execution_date,
+            'dag_id': dag_id,
+            'execution_date': execution_date,
+            'duration': duration,
+            'tables_imported': tables_imported,
+            'total_rows': total_rows,
+            'total_updated': total_updated,
+            'total_fetched': total_fetched,
+            'status': 'success',
+        }
+        context.update(self._extra_success_fields(data, tables_imported))
+        return context
+
+    def _extra_success_fields(self, data: Dict[str, Any], tables: list) -> Dict[str, Any]:
+        """Champs supplémentaires pour le contexte de succes. Surcharger si besoin."""
+        return {}

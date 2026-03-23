@@ -1,9 +1,9 @@
 # amue/notifications/templates.py
 """
-Templates HTML unifies pour les notifications AMUE.
+Templates HTML unifiés pour les notifications AMUE.
 
-Ce module fournit tous les templates de notification via des methodes statiques
-pour eviter l'instanciation multiple de classes.
+Ce module fournit tous les templates de notification via des méthodes statiques
+pour éviter l'instanciation multiple de classes.
 """
 from typing import Any, Dict, List
 
@@ -12,8 +12,8 @@ class NotificationTemplates:
     """
     Templates HTML pour les notifications par email.
 
-    Fournit des methodes statiques pour generer le HTML des emails
-    de succes et d'erreur.
+    Fournit des méthodes statiques pour générer le HTML des emails
+    de succès et d'erreur.
     """
 
     # Styles CSS communs
@@ -119,7 +119,7 @@ class NotificationTemplates:
 
     @staticmethod
     def escape_html(text: str) -> str:
-        """Echappe les caracteres HTML"""
+        """Échappe les caractères HTML"""
         if not text:
             return ''
         return (str(text)
@@ -155,10 +155,10 @@ class NotificationTemplates:
         return f"""
         <div class="footer">
             <p>
-                <strong>Actions recommandees:</strong><br>
-                - Consultez les logs Airflow pour plus de details<br>
-                - Verifiez la configuration des variables Airflow<br>
-                - Contactez l'equipe de support si le probleme persiste
+                <strong>Actions recommandées :</strong><br>
+                - Consultez les logs Airflow pour plus de détails<br>
+                - Vérifiez la configuration des variables Airflow<br>
+                - Contactez l'équipe de support si le problème persiste
             </p>
             {button_html}
         </div>
@@ -190,14 +190,14 @@ class NotificationTemplates:
     @classmethod
     def render_error(cls, context: Dict[str, Any]) -> str:
         """
-        Genere le HTML pour une notification d'erreur.
+        Génère le HTML pour une notification d'erreur.
 
         Args:
             context: Dictionnaire contenant:
                 - title: Titre de l'email
                 - subtitle: Sous-titre (date)
                 - dag_id: ID du DAG
-                - task_id: ID de la tache
+                - task_id: ID de la tâche
                 - error_type: Type d'erreur
                 - error_message: Message d'erreur
                 - status: Statut (failed)
@@ -223,7 +223,7 @@ class NotificationTemplates:
                 <div class="info-label">DAG:</div>
                 <div class="info-value"><strong>{dag_id}</strong></div>
 
-                <div class="info-label">Tache:</div>
+                <div class="info-label">Tâche :</div>
                 <div class="info-value"><strong>{task_id}</strong></div>
 
                 <div class="info-label">Type d'erreur:</div>
@@ -250,23 +250,23 @@ class NotificationTemplates:
     @classmethod
     def render_success(cls, context: Dict[str, Any]) -> str:
         """
-        Genere le HTML pour une notification de succes.
+        Génère le HTML pour une notification de succès.
 
         Args:
             context: Dictionnaire contenant:
                 - title: Titre de l'email
                 - subtitle: Sous-titre (date)
                 - dag_id: ID du DAG
-                - execution_date: Date d'execution
-                - duration: Duree d'execution
-                - tables_imported: Liste des tables importees
-                - total_rows: Nombre total de lignes inserees
-                - total_fetched: Nombre total de lignes recuperees
+                - execution_date: Date d'exécution
+                - duration: Durée d'exécution
+                - tables_imported: Liste des tables importées
+                - total_rows: Nombre total de lignes insérées
+                - total_fetched: Nombre total de lignes récupérées
 
         Returns:
             HTML complet de l'email
         """
-        title = context.get('title', 'Import AMUE Reussi')
+        title = context.get('title', 'Import AMUE Réussi')
         subtitle = context.get('subtitle', '')
         dag_id = context.get('dag_id', 'unknown')
         execution_date = context.get('execution_date', '')
@@ -282,7 +282,7 @@ class NotificationTemplates:
         content = f"""
         <div style="background: #e8f5e9; border-left: 4px solid #4CAF50; padding: 20px; border-radius: 4px;">
             <h2 style="color: #2e7d32; margin-top: 0; font-size: 18px;">
-                Import Terminé avec Succés
+                Import Terminé avec Succès
             </h2>
 
             <div class="info-grid">
@@ -292,7 +292,7 @@ class NotificationTemplates:
                 <div class="info-label">Date:</div>
                 <div class="info-value">{execution_date}</div>
 
-                <div class="info-label">Duree:</div>
+                <div class="info-label">Durée :</div>
                 <div class="info-value"><strong>{duration}</strong></div>
 
                 <div class="info-label">Tables:</div>
@@ -309,7 +309,7 @@ class NotificationTemplates:
 
                 <div class="info-label">Statut:</div>
                 <div class="info-value">
-                    <span class="badge badge-success">succes</span>
+                    <span class="badge badge-success">succès</span>
                 </div>
             </div>
         </div>
@@ -324,7 +324,7 @@ class NotificationTemplates:
 
     @classmethod
     def _render_tables_list(cls, tables: List[Dict[str, Any]]) -> str:
-        """Rendu de la liste des tables importees"""
+        """Rendu de la liste des tables importées"""
         if not tables:
             return ''
 

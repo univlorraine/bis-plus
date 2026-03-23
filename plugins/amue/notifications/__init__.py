@@ -50,7 +50,7 @@ Variables Airflow :
 """
 
 # Service email
-from amue.notifications.email_service import EmailService, EmailConfig, Email
+from common.notifications.email_service import EmailService, EmailConfig, Email
 
 # Templates unifies
 from amue.notifications.templates import NotificationTemplates

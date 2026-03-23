@@ -10,7 +10,7 @@ class TestEmailConfig:
 
     def test_email_config_defaults(self):
         """Valeurs par defaut de EmailConfig"""
-        from amue.notifications.email_service import EmailConfig
+        from common.notifications.email_service import EmailConfig
 
         config = EmailConfig(
             host='mailhog',
@@ -26,7 +26,7 @@ class TestEmailConfig:
         assert config.password is None
         assert config.timeout == 30
 
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_email_config_from_airflow(self, mock_varmgr):
         """Charge la config depuis Airflow"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
@@ -39,7 +39,7 @@ class TestEmailConfig:
             'smtp_timeout': '60'
         }.get(key, default)
 
-        from amue.notifications.email_service import EmailConfig
+        from common.notifications.email_service import EmailConfig
 
         config = EmailConfig.from_airflow_variables()
 
@@ -57,7 +57,7 @@ class TestEmail:
 
     def test_email_creation(self):
         """Creation d'un email"""
-        from amue.notifications.email_service import Email
+        from common.notifications.email_service import Email
 
         email = Email(
             to=['user@example.com', 'admin@example.com'],
@@ -72,7 +72,7 @@ class TestEmail:
 
     def test_email_with_text(self):
         """Creation d'un email avec texte"""
-        from amue.notifications.email_service import Email
+        from common.notifications.email_service import Email
 
         email = Email(
             to=['user@example.com'],
@@ -87,12 +87,12 @@ class TestEmail:
 class TestEmailService:
     """Tests pour EmailService"""
 
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_init_default_config(self, mock_varmgr):
         """Initialisation avec config par defaut"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.email_service import EmailService
+        from common.notifications.email_service import EmailService
 
         service = EmailService()
 
@@ -101,7 +101,7 @@ class TestEmailService:
 
     def test_init_custom_config(self):
         """Initialisation avec config personnalisee"""
-        from amue.notifications.email_service import EmailService, EmailConfig
+        from common.notifications.email_service import EmailService, EmailConfig
 
         config = EmailConfig(
             host='custom.smtp.com',
@@ -113,15 +113,15 @@ class TestEmailService:
 
         assert service.config.host == 'custom.smtp.com'
 
-    @patch('amue.notifications.email_service.smtplib.SMTP')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('common.notifications.email_service.smtplib.SMTP')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_send_success(self, mock_varmgr, mock_smtp):
         """Envoi reussi"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
         mock_server = MagicMock()
         mock_smtp.return_value.__enter__.return_value = mock_server
 
-        from amue.notifications.email_service import EmailService, Email
+        from common.notifications.email_service import EmailService, Email
 
         service = EmailService()
         email = Email(
@@ -135,14 +135,14 @@ class TestEmailService:
         assert result is True
         mock_server.sendmail.assert_called_once()
 
-    @patch('amue.notifications.email_service.smtplib.SMTP')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('common.notifications.email_service.smtplib.SMTP')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_send_failure(self, mock_varmgr, mock_smtp):
         """Envoi echoue retourne False"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
         mock_smtp.side_effect = Exception("SMTP Error")
 
-        from amue.notifications.email_service import EmailService, Email
+        from common.notifications.email_service import EmailService, Email
 
         service = EmailService()
         email = Email(
@@ -155,12 +155,12 @@ class TestEmailService:
 
         assert result is False
 
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_message(self, mock_varmgr):
         """Construction du message MIME"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
 
-        from amue.notifications.email_service import EmailService, Email
+        from common.notifications.email_service import EmailService, Email
 
         service = EmailService()
         email = Email(
@@ -182,7 +182,7 @@ class TestNotificationService:
     """Tests pour NotificationService (nouvelle architecture)"""
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_init(self, mock_email_varmgr, mock_notifier_varmgr):
         """Initialisation du service"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
@@ -198,7 +198,7 @@ class TestNotificationService:
         assert 'admin@example.com' in service.recipients
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_load_recipients(self, mock_email_varmgr, mock_notifier_varmgr):
         """Charge les destinataires"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
@@ -215,8 +215,8 @@ class TestNotificationService:
         assert 'user2@test.com' in service.recipients
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.notifications.email_service.VarMgr')
-    @patch('amue.notifications.email_service.smtplib.SMTP')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.notifications.email_service.smtplib.SMTP')
     def test_notify_error(self, mock_smtp, mock_email_varmgr, mock_notifier_varmgr):
         """Envoi notification d'erreur"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
@@ -244,7 +244,7 @@ class TestNotificationService:
         mock_server.sendmail.assert_called_once()
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_error_context(self, mock_email_varmgr, mock_notifier_varmgr):
         """Construction du contexte d'erreur"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: default
@@ -270,7 +270,7 @@ class TestNotificationService:
         assert context['status'] == 'failed'
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.notifications.email_service.VarMgr')
+    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_error_subject(self, mock_email_varmgr, mock_notifier_varmgr):
         """Construction du sujet d'erreur"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: default

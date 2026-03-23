@@ -18,7 +18,7 @@ class ECCNotificationTemplates(NotificationTemplates):
     @classmethod
     def render_success(cls, context: Dict[str, Any]) -> str:
         """Rapport de succes ECC avec badge orange et colonne Ignorees."""
-        title = context.get('title', 'Import ECC Reussi')
+        title = context.get('title', 'Import ECC Réussi')
         subtitle = context.get('subtitle', '')
         dag_id = context.get('dag_id', 'ecc_multi_table_import')
         execution_date = context.get('execution_date', '')
@@ -34,7 +34,7 @@ class ECCNotificationTemplates(NotificationTemplates):
         content = f"""
         <div style="background: #e8f5e9; border-left: 4px solid #4CAF50; padding: 20px; border-radius: 4px;">
             <h2 style="color: #2e7d32; margin-top: 0; font-size: 18px;">
-                Import ECC Terminé avec Succés
+                Import ECC Terminé avec Succès
             </h2>
 
             <div class="info-grid">
@@ -44,7 +44,7 @@ class ECCNotificationTemplates(NotificationTemplates):
                 <div class="info-label">Date:</div>
                 <div class="info-value">{execution_date}</div>
 
-                <div class="info-label">Duree:</div>
+                <div class="info-label">Durée :</div>
                 <div class="info-value"><strong>{duration}</strong></div>
 
                 <div class="info-label">Tables:</div>
@@ -56,16 +56,16 @@ class ECCNotificationTemplates(NotificationTemplates):
                 <div class="info-label">Lignes DB:</div>
                 <div class="info-value"><strong>{total_rows:,}</strong> ligne(s) insérée(s)</div>
 
-                <div class="info-label">Mises a jour:</div>
+                <div class="info-label">Mises à jour :</div>
                 <div class="info-value"><strong>{total_updated:,}</strong> ligne(s) mise(s) à jour</div>
 
-                <div class="info-label">Ignorees:</div>
+                <div class="info-label">Ignorées :</div>
                 <div class="info-value"><strong>{total_skipped:,}</strong> ligne(s) protégée(s) sifac_plus</div>
 
                 <div class="info-label">Statut:</div>
                 <div class="info-value">
                     <span class="badge" style="background: #fff3e0; color: #ef6c00;">ECC</span>
-                    <span class="badge badge-success" style="margin-left: 6px;">succés</span>
+                    <span class="badge badge-success" style="margin-left: 6px;">succès</span>
                 </div>
             </div>
         </div>
@@ -81,7 +81,7 @@ class ECCNotificationTemplates(NotificationTemplates):
     @classmethod
     def render_error(cls, context: Dict[str, Any]) -> str:
         """Notification d'erreur ECC."""
-        # Surcharge uniquement le titre par defaut
+        # Surcharge uniquement le titre par défaut
         if 'title' not in context:
             context = dict(context, title="Erreur Import ECC")
         return super().render_error(context)
@@ -132,13 +132,13 @@ class ECCNotificationTemplates(NotificationTemplates):
         return f"""
         <div style="margin-top: 25px;">
             <h3 style="color: #333; font-size: 16px; margin-bottom: 15px;">
-                Detail des tables importees
+                Détail des tables importées
             </h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #f5f5f5;">
                         <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Table</th>
-                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Recupérées</th>
+                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Récupérées</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Insérées</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">MAJ</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Ignorées</th>
