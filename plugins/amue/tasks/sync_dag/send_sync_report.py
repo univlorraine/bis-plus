@@ -10,7 +10,7 @@ from amue.notifications import NotificationService
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='send_sync_report')
+@task(task_id='send_sync_report', multiple_outputs=False)
 def send_sync_report(sync_result: Dict) -> Dict:
     """
     Envoie un email de résumé de la synchronisation blue/green.

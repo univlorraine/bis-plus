@@ -9,7 +9,7 @@ from airflow.sdk import task
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='send_ecc_report')
+@task(task_id='send_ecc_report', multiple_outputs=False)
 def send_ecc_report(import_results: List[Dict]) -> Dict:
     """
     Génère et envoie le rapport d'import ECC.

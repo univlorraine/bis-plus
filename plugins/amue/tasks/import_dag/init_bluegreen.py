@@ -10,7 +10,7 @@ from common.logging_context import set_correlation_id
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='init_bluegreen')
+@task(task_id='init_bluegreen', multiple_outputs=False)
 def init_bluegreen() -> Dict:
     """
     Initialise le contexte blue/green pour ce DAG run.

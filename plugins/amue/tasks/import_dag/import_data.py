@@ -22,7 +22,7 @@ _COLUMNS_SQL = """
 """
 
 
-@task(task_id='import_data', retries=2, retry_delay=timedelta(seconds=30))
+@task(task_id='import_data', retries=2, retry_delay=timedelta(seconds=30), multiple_outputs=False)
 def import_data(table_info: Dict) -> Dict:
     """
     Importe les données d'une table depuis l'API vers PostgreSQL.

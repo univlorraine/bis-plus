@@ -6,7 +6,7 @@ from airflow.sdk import task
 from amue.services.table_setup_orchestrator import TableSetupOrchestrator
 
 
-@task(task_id='setup_table')
+@task(task_id='setup_table', multiple_outputs=False)
 def setup_table(table_info: Dict) -> Dict:
     """
     Initialise ou vérifie une table AMUE.

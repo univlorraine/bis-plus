@@ -9,7 +9,7 @@ from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='check_rollback')
+@task(task_id='check_rollback', multiple_outputs=False)
 def check_rollback() -> Dict:
     """
     Vérifie que le rollback est possible.

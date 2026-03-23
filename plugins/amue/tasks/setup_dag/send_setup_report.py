@@ -9,7 +9,7 @@ from amue.notifications.notifier import NotificationService
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='send_setup_report')
+@task(task_id='send_setup_report', multiple_outputs=False)
 def send_setup_report(setup_results: List[Dict]) -> Dict:
     """
     Génère un rapport du setup et envoie une alerte si des tables sont bloquées.

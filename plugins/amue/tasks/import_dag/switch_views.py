@@ -10,7 +10,7 @@ from amue.services.bluegreen.view_switcher import ViewSwitcher
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='switch_views')
+@task(task_id='switch_views', multiple_outputs=False)
 def switch_views(metadata_result: Dict) -> Dict:
     """
     Bascule les vues vers le nouveau schéma après un import réussi.

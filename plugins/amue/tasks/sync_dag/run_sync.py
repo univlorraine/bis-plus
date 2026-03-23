@@ -10,7 +10,7 @@ from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='run_sync')
+@task(task_id='run_sync', multiple_outputs=False)
 def run_sync(sync_ctx: Dict) -> Dict:
     """
     Copie toutes les tables du schéma actif vers le schéma inactif.

@@ -9,7 +9,7 @@ from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='init_sync')
+@task(task_id='init_sync', multiple_outputs=False)
 def init_sync() -> Dict:
     """
     Prépare le contexte de synchronisation blue/green.

@@ -216,7 +216,7 @@ class NotificationTemplates:
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336; padding: 20px; border-radius: 4px;">
             <h2 style="color: #c62828; margin-top: 0; font-size: 18px;">
-                Erreur Detectee
+                Erreur Détectée
             </h2>
 
             <div class="info-grid">
@@ -282,7 +282,7 @@ class NotificationTemplates:
         content = f"""
         <div style="background: #e8f5e9; border-left: 4px solid #4CAF50; padding: 20px; border-radius: 4px;">
             <h2 style="color: #2e7d32; margin-top: 0; font-size: 18px;">
-                Import Termine avec Succes
+                Import Terminé avec Succés
             </h2>
 
             <div class="info-grid">
@@ -299,13 +299,13 @@ class NotificationTemplates:
                 <div class="info-value"><strong>{len(tables_imported)}</strong> table(s)</div>
 
                 <div class="info-label">Lignes API:</div>
-                <div class="info-value"><strong>{total_fetched:,}</strong> ligne(s) recuperee(s)</div>
+                <div class="info-value"><strong>{total_fetched:,}</strong> ligne(s) récupérée(s)</div>
 
                 <div class="info-label">Lignes DB:</div>
-                <div class="info-value"><strong>{total_rows:,}</strong> ligne(s) inseree(s)</div>
+                <div class="info-value"><strong>{total_rows:,}</strong> ligne(s) insérée(s)</div>
 
-                <div class="info-label">Mises a jour:</div>
-                <div class="info-value"><strong>{total_updated:,}</strong> ligne(s) mise(s) a jour</div>
+                <div class="info-label">Mises à jour:</div>
+                <div class="info-value"><strong>{total_updated:,}</strong> ligne(s) mise(s) à jour</div>
 
                 <div class="info-label">Statut:</div>
                 <div class="info-value">
@@ -364,14 +364,14 @@ class NotificationTemplates:
         return f"""
         <div style="margin-top: 25px;">
             <h3 style="color: #333; font-size: 16px; margin-bottom: 15px;">
-                Detail des tables importees
+                Détail des tables importées
             </h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #f5f5f5;">
                         <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Table</th>
-                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Recuperees</th>
-                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Inserees</th>
+                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Récupérées</th>
+                        <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">Insérées</th>
                         <th style="padding: 12px; text-align: right; border-bottom: 2px solid #e0e0e0;">MAJ</th>
                         <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e0e0e0;">Type</th>
                         <th style="padding: 12px; text-align: center; border-bottom: 2px solid #e0e0e0;">Statut</th>

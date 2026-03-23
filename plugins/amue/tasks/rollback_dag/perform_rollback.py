@@ -10,7 +10,7 @@ from amue.services.bluegreen.view_switcher import ViewSwitcher
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='perform_rollback')
+@task(task_id='perform_rollback', multiple_outputs=False)
 def perform_rollback(check_result: Dict) -> Dict:
     """
     Effectue le rollback blue/green en trois étapes atomiques :

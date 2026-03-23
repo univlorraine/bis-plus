@@ -9,7 +9,7 @@ from amue.services.metadata_manager import AMUEMetadataManager
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='save_metadata')
+@task(task_id='save_metadata', multiple_outputs=False)
 def save_metadata(import_results: List[Dict], polling_result: Dict) -> Dict:
     """
     Met à jour les métadonnées après un import réussi.

@@ -29,7 +29,7 @@ def _check_table_exists(pg_hook, table_name: str, schema_name: str) -> bool:
     return bool(result[0]) if result else False
 
 
-@task(task_id='import_ecc_data')
+@task(task_id='import_ecc_data', multiple_outputs=False)
 def import_ecc_data(table_config: Dict) -> Dict:
     """
     Importe une table Oracle SAP ECC vers PostgreSQL via UPSERT.

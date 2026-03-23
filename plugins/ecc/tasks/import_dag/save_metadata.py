@@ -8,7 +8,7 @@ from airflow.sdk import task
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='save_ecc_metadata')
+@task(task_id='save_ecc_metadata', multiple_outputs=False)
 def save_ecc_metadata(import_result: Dict) -> Dict:
     """
     Enregistre les métadonnées d'un import ECC pour une table.

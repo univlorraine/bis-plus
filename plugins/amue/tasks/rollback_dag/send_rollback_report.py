@@ -9,7 +9,7 @@ from amue.notifications.notifier import NotificationService
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='send_rollback_report')
+@task(task_id='send_rollback_report', multiple_outputs=False)
 def send_rollback_report(rollback_result: Dict) -> Dict:
     """
     Envoie un rapport de rollback par email.

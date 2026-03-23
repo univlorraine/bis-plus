@@ -10,7 +10,7 @@ from amue.services.table_config_manager import TableConfigManager
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='send_report')
+@task(task_id='send_report', multiple_outputs=False)
 def send_report(import_results: List[Dict], switch_result: Dict, polling_result: Dict) -> Dict:
     """
     Génère et envoie le rapport d'exécution par email.
