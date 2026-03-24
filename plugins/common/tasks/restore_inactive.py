@@ -4,7 +4,7 @@ import logging
 from typing import Dict, List
 
 from airflow.sdk import task
-from airflow.utils.trigger_rule import TriggerRule
+from airflow.task.trigger_rule import TriggerRule
 
 from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 from amue.utils.database.hooks import create_postgres_hook

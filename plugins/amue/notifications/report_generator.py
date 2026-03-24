@@ -110,28 +110,18 @@ class AMUEReportGenerator:
         """
         logger.info("[REPORT] Génération du rapport")
 
-        # Filtre les tables avec 0 lignes
-        tables_with_data = [
-            r for r in import_results
-            if r.get('rows_inserted', 0) > 0 or r.get('rows_fetched', 0) > 0
-        ]
-
-        tables_skipped = len(import_results) - len(tables_with_data)
-        if tables_skipped > 0:
-            logger.info(f"[REPORT] {tables_skipped} table(s) ignorée(s) (0 lignes)")
-
-        # Statistiques
-        total_tables = len(tables_with_data)
-        total_inserted = sum(r.get('rows_inserted', 0) for r in tables_with_data)
-        total_updated = sum(r.get('rows_updated', 0) for r in tables_with_data)
-        total_fetched = sum(r.get('rows_fetched', 0) for r in tables_with_data)
+        # Statistiques (toutes les tables, y compris celles à 0 lignes)
+        total_tables = len(import_results)
+        total_inserted = sum(r.get('rows_inserted', 0) for r in import_results)
+        total_updated = sum(r.get('rows_updated', 0) for r in import_results)
+        total_fetched = sum(r.get('rows_fetched', 0) for r in import_results)
 
         # Calcul de la durée depuis le début du DAG
         duration = self._calculate_duration(polling_result)
 
         # Enrichit les détails des tables
         tables_detail = []
-        for r in tables_with_data:
+        for r in import_results:
             tables_detail.append({
                 'table_name': r.get('table_name', 'unknown'),
                 'rows_fetched': r.get('rows_fetched', 0),
@@ -150,7 +140,6 @@ class AMUEReportGenerator:
             'polling_attempts': polling_result.get('attempts', 0),
             'polling_wait_minutes': round(polling_result.get('total_wait_minutes', 0), 1),
             'total_tables': total_tables,
-            'tables_skipped': tables_skipped,
             'total_fetched': total_fetched,
             'total_inserted': total_inserted,
             'total_updated': total_updated,
@@ -232,8 +221,6 @@ class AMUEReportGenerator:
                     f"{report.get('polling_wait_minutes', 0)}min d'attente")
         logger.info("-" * 70)
         logger.info(f"  Tables traitées  : {report['total_tables']}")
-        if report.get('tables_skipped', 0) > 0:
-            logger.info(f"  Tables ignorées  : {report['tables_skipped']} (0 lignes)")
         logger.info(f"  Lignes récupérées  : {report['total_fetched']:,}")
         logger.info(f"  Lignes insérées    : {report['total_inserted']:,}  (nouvelles)")
         logger.info(f"  Lignes mises à jour: {report['total_updated']:,}  (existantes)")
