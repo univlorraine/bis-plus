@@ -209,7 +209,7 @@ class ECCSourceHook:
         query = sql_query.strip().rstrip(';').strip()
         logger.info(
             f"[ECC] Exécution requête Oracle (depuis base de données) — "
-            f"aperçu: {query[:200]!r}"
+            f"aperçu: {query[:20000]!r}"
         )
 
         conn = self.get_conn()

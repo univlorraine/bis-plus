@@ -369,7 +369,7 @@ class NotificationTemplates:
 
         rows_html = ''
         for table in tables:
-            name = table.get('table_name', table.get('name', 'unknown'))
+            name = table.get('table_name', 'unknown')
             rows_fetched = table.get('rows_fetched', 0)
             rows_inserted = table.get('rows_inserted', table.get('rows', 0))
             rows_updated = table.get('rows_updated', 0)

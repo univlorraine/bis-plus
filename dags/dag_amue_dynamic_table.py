@@ -86,6 +86,8 @@ from amue.tasks.import_dag import (
     switch_views,
     send_report,
 )
+from common.config import PROTECTED_SOURCE
+from common.tasks.restore_inactive import restore_inactive
 
 
 # ==============================================================================
@@ -187,6 +189,9 @@ def amue_multi_table_import():
 
     # Phase 3b : Import des données (colonnes lues depuis information_schema)
     imported = import_data.expand(table_info=checked)
+
+    # Phase 3c : Restauration inactif sur échec (ALL_DONE, si ≥1 import raté)
+    restore = restore_inactive(tables=checked, source_name=PROTECTED_SOURCE, import_results=imported)
 
     # Phase 4 : Finalisation - polling_result via XCom du sensor
     metadata = save_metadata(imported, wait_sensor.output)

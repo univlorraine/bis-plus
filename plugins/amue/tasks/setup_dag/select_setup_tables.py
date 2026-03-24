@@ -79,6 +79,6 @@ def select_setup_tables() -> List[Dict]:
     for schema in schemas:
         logger.debug(f"  Schéma {schema}:")
         for t in enabled:
-            logger.debug(f"    - {t.get('name')} (setup_status={t.get('setup_status', 'pending')})")
+            logger.debug(f"    - {t.get('table_name')} (setup_status={t.get('setup_status', 'pending')})")
 
     return result

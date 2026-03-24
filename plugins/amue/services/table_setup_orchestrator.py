@@ -83,7 +83,7 @@ class TableSetupOrchestrator:
                 'error': str | None,
             }
         """
-        table_name = table_info.get('name', 'unknown')
+        table_name = table_info.get('table_name', 'unknown')
         target_schema = table_info.get('target_schema')
         stored_fp_api = table_info.get('fingerprint_API', '')
         stored_fp_ul = table_info.get('fingerprint_UL', '')

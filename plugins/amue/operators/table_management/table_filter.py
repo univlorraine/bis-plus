@@ -168,7 +168,7 @@ class AMUETableFilter:
 
         # Log des tables désactivées
         for table in disabled_tables:
-            logger.info(f"[FILTER] {table.get('name', 'unknown')}: Désactivée (enable=false)")
+            logger.info(f"[FILTER] {table.get('table_name', 'unknown')}: Désactivée (enable=false)")
 
         # Vérification CRITIQUE: les tables ACTIVES doivent exister dans le statut
         missing_tables = self._check_tables_exist_in_status(current_status, enabled_tables)
@@ -188,10 +188,10 @@ class AMUETableFilter:
         tables_to_process = []
 
         for table_config in enabled_tables:
-            if not isinstance(table_config, dict) or 'name' not in table_config:
+            if not isinstance(table_config, dict) or 'table_name' not in table_config:
                 continue
 
-            table_name = table_config['name'].upper()
+            table_name = table_config['table_name'].upper()
 
             # Enrichit la config
             enriched_config = self._enrich_table_config(
@@ -256,10 +256,10 @@ class AMUETableFilter:
         tables = tables_to_check if tables_to_check is not None else self.tables_config
 
         for table_config in tables:
-            if not isinstance(table_config, dict) or 'name' not in table_config:
+            if not isinstance(table_config, dict) or 'table_name' not in table_config:
                 continue
 
-            table_name = table_config['name'].upper()
+            table_name = table_config['table_name'].upper()
             if (table_name not in current_status) or (current_status[table_name]['status'] != 'OK'):
                 logger.warning(f"Table '{table_name}' absente du statut API ou status != OK")
                 missing_tables.append(table_name)
@@ -386,7 +386,7 @@ class AMUETableFilter:
         logger.info(f"[LOAD_CONFIG] {len(tables_config)} tables chargées depuis la BDD")
         logger.info(f"[LOAD_CONFIG] last_report_start: {self._last_report_start or '(aucun)'}")
         for t in tables_config[:5]:
-            logger.info(f"[LOAD_CONFIG] - {t.get('name', 'NO_NAME')}: primary_key='{t.get('primary_key', 'NOT_SET')}'")
+            logger.info(f"[LOAD_CONFIG] - {t.get('table_name', 'NO_NAME')}: primary_key='{t.get('primary_key', 'NOT_SET')}'")
 
         return tables_config
 
@@ -409,7 +409,7 @@ class AMUETableFilter:
         enriched = table_config.copy()
 
         # DEBUG: Config depuis la BDD
-        logger.info(f"[ENRICH] Table {enriched.get('name')}: Config originale primary_key='{table_config.get('primary_key', 'NOT_SET')}'")
+        logger.info(f"[ENRICH] Table {enriched.get('table_name')}: Config originale primary_key='{table_config.get('primary_key', 'NOT_SET')}'")
 
         # Ajoute les valeurs par défaut
         enriched.setdefault('primary_key', '')
@@ -419,13 +419,13 @@ class AMUETableFilter:
 
         # Récupération automatique des clés primaires si absentes
         pk_value = enriched.get('primary_key', '')
-        logger.info(f"[ENRICH] Table {enriched['name']}: primary_key après setdefault='{pk_value}'")
+        logger.info(f"[ENRICH] Table {enriched['table_name']}: primary_key après setdefault='{pk_value}'")
 
         if not pk_value or not pk_value.strip():
-            logger.info(f"[ENRICH] Table {enriched['name']}: PKs absentes -> needs_pk_update=True")
+            logger.info(f"[ENRICH] Table {enriched['table_name']}: PKs absentes -> needs_pk_update=True")
             enriched['needs_pk_update'] = True
         else:
-            logger.info(f"[ENRICH] Table {enriched['name']}: PKs présentes='{pk_value}' -> needs_pk_update=False")
+            logger.info(f"[ENRICH] Table {enriched['table_name']}: PKs présentes='{pk_value}' -> needs_pk_update=False")
             enriched['needs_pk_update'] = False
 
         # Ajoute le statut actuel

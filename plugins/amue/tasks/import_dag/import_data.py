@@ -41,7 +41,7 @@ def import_data(table_info: Dict) -> Dict:
     Returns:
         Résultat de l'import avec status, rows_imported, etc.
     """
-    table_name = table_info.get('name', 'unknown').lower()
+    table_name = table_info.get('table_name', 'unknown').lower()
     target_schema = table_info.get('target_schema')
     primary_keys_str = table_info.get('primary_key', '')
 

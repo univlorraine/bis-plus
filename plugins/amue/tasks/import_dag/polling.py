@@ -60,7 +60,7 @@ def select_tables(bluegreen_ctx: Dict) -> List[Dict]:
         if target_schema:
             logger.info(f"[INIT] Schéma cible: {target_schema}")
         for t in tables:
-            logger.info(f"  - {t.get('name')}")
+            logger.info(f"  - {t.get('table_name')}")
 
     return tables
 

@@ -24,7 +24,7 @@ def send_report(import_results: List[Dict], switch_result: Dict, polling_result:
         Statut de l'envoi : {"sent": True/False, "recipients": [...]}
     """
     blocked = [
-        t['name'] for t in TableConfigManager().get_tables_config()
+        t['table_name'] for t in TableConfigManager().get_tables_config()
         if t.get('setup_status') == 'blocked'
     ]
     if blocked:

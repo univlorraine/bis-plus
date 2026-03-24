@@ -46,6 +46,8 @@ from airflow.sdk import dag
 
 from ecc.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, sync_ecc_to_active, save_ecc_metadata, send_ecc_report
+from ecc.utils.config.settings import ECCDefaults
+from common.tasks.restore_inactive import restore_inactive
 
 
 @dag(
@@ -76,18 +78,19 @@ def ecc_multi_table_import():
     DAG d'import ECC Oracle → PostgreSQL.
 
     ECC insère dans le schéma inactif, puis synchronise vers l'actif.
-    En cas d'échec, le schéma actif reste inchangé.
+    En cas d'échec, le schéma actif reste inchangé et l'inactif est restauré.
 
     Workflow :
         tables = select_ecc_tables()              ← inactif uniquement
             ↓
         imported = import_ecc_data.expand(...)    ← inactif
-            ↓
-        synced = sync_ecc_to_active(imported)     ← inactif → actif
-            ↓
-        saved = save_ecc_metadata.expand(...)
-            ↓
-        send_ecc_report(imported)
+            ↙                       ↘
+        restore_inactive()       sync_ecc_to_active(imported)  ← inactif → actif
+        (ONE_FAILED)             (ALL_SUCCESS)
+                                     ↓
+                                 save_ecc_metadata.expand(...)
+                                     ↓
+                                 send_ecc_report(imported)
     """
 
     # ── Phase 1 : Sélection des tables ECC (+ détection schéma inactif) ──────
@@ -95,6 +98,9 @@ def ecc_multi_table_import():
 
     # ── Phase 2 : Import parallèle Oracle → PostgreSQL (schéma inactif) ──────
     imported = import_ecc_data.expand(table_config=tables)
+
+    # ── Phase 2b : Restauration inactif sur échec (ALL_DONE, si ≥1 import raté) ─
+    restore = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
 
     # ── Phase 3 : Synchronisation inactif → actif (transaction unique) ───────
     synced = sync_ecc_to_active(imported)

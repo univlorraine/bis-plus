@@ -173,7 +173,7 @@ class AMUEMetadataManager:
             if table is None:
                 return None
             return TableMetadata(
-                name=table.get('name', ''),
+                name=table.get('table_name', ''),
                 fingerprint_API=table.get('fingerprint_API', ''),
                 fingerprint_UL=table.get('fingerprint_UL', ''),
                 primary_key=table.get('primary_key', ''),

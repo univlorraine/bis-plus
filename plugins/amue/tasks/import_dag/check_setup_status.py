@@ -38,7 +38,7 @@ def check_setup_status(tables: List[Dict]) -> List[Dict]:
     ready = []
 
     for table in tables:
-        table_name = table.get('name', 'unknown')
+        table_name = table.get('table_name', 'unknown')
         metadata = config_manager.get_table_metadata(table_name)
 
         if metadata is None:

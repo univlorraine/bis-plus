@@ -38,7 +38,7 @@ class TableConfigManager:
 
     Format de retour :
         {
-            'name':            str,   # table_name
+            'table_name':      str,
             'enable':          bool,  # enabled
             'primary_key':     str,   # primary_key
             'delta':           str,   # delta
@@ -128,10 +128,10 @@ class TableConfigManager:
                 table.get('fingerprint_API', ''),
                 table.get('fingerprint_UL', ''),
                 table.get('primary_key', ''),
-                table.get('name', '').upper(),
+                table.get('table_name', '').upper(),
             )
             for table in tables
-            if table.get('name', '').strip()
+            if table.get('table_name', '').strip()
         ]
         if not rows:
             logger.info("[TABLE_CONFIG] Aucune table à sauvegarder")
@@ -269,7 +269,7 @@ class TableConfigManager:
     def _row_to_dict(row) -> Dict:
         """Convertit une ligne SQL en dict."""
         return {
-            'name':            row[0],
+            'table_name':      row[0],
             'enable':          row[1],
             'primary_key':     row[2] or '',
             'delta':           row[3] or '',

@@ -164,7 +164,7 @@ class AMUETableVerifier:
 
     def verify_status(self, table_info: Dict) -> Dict:
         """Vérifie le statut d'une table"""
-        table_name = table_info.get('name', 'unknown')
+        table_name = table_info.get('table_name', 'unknown')
         logger.info(f"[STATUS_CHECK] Vérification statut: {table_name}")
 
         current_status = table_info.get('current_status', {})
@@ -199,7 +199,7 @@ class AMUETableVerifier:
         - fingerprint_API : structure originale API + PKs API (toujours fetchées)
         - fingerprint_UL : structure transformée PG + PKs variable Airflow (fallback API)
         """
-        table_name = table_info.get('name', 'unknown')
+        table_name = table_info.get('table_name', 'unknown')
         logger.info(f"[STRUCTURE_CHECK] Vérification structure: {table_name}")
 
         logger.info(f"[STRUCTURE_CHECK] table_info keys: {list(table_info.keys())}")
@@ -519,7 +519,7 @@ class AMUETableVerifier:
         Returns:
             Résultat complet de la vérification
         """
-        table_name = table_info.get('name', 'unknown')
+        table_name = table_info.get('table_name', 'unknown')
         logger.info(f"[VERIFY] === Vérification complète: {table_name} ===")
 
         # 1. Vérification du statut
