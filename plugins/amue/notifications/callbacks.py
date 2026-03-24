@@ -37,17 +37,34 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     """
     logger.info("Declenchement du callback d'erreur")
 
-    # Verifie qu'il y a bien une exception avant d'envoyer
+    # Au niveau DAG, exception et task_instance sont absents du contexte.
+    # On enrichit le contexte avec la liste des tâches en échec.
     exception = context.get('exception')
     if not exception:
-        logger.warning(
-            "Callback DAG sans exception dans le contexte (callback niveau DAG) - "
-            "envoi d'une notification generique d'echec"
-        )
         dag_run = context.get('dag_run')
         if dag_run:
-            context.setdefault('error_message',
-                "Le DAG a echoue - consulter les logs des taches en echec pour le detail")
+            try:
+                failed_tis = dag_run.get_task_instances(state='failed')
+            except Exception:
+                failed_tis = []
+            if failed_tis:
+                failed_names = [
+                    f"{ti.task_id}[{ti.map_index}]" if getattr(ti, 'map_index', -1) >= 0 else ti.task_id
+                    for ti in failed_tis
+                ]
+                context.setdefault('error_message',
+                    f"Tâches en échec : {', '.join(failed_names)}")
+                context['failed_tasks'] = [
+                    {
+                        'task_id': ti.task_id,
+                        'map_index': getattr(ti, 'map_index', -1),
+                        'duration': round(ti.duration, 1) if getattr(ti, 'duration', None) else None,
+                    }
+                    for ti in failed_tis
+                ]
+            else:
+                context.setdefault('error_message',
+                    "Le DAG a échoué — consulter les logs des tâches pour le détail")
             context.setdefault('error_type', 'DAGFailure')
 
     try:
@@ -65,23 +82,25 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f"Erreur dans le callback de notification: {e}")
 
-    # Tente de générer un rapport partiel si des résultats d'import existent
+    # Tente de générer un rapport partiel si des résultats d'import existent.
+    # En Airflow 3 (Task SDK), map_indexes='all' n'est plus valide.
+    # On passe par le dag_run pour lister les TIs import_data réussies
+    # et on tire leur XCom individuellement avec un map_index entier.
     try:
         task_instance = context.get('task_instance')
-        if task_instance:
-            raw = task_instance.xcom_pull(
-                task_ids='import_data',
-                key='return_value',
-                map_indexes='all',
-            )
-            # Avec .expand(), xcom_pull retourne une liste de résultats par instance ;
-            # certaines instances peuvent avoir retourné None en cas d'échec partiel.
-            if isinstance(raw, list):
-                import_results = [r for r in raw if r is not None]
-            elif raw is not None:
-                import_results = [raw]
-            else:
-                import_results = []
+        dag_run = context.get('dag_run')
+        if task_instance and dag_run:
+            success_tis = dag_run.get_task_instances(state='success')
+            import_success_tis = [ti for ti in success_tis if ti.task_id == 'import_data']
+            import_results = []
+            for ti in import_success_tis:
+                result = task_instance.xcom_pull(
+                    task_ids='import_data',
+                    key='return_value',
+                    map_index=ti.map_index,
+                )
+                if result is not None:
+                    import_results.append(result)
             if import_results:
                 from amue.notifications.report_generator import AMUEReportGenerator
                 generator = AMUEReportGenerator()
@@ -91,18 +110,56 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     except Exception as report_err:
         logger.warning(f"Impossible de générer le rapport partiel: {report_err}")
 
-    # Libere le verrou blue/green si actif
+    logger.info("Callback d'erreur termine")
+
+
+def dag_failure_rollback(context: Dict[str, Any]) -> None:
+    """
+    Callback Airflow niveau DAG pour le rollback blue/green après échec.
+
+    Cette fonction est appelée au niveau du DAG (on_failure_callback sur @dag).
+    Elle gère UNIQUEMENT le rollback de l'état blue/green et le déclenchement
+    de amue_sync_schemas. Elle n'envoie PAS d'email (les emails sont envoyés
+    au niveau des tâches via send_failure_notification dans default_args).
+
+    Args:
+        context: Contexte Airflow du DAG en échec
+    """
+    logger.info("Rollback blue/green après échec du DAG")
+
+    # Rollback blue/green : libère le verrou si actif, puis remet le schéma cible en _offline.
+    # Le rename est tenté indépendamment du verrou (idempotent : no-op si le schéma n'existe pas).
+    # Cela couvre aussi le cas où init_bluegreen a renommé le schéma mais échoué avant mark_import_started.
     try:
         from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
+        target_schema = manager.get_target_schema()
+
         if manager.is_import_in_progress():
             manager.release_import_lock(mark_completed=False)
-            logger.info("Verrou blue/green libere apres echec du DAG")
-    except Exception as e:
-        logger.error(f"Erreur lors de la liberation du verrou blue/green: {e}")
+            logger.info("Verrou blue/green libéré après échec du DAG")
 
-    logger.info("Callback d'erreur termine")
+        renamed = manager.rename_schema_to_offline(target_schema)
+        if renamed:
+            logger.info(f"[ROLLBACK] Schéma {target_schema!r} → {target_schema}_offline")
+        else:
+            logger.info(f"[ROLLBACK] Schéma {target_schema!r} introuvable ou déjà offline — aucune action")
+    except Exception as e:
+        logger.error(f"Erreur lors du rollback blue/green: {e}")
+
+    # Déclenche amue_sync_schemas pour nettoyer le schéma inactif
+    try:
+        from airflow.api.common.trigger_dag import trigger_dag
+        from airflow.models.dagrun import DagRunTriggeredByType
+        from datetime import datetime
+        run_id = f"failure_cleanup_{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}"
+        trigger_dag(dag_id='amue_sync_schemas', run_id=run_id, triggered_by=DagRunTriggeredByType.OPERATOR)
+        logger.info(f"[ROLLBACK] amue_sync_schemas déclenché (run_id={run_id})")
+    except Exception as e:
+        logger.warning(f"[ROLLBACK] Impossible de déclencher amue_sync_schemas: {e}")
+
+    logger.info("Rollback blue/green terminé")
 
 
 def send_success_notification(context: Dict[str, Any]) -> None:

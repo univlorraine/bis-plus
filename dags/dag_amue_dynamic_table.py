@@ -73,7 +73,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
-from amue import send_failure_notification
+from amue import send_failure_notification, dag_failure_rollback
 from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.config.settings import Defaults
 from amue.sensors.amue_api_sensor import AMUEAPISensor
@@ -116,14 +116,14 @@ _sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
     tags=['amue', 'production'],
 
     # --- Gestion des erreurs ---
-    on_failure_callback=send_failure_notification,
+    on_failure_callback=dag_failure_rollback,   # Rollback blue/green uniquement (pas d'email)
 
     # --- Configuration par défaut des tasks ---
     default_args={
         'owner': 'airflow',
         'retries': 0,               # Pas de retry automatique (géré dans le code)
         'retry_delay': timedelta(minutes=5),
-        'on_failure_callback': send_failure_notification,
+        'on_failure_callback': send_failure_notification,  # Email avec vraie exception au niveau task
     }
 )
 def amue_multi_table_import():

@@ -2,22 +2,28 @@
 DAG d'import ECC — Oracle SAP ECC → PostgreSQL avec protection sifac_plus
 
 ================================================================================
-ARCHITECTURE EN 3 PHASES
+ARCHITECTURE EN 4 PHASES
 ================================================================================
 
 PHASE 1 - SÉLECTION
     └── select_ecc_tables()
-        • Lit splus_admin.ecc_tables (tables activées)
-        • Détermine le schéma actif via BlueGreenManager
-        • ECC insère dans le schéma actif — aucun switch de schéma
+        • Lit splus_admin.amue_tables (tables activées, ecc_query non-NULL)
+        • Détermine le schéma inactif via BlueGreenManager
+        • ECC insère dans le schéma inactif uniquement
 
 PHASE 2 - IMPORT PARALLÈLE
     └── import_ecc_data.expand()
-        • Oracle SQL → UPSERT PostgreSQL (1 task par table)
+        • Oracle SQL → UPSERT PostgreSQL dans l'inactif (1 task par table)
         • Protection sifac_plus : les lignes _source='sifac_plus' ne sont pas
           remplacées (guard WHERE dans le DO UPDATE SET)
 
-PHASE 3 - RAPPORT
+PHASE 3 - SYNCHRONISATION VERS L'ACTIF
+    └── sync_ecc_to_active()
+        • UPSERT inactif → actif (lignes ECC uniquement)
+        • Transaction unique : si erreur, actif inchangé
+        • Bloquante : save_ecc_metadata attend la fin de cette tâche
+
+PHASE 4 - RAPPORT
     └── send_ecc_report()
         • Génère et envoie le rapport d'import ECC
 
@@ -39,7 +45,7 @@ from airflow.models import Variable
 from airflow.sdk import dag
 
 from ecc.notifications import send_ecc_failure_notification
-from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, save_ecc_metadata, send_ecc_report
+from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, sync_ecc_to_active, save_ecc_metadata, send_ecc_report
 
 
 @dag(
@@ -69,28 +75,35 @@ def ecc_multi_table_import():
     """
     DAG d'import ECC Oracle → PostgreSQL.
 
-    ECC insère directement dans le schéma actif (pas de switch blue/green).
+    ECC insère dans le schéma inactif, puis synchronise vers l'actif.
+    En cas d'échec, le schéma actif reste inchangé.
 
     Workflow :
-        tables = select_ecc_tables()
+        tables = select_ecc_tables()              ← inactif uniquement
             ↓
-        imported = import_ecc_data.expand(table_config=tables)
+        imported = import_ecc_data.expand(...)    ← inactif
             ↓
-        metadata = save_ecc_metadata.expand(import_result=imported)
+        synced = sync_ecc_to_active(imported)     ← inactif → actif
+            ↓
+        saved = save_ecc_metadata.expand(...)
             ↓
         send_ecc_report(imported)
     """
 
-    # ── Phase 1 : Sélection des tables ECC (+ détection schéma actif) ────────
+    # ── Phase 1 : Sélection des tables ECC (+ détection schéma inactif) ──────
     tables = select_ecc_tables()
 
-    # ── Phase 2 : Import parallèle Oracle → PostgreSQL ────────────────────────
+    # ── Phase 2 : Import parallèle Oracle → PostgreSQL (schéma inactif) ──────
     imported = import_ecc_data.expand(table_config=tables)
 
-    # ── Phase 3 : Sauvegarde des métadonnées (audit trail par table) ──────────
-    saved = save_ecc_metadata.expand(import_result=imported)
+    # ── Phase 3 : Synchronisation inactif → actif (transaction unique) ───────
+    synced = sync_ecc_to_active(imported)
 
-    # ── Phase 4 : Rapport (après completion des métadonnées) ──────────────────
+    # ── Phase 4 : Sauvegarde des métadonnées (après sync réussie) ─────────────
+    saved = save_ecc_metadata.expand(import_result=imported)
+    synced >> saved
+
+    # ── Phase 5 : Rapport (après completion des métadonnées) ──────────────────
     report = send_ecc_report(imported)
     saved >> report
 

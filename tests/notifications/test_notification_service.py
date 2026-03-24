@@ -377,43 +377,41 @@ class TestSendFailureNotification:
 
         mock_service.notify_error.assert_called_once()
 
+    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
     @patch('amue.notifications.notifier.NotificationService')
-    def test_send_failure_notification_no_exception(self, mock_service_class):
-        """Callback sans exception - notification ignoree"""
+    def test_send_failure_notification_no_exception(self, mock_service_class, MockBGM):
+        """Callback sans exception (niveau DAG) — notification générique envoyée quand même."""
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service
+        MockBGM.return_value.is_import_in_progress.return_value = False
 
         from amue.notifications.callbacks import send_failure_notification
 
         context = {
             'task_instance': MagicMock(),
-            'exception': None
+            'exception': None,
+            'dag_run': MagicMock(),
         }
 
         send_failure_notification(context)
 
-        mock_service.notify_error.assert_not_called()
+        mock_service.notify_error.assert_called_once()
 
     @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
-    @patch('amue.notifications.notifier.NotificationService')
-    def test_send_failure_releases_bluegreen_lock(self, mock_service_class, mock_bg_class):
-        """Callback libere le verrou blue/green si actif et import en cours"""
-        mock_service = MagicMock()
-        mock_service.notify_error.return_value = True
-        mock_service_class.return_value = mock_service
-
+    def test_dag_failure_rollback_releases_bluegreen_lock(self, mock_bg_class):
+        """dag_failure_rollback libere le verrou blue/green si actif et import en cours"""
         mock_manager = MagicMock()
         mock_manager.is_import_in_progress.return_value = True
         mock_bg_class.return_value = mock_manager
 
-        from amue.notifications.callbacks import send_failure_notification
+        from amue.notifications.callbacks import dag_failure_rollback
 
         context = {
             'task_instance': MagicMock(),
             'exception': ValueError('Test error')
         }
 
-        send_failure_notification(context)
+        dag_failure_rollback(context)
 
         mock_manager.release_import_lock.assert_called_once_with(mark_completed=False)
 

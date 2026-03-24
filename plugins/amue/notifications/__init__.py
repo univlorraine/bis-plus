@@ -59,7 +59,7 @@ from amue.notifications.templates import NotificationTemplates
 from amue.notifications.notifier import NotificationService
 
 # Callbacks Airflow
-from amue.notifications.callbacks import send_failure_notification, send_success_notification
+from amue.notifications.callbacks import send_failure_notification, send_success_notification, dag_failure_rollback
 
 __all__ = [
     # Service email
@@ -73,4 +73,5 @@ __all__ = [
     # Callbacks
     'send_failure_notification',
     'send_success_notification',
+    'dag_failure_rollback',
 ]

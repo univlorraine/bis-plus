@@ -3,8 +3,10 @@ import logging
 from datetime import timedelta
 from typing import Dict
 
+from airflow.exceptions import AirflowFailException
 from airflow.sdk import task
 
+from amue.exceptions import AMUEDataError
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.operators.pipeline.data_importer import AMUEDataImporter
 from amue.utils.database.hooks import create_postgres_hook
@@ -62,12 +64,17 @@ def import_data(table_info: Dict) -> Dict:
 
     primary_keys = [pk.strip() for pk in primary_keys_str.split(',') if pk.strip()]
 
-    result = importer.import_table(
-        table_name=table_name,
-        columns=columns,
-        primary_keys=primary_keys,
-        import_config=table_info,
-    )
+    try:
+        result = importer.import_table(
+            table_name=table_name,
+            columns=columns,
+            primary_keys=primary_keys,
+            import_config=table_info,
+        )
+    except AMUEDataError as e:
+        # Doublon dans les données API : inutile de réessayer, les données source ne changent pas.
+        # AirflowFailException court-circuite les retries configurés sur cette tâche.
+        raise AirflowFailException(str(e)) from e
 
     result['target_schema'] = target_schema
     return result

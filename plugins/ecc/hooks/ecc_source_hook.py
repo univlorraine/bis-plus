@@ -92,7 +92,7 @@ class ECCSourceHook:
                     f"[ECC] Connexion Oracle: {login}@{airflow_conn.host} "
                     f"(SID={airflow_conn.schema}, tentative {attempt}/{max_retries})"
                 )
-                return oracle.connect(user=login, password=password, dsn=dsn)
+                return oracle.connect(user=login, password=password, dsn=dsn, expire_time=2)
             except Exception as e:
                 last_error = e
                 if attempt < max_retries:
@@ -104,6 +104,12 @@ class ECCSourceHook:
                     logger.error(f"[ECC] Toutes les tentatives de connexion Oracle ont échoué: {e}")
 
         raise last_error
+
+    @staticmethod
+    def _is_connection_error(e: Exception) -> bool:
+        """Détecte les erreurs de connexion Oracle récupérables (DPY-4011, etc.)."""
+        msg = str(e)
+        return 'DPY-4011' in msg or 'connection was closed' in msg.lower()
 
     def execute_sql_file(
         self,
@@ -140,10 +146,31 @@ class ECCSourceHook:
         logger.info(f"[ECC] {len(column_names)} colonnes: {column_names[:5]}...")
 
         def row_generator():
+            nonlocal conn, cursor
             fetched = 0
+            max_reconnects = 2
+            reconnects = 0
             try:
                 while True:
-                    rows = cursor.fetchmany(batch_size)
+                    try:
+                        rows = cursor.fetchmany(batch_size)
+                    except Exception as e:
+                        if reconnects < max_reconnects and self._is_connection_error(e):
+                            logger.warning(
+                                f"[ECC] Connexion Oracle perdue à {fetched} lignes "
+                                f"(DPY-4011), reconnexion {reconnects + 1}/{max_reconnects}..."
+                            )
+                            try: cursor.close()
+                            except Exception: pass
+                            try: conn.close()
+                            except Exception: pass
+                            reconnects += 1
+                            conn = self.get_conn()
+                            cursor = conn.cursor()
+                            cursor.execute(sql_query)
+                            fetched = 0
+                            continue
+                        raise
                     if not rows:
                         break
                     fetched += len(rows)
@@ -151,8 +178,10 @@ class ECCSourceHook:
                         yield row
             finally:
                 logger.info(f"[ECC] Total lignes Oracle récupérées: {fetched}")
-                cursor.close()
-                conn.close()
+                try: cursor.close()
+                except Exception: pass
+                try: conn.close()
+                except Exception: pass
 
         return column_names, row_generator()
 
@@ -188,10 +217,31 @@ class ECCSourceHook:
         logger.info(f"[ECC] {len(column_names)} colonnes: {column_names[:5]}...")
 
         def row_generator():
+            nonlocal conn, cursor
             fetched = 0
+            max_reconnects = 2
+            reconnects = 0
             try:
                 while True:
-                    rows = cursor.fetchmany(batch_size)
+                    try:
+                        rows = cursor.fetchmany(batch_size)
+                    except Exception as e:
+                        if reconnects < max_reconnects and self._is_connection_error(e):
+                            logger.warning(
+                                f"[ECC] Connexion Oracle perdue à {fetched} lignes "
+                                f"(DPY-4011), reconnexion {reconnects + 1}/{max_reconnects}..."
+                            )
+                            try: cursor.close()
+                            except Exception: pass
+                            try: conn.close()
+                            except Exception: pass
+                            reconnects += 1
+                            conn = self.get_conn()
+                            cursor = conn.cursor()
+                            cursor.execute(query)
+                            fetched = 0
+                            continue
+                        raise
                     if not rows:
                         break
                     fetched += len(rows)
@@ -199,7 +249,9 @@ class ECCSourceHook:
                         yield row
             finally:
                 logger.info(f"[ECC] Total lignes Oracle récupérées: {fetched}")
-                cursor.close()
-                conn.close()
+                try: cursor.close()
+                except Exception: pass
+                try: conn.close()
+                except Exception: pass
 
         return column_names, row_generator()

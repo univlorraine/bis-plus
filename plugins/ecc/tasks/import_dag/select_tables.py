@@ -19,8 +19,8 @@ def select_ecc_tables() -> List[Dict]:
 
     Sélectionne les lignes dont ecc_query est non-NULL et non-vide.
     Détermine le schéma actif et le schéma inactif via BlueGreenManager.
-    ECC importe dans les deux schémas pour garantir la cohérence après un
-    switch Blue/Green déclenché par AMUE.
+    ECC importe dans le schéma inactif uniquement. Sur succès, la tâche
+    sync_ecc_to_active copie les données vers l'actif.
 
     Returns:
         Liste de dicts par table × schéma :
@@ -46,8 +46,13 @@ def select_ecc_tables() -> List[Dict]:
     else:
         inactive = None  # premier lancement
 
-    schemas = [s for s in [active, inactive] if s]
-    logger.info(f"[ECC] Import dans les schémas: {schemas}")
+    if inactive:
+        schemas = [inactive]
+        logger.info(f"[ECC] Import dans le schéma inactif uniquement: {inactive}")
+    else:
+        # Premier lancement : pas encore d'inactif → écrire dans les schémas disponibles
+        schemas = [s for s in [active, inactive] if s]
+        logger.warning(f"[ECC] Premier lancement ECC (pas d'inactif) - import dans: {schemas}")
 
     pg_hook = create_postgres_hook(schema='splus_admin')
     rows = pg_hook.get_records(

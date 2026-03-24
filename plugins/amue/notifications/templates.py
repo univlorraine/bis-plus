@@ -213,6 +213,9 @@ class NotificationTemplates:
         error_message = cls.escape_html(context.get('error_message', ''))
         status = context.get('status', 'failed')
 
+        failed_tasks = context.get('failed_tasks', [])
+        failed_tasks_html = cls._render_failed_tasks(failed_tasks) if failed_tasks else ''
+
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336; padding: 20px; border-radius: 4px;">
             <h2 style="color: #c62828; margin-top: 0; font-size: 18px;">
@@ -240,12 +243,48 @@ class NotificationTemplates:
                 <div class="message-box">{error_message}</div>
             </div>
         </div>
+        {failed_tasks_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(dag_id)
 
         return cls._wrap_html(header, content, footer)
+
+    @classmethod
+    def _render_failed_tasks(cls, tasks: List[Dict[str, Any]]) -> str:
+        """Rendu du tableau des tâches en échec (callback niveau DAG)."""
+        rows_html = ''
+        for t in tasks:
+            task_id = t.get('task_id', 'unknown')
+            map_index = t.get('map_index', -1)
+            label = f"{task_id}[{map_index}]" if map_index >= 0 else task_id
+            duration = t.get('duration')
+            dur_str = f"{duration}s" if duration is not None else 'N/A'
+            rows_html += f"""
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #e0e0e0; font-family: 'Courier New', monospace;">
+                    {label}
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+                    {dur_str}
+                </td>
+            </tr>
+            """
+        return f"""
+        <div style="margin-top: 20px;">
+            <strong>Tâches en échec :</strong>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
+                <thead>
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 8px; text-align: left; border-bottom: 2px solid #e0e0e0;">Tâche</th>
+                        <th style="padding: 8px; text-align: center; border-bottom: 2px solid #e0e0e0;">Durée</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+        """
 
     @classmethod
     def render_success(cls, context: Dict[str, Any]) -> str:

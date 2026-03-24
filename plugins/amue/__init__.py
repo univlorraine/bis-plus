@@ -46,6 +46,7 @@ from amue.notifications import (
     NotificationService,
     send_failure_notification,
     send_success_notification,
+    dag_failure_rollback,
 )
 from amue.notifications.report_generator import AMUEReportGenerator
 # Operators - Import de donnees
@@ -170,6 +171,7 @@ __all__ = [
     "NotificationService",
     "send_failure_notification",
     "send_success_notification",
+    "dag_failure_rollback",
     "AMUEReportGenerator",
     # Utils - Transformers
     "parse_column_definition",

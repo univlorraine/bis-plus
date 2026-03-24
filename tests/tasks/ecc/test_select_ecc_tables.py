@@ -36,16 +36,17 @@ class TestSelectEccTables:
             ('LFA1', 'SELECT * FROM lfa1', 'LIFNR'),
         ]
         result = _run_select(rows, active_schema='splus_blue')
-        # 2 tables × 2 schémas = 4 entrées
-        assert len(result) == 4
+        # 2 tables × 1 schéma (inactif uniquement) = 2 entrées
+        assert len(result) == 2
 
     def test_table_config_structure(self):
         rows = [('CSKS', 'SELECT * FROM csks', 'KOKRS,KOSTL')]
         result = _run_select(rows, active_schema='splus_blue', inactive_canonical='splus_green')
+        # Inactif uniquement
         schemas = {e['target_schema'] for e in result}
-        assert 'splus_blue' in schemas
+        assert 'splus_blue' not in schemas
         assert 'splus_green' in schemas
-        entry = next(e for e in result if e['target_schema'] == 'splus_blue')
+        entry = result[0]
         assert entry['table_name'] == 'CSKS'
         assert entry['ecc_query'] == 'SELECT * FROM csks'
         assert entry['primary_keys'] == ['KOKRS', 'KOSTL']
@@ -61,21 +62,22 @@ class TestSelectEccTables:
         result = _run_select(rows=[])
         assert result == []
 
-    def test_uses_both_schemas(self):
+    def test_uses_inactive_schema_only(self):
         rows = [('T', 'SELECT 1', 'PK')]
         result = _run_select(rows, active_schema='splus_blue', inactive_canonical='splus_green')
         schemas = [e['target_schema'] for e in result]
-        assert 'splus_blue' in schemas
+        assert 'splus_blue' not in schemas
         assert 'splus_green' in schemas
+        assert len(result) == 1
 
     def test_inactive_schema_offline(self):
         rows = [('T', 'SELECT 1', 'PK')]
         result = _run_select(rows, active_schema='splus_blue', inactive_canonical='splus_green',
                              inactive_exists=False, inactive_offline_exists=True)
         schemas = {e['target_schema'] for e in result}
-        assert 'splus_blue' in schemas
+        assert 'splus_blue' not in schemas
         assert 'splus_green_offline' in schemas
-        assert len(result) == 2
+        assert len(result) == 1
 
     def test_inactive_schema_missing(self):
         rows = [('T', 'SELECT 1', 'PK'), ('T2', 'SELECT 2', 'PK2')]

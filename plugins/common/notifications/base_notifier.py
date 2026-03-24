@@ -93,6 +93,7 @@ class BaseNotificationService:
             'error_type': error_type,
             'execution_date': execution_date,
             'status': 'failed',
+            'failed_tasks': data.get('failed_tasks', []),
         }
 
     def _build_success_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
