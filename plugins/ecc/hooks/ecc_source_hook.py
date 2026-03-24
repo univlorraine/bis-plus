@@ -207,7 +207,10 @@ class ECCSourceHook:
             raise ValueError("[ECC] execute_query: sql_query vide ou None")
 
         query = sql_query.strip().rstrip(';').strip()
-        logger.info("[ECC] Exécution requête Oracle (depuis base de données)")
+        logger.info(
+            f"[ECC] Exécution requête Oracle (depuis base de données) — "
+            f"aperçu: {query[:200]!r}"
+        )
 
         conn = self.get_conn()
         cursor = conn.cursor()
