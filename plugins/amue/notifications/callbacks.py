@@ -90,7 +90,11 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
         task_instance = context.get('task_instance')
         dag_run = context.get('dag_run')
         if task_instance and dag_run:
-            success_tis = dag_run.get_task_instances(state='success')
+            try:
+                success_tis = dag_run.get_task_instances(state='success')
+            except AttributeError:
+                logger.debug("dag_run.get_task_instances() non disponible (Airflow 3 SDK) — rapport partiel ignoré")
+                success_tis = []
             import_success_tis = [ti for ti in success_tis if ti.task_id == 'import_data']
             import_results = []
             for ti in import_success_tis:

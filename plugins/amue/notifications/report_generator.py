@@ -82,6 +82,7 @@ from pathlib import Path
 from typing import List, Dict
 
 from amue.notifications.notifier import NotificationService
+from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +111,9 @@ class AMUEReportGenerator:
         """
         logger.info("[REPORT] Génération du rapport")
 
-        # Statistiques (toutes les tables, y compris celles à 0 lignes)
-        total_tables = len(import_results)
+        # Statistiques
+        tables_skipped = sum(1 for r in import_results if r.get('rows_fetched', 0) == 0)
+        total_tables = len(import_results) - tables_skipped
         total_inserted = sum(r.get('rows_inserted', 0) for r in import_results)
         total_updated = sum(r.get('rows_updated', 0) for r in import_results)
         total_fetched = sum(r.get('rows_fetched', 0) for r in import_results)
@@ -140,6 +142,7 @@ class AMUEReportGenerator:
             'polling_attempts': polling_result.get('attempts', 0),
             'polling_wait_minutes': round(polling_result.get('total_wait_minutes', 0), 1),
             'total_tables': total_tables,
+            'tables_skipped': tables_skipped,
             'total_fetched': total_fetched,
             'total_inserted': total_inserted,
             'total_updated': total_updated,
@@ -251,8 +254,7 @@ class AMUEReportGenerator:
         """Sauvegarde le rapport en fichier JSON."""
         # Archivage en fichier JSON
         try:
-            from airflow.models import Variable
-            reports_dir = Path(Variable.get('amue_reports_dir', default_var='/opt/airflow/logs/reports'))
+            reports_dir = Path(VarMgr.get('amue_reports_dir', default='/opt/airflow/logs/reports'))
             reports_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filepath = reports_dir / f"import_report_{timestamp}.json"

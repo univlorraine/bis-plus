@@ -14,14 +14,14 @@ class TestTableFilterInit:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'primary_key': 'id'},
-            {'name': 'PRKS', 'primary_key': 'code'}
+            {'table_name': 'CSKS', 'primary_key': 'id'},
+            {'table_name': 'PRKS', 'primary_key': 'code'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
 
         assert len(filter_obj.tables_config) == 2
-        assert filter_obj.tables_config[0]['name'] == 'CSKS'
+        assert filter_obj.tables_config[0]['table_name'] == 'CSKS'
         assert filter_obj._last_report_start == ''
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
@@ -32,7 +32,7 @@ class TestTableFilterInit:
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_tables_config.return_value = [
-            {'name': 'CSKS', 'primary_key': 'id', 'enable': True,
+            {'table_name': 'CSKS', 'primary_key': 'id', 'enable': True,
              'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
         ]
 
@@ -57,8 +57,8 @@ class TestTableFilterCheckTablesExist:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS'},
-            {'name': 'PRKS'}
+            {'table_name': 'CSKS'},
+            {'table_name': 'PRKS'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -78,9 +78,9 @@ class TestTableFilterCheckTablesExist:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS'},
-            {'name': 'PRKS'},
-            {'name': 'UNKNOWN'}
+            {'table_name': 'CSKS'},
+            {'table_name': 'PRKS'},
+            {'table_name': 'UNKNOWN'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -100,8 +100,8 @@ class TestTableFilterCheckTablesExist:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS'},
-            {'name': 'PRKS'}
+            {'table_name': 'CSKS'},
+            {'table_name': 'PRKS'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -125,7 +125,7 @@ class TestTableFilterFilterTables:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'primary_key': 'id', 'delta': ''},
+            {'table_name': 'CSKS', 'primary_key': 'id', 'delta': ''},
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -147,7 +147,7 @@ class TestTableFilterFilterTables:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
+            {'table_name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -170,7 +170,7 @@ class TestTableFilterFilterTables:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
+            {'table_name': 'PRKS', 'primary_key': 'code', 'delta': 'date_modif'},
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -192,8 +192,8 @@ class TestTableFilterFilterTables:
         from amue.operators.table_management.table_filter import AMUETableFilter, TableNotFoundError
 
         tables_config = [
-            {'name': 'CSKS'},
-            {'name': 'UNKNOWN'}
+            {'table_name': 'CSKS'},
+            {'table_name': 'UNKNOWN'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -218,7 +218,7 @@ class TestTableFilterEnrichConfig:
 
         filter_obj = AMUETableFilter(tables_config=[])
 
-        table_config = {'name': 'CSKS'}
+        table_config = {'table_name': 'CSKS'}
         current_status = {'status': 'OK', 'mode': 'FULL'}
 
         enriched = filter_obj._enrich_table_config(table_config, current_status)
@@ -239,12 +239,12 @@ class TestTableFilterEnrichConfig:
         filter_obj = AMUETableFilter(tables_config=[])
 
         # Sans primary_key -> needs_pk_update = True
-        table_config = {'name': 'CSKS'}
+        table_config = {'table_name': 'CSKS'}
         enriched = filter_obj._enrich_table_config(table_config, {'status': 'OK'})
         assert enriched['needs_pk_update'] is True
 
         # Avec primary_key -> needs_pk_update = False
-        table_config = {'name': 'CSKS', 'primary_key': 'id'}
+        table_config = {'table_name': 'CSKS', 'primary_key': 'id'}
         enriched = filter_obj._enrich_table_config(table_config, {'status': 'OK'})
         assert enriched['needs_pk_update'] is False
 
@@ -256,7 +256,7 @@ class TestTableFilterEnrichConfig:
         filter_obj = AMUETableFilter(tables_config=[])
 
         # Avec finish dans le statut
-        table_config = {'name': 'CSKS'}
+        table_config = {'table_name': 'CSKS'}
         current_status = {'status': 'OK', 'mode': 'FULL', 'finish': '2024-01-15 03:45:00'}
         enriched = filter_obj._enrich_table_config(table_config, current_status)
         assert enriched['table_finish'] == '2024-01-15 03:45:00'
@@ -278,7 +278,7 @@ class TestTableFilterShouldProcess:
         filter_obj = AMUETableFilter(tables_config=[])
 
         table_config = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'}
         }
 
@@ -295,7 +295,7 @@ class TestTableFilterShouldProcess:
         filter_obj = AMUETableFilter(tables_config=[])
 
         table_config = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'KO'}
         }
 
@@ -312,7 +312,7 @@ class TestTableFilterShouldProcess:
         filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
 
         table_config = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'delta': ''
         }
@@ -331,7 +331,7 @@ class TestTableFilterShouldProcess:
         filter_obj._last_report_start = ''
 
         table_config = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'delta': 'date_modif'
         }
@@ -350,7 +350,7 @@ class TestTableFilterShouldProcess:
         filter_obj._last_report_start = '2026-02-17T10:08:19+00:00'
 
         table_config = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'delta': 'date_modif'
         }
@@ -393,7 +393,7 @@ class TestTableFilterLoadConfig:
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_tables_config.return_value = [
-            {'name': 'CSKS', 'primary_key': 'id', 'enable': True,
+            {'table_name': 'CSKS', 'primary_key': 'id', 'enable': True,
              'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
         ]
 
@@ -406,7 +406,7 @@ class TestTableFilterLoadConfig:
         filter_obj = AMUETableFilter()
 
         assert len(filter_obj.tables_config) == 1
-        assert filter_obj.tables_config[0]['name'] == 'CSKS'
+        assert filter_obj.tables_config[0]['table_name'] == 'CSKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
     @patch('amue.services.admin_state_manager.AdminStateManager')
@@ -437,8 +437,8 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS'},  # enable non défini = True
-            {'name': 'PRKS', 'enable': True}
+            {'table_name': 'CSKS'},  # enable non défini = True
+            {'table_name': 'PRKS', 'enable': True}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -453,9 +453,9 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': True},
-            {'name': 'PRKS', 'enable': False},
-            {'name': 'COST'}  # enable non défini = True
+            {'table_name': 'CSKS', 'enable': True},
+            {'table_name': 'PRKS', 'enable': False},
+            {'table_name': 'COST'}  # enable non défini = True
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -463,7 +463,7 @@ class TestTableFilterEnableAttribute:
 
         assert len(enabled) == 2
         assert len(disabled) == 1
-        assert disabled[0]['name'] == 'PRKS'
+        assert disabled[0]['table_name'] == 'PRKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
     def test_split_by_enable_string_values(self):
@@ -471,11 +471,11 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': 'true'},
-            {'name': 'PRKS', 'enable': 'false'},
-            {'name': 'COST', 'enable': 'yes'},
-            {'name': 'BKPF', 'enable': '1'},
-            {'name': 'BSEG', 'enable': 'oui'}
+            {'table_name': 'CSKS', 'enable': 'true'},
+            {'table_name': 'PRKS', 'enable': 'false'},
+            {'table_name': 'COST', 'enable': 'yes'},
+            {'table_name': 'BKPF', 'enable': '1'},
+            {'table_name': 'BSEG', 'enable': 'oui'}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -490,9 +490,9 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
-            {'name': 'PRKS', 'enable': False, 'primary_key': 'code', 'delta': ''},
-            {'name': 'COST', 'primary_key': 'id', 'delta': ''}
+            {'table_name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
+            {'table_name': 'PRKS', 'enable': False, 'primary_key': 'code', 'delta': ''},
+            {'table_name': 'COST', 'primary_key': 'id', 'delta': ''}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -507,7 +507,7 @@ class TestTableFilterEnableAttribute:
 
         # Seules CSKS et COST sont retournées (PRKS est désactivée)
         assert len(result) == 2
-        table_names = [t['name'] for t in result]
+        table_names = [t['table_name'] for t in result]
         assert 'CSKS' in table_names
         assert 'COST' in table_names
         assert 'PRKS' not in table_names
@@ -518,8 +518,8 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
-            {'name': 'UNKNOWN', 'enable': False}  # Désactivée, ne devrait pas causer d'erreur
+            {'table_name': 'CSKS', 'enable': True, 'primary_key': 'id', 'delta': ''},
+            {'table_name': 'UNKNOWN', 'enable': False}  # Désactivée, ne devrait pas causer d'erreur
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)
@@ -533,7 +533,7 @@ class TestTableFilterEnableAttribute:
         result = filter_obj.filter_tables(current_status)
 
         assert len(result) == 1
-        assert result[0]['name'] == 'CSKS'
+        assert result[0]['table_name'] == 'CSKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
     def test_filter_tables_all_disabled(self):
@@ -541,8 +541,8 @@ class TestTableFilterEnableAttribute:
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
-            {'name': 'CSKS', 'enable': False},
-            {'name': 'PRKS', 'enable': False}
+            {'table_name': 'CSKS', 'enable': False},
+            {'table_name': 'PRKS', 'enable': False}
         ]
 
         filter_obj = AMUETableFilter(tables_config=tables_config)

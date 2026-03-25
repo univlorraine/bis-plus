@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, List
 
+from airflow.exceptions import AirflowSkipException
 from airflow.sdk import task
 from airflow.task.trigger_rule import TriggerRule
 
@@ -34,13 +35,16 @@ def restore_inactive(tables: List[Dict], source_name: str, import_results: List)
     Returns:
         {'tables_restored': int, 'rows_restored': int}
     """
-    if len(import_results or []) >= len(tables):
-        logger.info("[RESTORE] Tous les imports ont réussi, restauration ignorée")
-        return {'tables_restored': 0, 'rows_restored': 0}
+    # import_data n'a pas tourné (wait_api_sensor ou check_setup_status en échec)
+    if import_results is None:
+        raise AirflowSkipException("import_data n'a pas tourné — restauration ignorée")
 
     if not tables:
-        logger.info("[RESTORE] Aucune table à restaurer")
-        return {'tables_restored': 0, 'rows_restored': 0}
+        raise AirflowSkipException("Aucune table configurée")
+
+    # Tous les imports ont réussi : aucun None dans les résultats
+    if all(r is not None for r in import_results):
+        raise AirflowSkipException("Tous les imports ont réussi — restauration ignorée")
 
     inactive = tables[0]['target_schema']
     manager = BlueGreenManager()

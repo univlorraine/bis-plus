@@ -58,7 +58,7 @@ class TestTableVerifierVerifyStatus:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK', 'mode': 'FULL'}
         }
 
@@ -84,7 +84,7 @@ class TestTableVerifierVerifyStatus:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'KO', 'mode': 'FULL'}
         }
 
@@ -124,7 +124,7 @@ class TestTableVerifierVerifyStructure:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': '',
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -165,7 +165,7 @@ class TestTableVerifierVerifyStructure:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'BUKRS,KOSTL',  # PK déjà définie en config
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -203,7 +203,7 @@ class TestTableVerifierVerifyStructure:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -243,7 +243,7 @@ class TestTableVerifierVerifyTable:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': '',
             'fingerprint_API': '',
@@ -274,7 +274,7 @@ class TestTableVerifierVerifyTable:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'KO'}
         }
 
@@ -308,7 +308,7 @@ class TestTableVerifierVerifyTable:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',
@@ -356,7 +356,7 @@ class TestTableVerifierVerifyTable:
         correct_fp_ul = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',  # Différent -> changé
@@ -403,7 +403,7 @@ class TestTableVerifierVerifyTable:
         correct_fp_api = compute_structure_hash_with_pk(columns, 'ID', type_key='type_original')
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': correct_fp_api,  # Identique -> pas changé
@@ -678,7 +678,7 @@ class TestTableVerifierSavePrimaryKeys:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': '',
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -715,7 +715,7 @@ class TestTableVerifierSavePrimaryKeys:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'BUKRS,KOSTL',  # Config PKs déjà définies
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -1060,7 +1060,7 @@ class TestFingerprintErrorIncludesDiff:
         correct_fp_ul = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',
@@ -1109,7 +1109,7 @@ class TestFingerprintErrorIncludesDiff:
         correct_fp_api = compute_structure_hash_with_pk(columns, 'ID', type_key='type_original')
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': correct_fp_api,
@@ -1141,7 +1141,7 @@ class TestVerifyStatusErrorDetails:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'current_status': {'status': 'KO', 'mode': 'FULL', 'message': 'erreur sync'}
         }
 
@@ -1181,7 +1181,7 @@ class TestVerifyStructureErrorMessages:
         verifier = AMUETableVerifier(mock_api_hook, target_schema='splus_blue')
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -1210,7 +1210,7 @@ class TestVerifyStructureErrorMessages:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
             'fingerprint_UL': ''
@@ -1241,7 +1241,7 @@ class TestTableVerifierVerifyStructureException:
         verifier = AMUETableVerifier(mock_api_hook)
 
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
             'fingerprint_UL': ''

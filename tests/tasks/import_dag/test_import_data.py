@@ -41,7 +41,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook()
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs,kostl'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs,kostl'}
         result = import_data.function(table_info)
 
         assert result['status'] == 'success'
@@ -58,7 +58,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook()
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_blue', 'primary_key': 'bukrs'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_blue', 'primary_key': 'bukrs'}
         result = import_data.function(table_info)
 
         assert result['target_schema'] == 'splus_blue'
@@ -73,7 +73,7 @@ class TestImportData:
         hook.get_records.return_value = []
         mock_hook_fn.return_value = hook
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
         with pytest.raises(Exception, match="Aucune colonne"):
             import_data.function(table_info)
 
@@ -87,7 +87,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook()
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs, kostl'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs, kostl'}
         import_data.function(table_info)
 
         call_kwargs = MockImporter.return_value.import_table.call_args
@@ -104,7 +104,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook(['col1', 'col2'])
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
         import_data.function(table_info)
 
         MockImporter.return_value.import_table.assert_called_once()
@@ -123,7 +123,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook()
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
+        table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
         import_data.function(table_info)
 
         mock_hook_fn.assert_called_once_with(bluegreen_schema='splus_green')
@@ -138,7 +138,7 @@ class TestImportData:
         mock_hook_fn.return_value = self._make_hook()
         MockImporter.return_value.import_table.return_value = self._make_importer_result()
 
-        table_info = {'name': 'csks', 'target_schema': None, 'primary_key': 'bukrs'}
+        table_info = {'table_name': 'csks', 'target_schema': None, 'primary_key': 'bukrs'}
         result = import_data.function(table_info)
 
         assert result['target_schema'] is None

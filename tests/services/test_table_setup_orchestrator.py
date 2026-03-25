@@ -41,7 +41,7 @@ class TestTableSetupOrchestratorSuccess:
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': '',
             'fingerprint_UL': '',
@@ -67,7 +67,7 @@ class TestTableSetupOrchestratorSuccess:
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': fp_api,
             'fingerprint_UL': fp_ul,
@@ -89,7 +89,7 @@ class TestTableSetupOrchestratorSuccess:
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': 'OLD_api_fp_OLD_api_fp_',
             'fingerprint_UL': 'OLD_ul_fp_OLD_ul_fp__',
@@ -116,7 +116,7 @@ class TestTableSetupOrchestratorSuccess:
                 table_config_manager=config_manager,
                 notification_service=MagicMock(),
             )
-            result = orch.run({'name': 'CSKS', 'target_schema': 'splus_blue'})
+            result = orch.run({'table_name': 'CSKS', 'target_schema': 'splus_blue'})
 
         assert result['status'] == 'error'
         assert result['setup_status'] == 'pending'
@@ -126,7 +126,7 @@ class TestTableSetupOrchestratorSuccess:
         """verify_structure retourne status='error' → propagé."""
         structure = {'status': 'error', 'error': 'API unreachable'}
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': '',
             'fingerprint_UL': '',
@@ -147,7 +147,7 @@ class TestTableSetupOrchestratorSuccess:
             'columns': [],
         }
         table_info = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': 'OLD_OLD_OLD_OLD_OLD__',
             'fingerprint_UL': 'OLD_OLD_OLD_OLD_OLD__',

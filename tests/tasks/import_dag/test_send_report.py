@@ -114,7 +114,7 @@ class TestSendReport:
         from amue.tasks.import_dag.send_report import send_report
 
         MockTCM.return_value.get_tables_config.return_value = [
-            {'name': 'csks', 'setup_status': 'blocked'},
+            {'table_name': 'csks', 'setup_status': 'blocked'},
             {'name': 'cskb', 'setup_status': 'ok'},
         ]
         MockGen.return_value.generate_and_send.return_value = {'sent': True}
@@ -131,7 +131,7 @@ class TestSendReport:
         from amue.tasks.import_dag.send_report import send_report
 
         MockTCM.return_value.get_tables_config.return_value = [
-            {'name': 'csks', 'setup_status': 'ok'},
+            {'table_name': 'csks', 'setup_status': 'ok'},
         ]
         MockGen.return_value.generate_and_send.return_value = {'sent': True}
 

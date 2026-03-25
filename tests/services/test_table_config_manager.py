@@ -27,7 +27,7 @@ class TestTableConfigManagerGetTablesConfig:
         result = manager.get_tables_config()
 
         assert len(result) == 2
-        assert result[0]['name'] == 'CSKS'
+        assert result[0]['table_name'] == 'CSKS'
         assert result[0]['enable'] is True
         assert result[0]['primary_key'] == 'BUKRS,KOSTL'
         assert result[0]['fingerprint_API'] == 'fp_api'
@@ -63,7 +63,7 @@ class TestTableConfigManagerGetTableMetadata:
         result = manager.get_table_metadata('CSKS')
 
         assert result is not None
-        assert result['name'] == 'CSKS'
+        assert result['table_name'] == 'CSKS'
         assert result['primary_key'] == 'BUKRS,KOSTL'
         assert result['delta'] == 'AEDAT'
         assert 'last_import' not in result
@@ -106,8 +106,8 @@ class TestTableConfigManagerSaveTablesConfig:
         """UPDATE batch de plusieurs tables via execute_values"""
         manager, hook = make_manager()
         tables = [
-            {'name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2', 'primary_key': 'BUKRS,KOSTL'},
-            {'name': 'COBK', 'fingerprint_API': 'fp3', 'fingerprint_UL': 'fp4', 'primary_key': ''},
+            {'table_name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2', 'primary_key': 'BUKRS,KOSTL'},
+            {'table_name': 'COBK', 'fingerprint_API': 'fp3', 'fingerprint_UL': 'fp4', 'primary_key': ''},
         ]
 
         manager.save_tables_config(tables)
@@ -134,7 +134,7 @@ class TestTableConfigManagerSaveTablesConfig:
         mock_execute_values.side_effect = Exception("DB error")
 
         tables = [
-            {'name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
+            {'table_name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
         ]
 
         with pytest.raises(Exception, match="DB error"):
@@ -144,7 +144,7 @@ class TestTableConfigManagerSaveTablesConfig:
         """Tables sans nom ignorées"""
         manager, hook = make_manager()
         tables = [
-            {'name': '', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
+            {'table_name': '', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
         ]
 
         manager.save_tables_config(tables)
@@ -209,7 +209,7 @@ class TestTableConfigManagerRowToDict:
         row = ('CSKS', True, 'BUKRS', 'AEDAT', 'fp_api', 'fp_ul')
         result = TableConfigManager._row_to_dict(row)
 
-        assert result['name'] == 'CSKS'
+        assert result['table_name'] == 'CSKS'
         assert result['enable'] is True
         assert result['primary_key'] == 'BUKRS'
         assert result['delta'] == 'AEDAT'

@@ -34,11 +34,8 @@ PHASE 3 - VALIDATION & IMPORT (parallèle, 1 task par table)
     │   • Lit setup_status depuis splus_admin.amue_tables
     │   • STOPPE si une table est 'pending' ou 'blocked'
     │
-    ├── get_table_schema.expand()
-    │   • Récupère les colonnes depuis l'API (sans fingerprint)
-    │
     └── import_data.expand()
-        • Récupère les données par batch depuis l'API
+        • Récupère les données par batch depuis l'API (colonnes lues depuis information_schema)
         • UPSERT avec gestion des erreurs et retry
 
 PHASE 4 - FINALISATION
@@ -143,9 +140,7 @@ def amue_multi_table_import():
             ↓
         checked = check_setup_status(tables)
             ↓
-        schemas = get_table_schema.expand(checked)
-            ↓
-        imported = import_data.expand(schemas)
+        imported = import_data.expand(table_info=checked)
             ↓
         save_metadata(imported, polling_result)
             ↓

@@ -171,7 +171,7 @@ class TestMetadataManagerGetTableMetadata:
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_table_metadata.return_value = {
-            'name': 'CSKS',
+            'table_name': 'CSKS',
             'fingerprint_API': 'fp_api_123',
             'fingerprint_UL': 'fp_ul_456',
             'primary_key': 'id',
