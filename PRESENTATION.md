@@ -166,7 +166,7 @@ Le DAG `amue_multi_table_import` automatise l'import quotidien de données finan
 2. Vérifie que chaque table existe dans le statut API
 3. Vérifie que le statut est OK (pas en erreur côté AMUE)
 4. Vérifie l'historique pour cette table
-5. Détermine le type d'import : `full` ou `differential`
+5. Détermine le type d'import : `full` ou `delta`
 
 **Intérêt** :
 - Centralise la configuration des tables à importer
@@ -176,7 +176,7 @@ Le DAG `amue_multi_table_import` automatise l'import quotidien de données finan
 
 **Type d'import** :
 - `full` : Toutes les données (première fois ou pas de delta configuré)
-- `differential` : Uniquement les modifications depuis `last_import`
+- `delta` : Uniquement les modifications depuis `last_import`
 
 ---
 

@@ -34,7 +34,7 @@ STATISTIQUES D'IMPORT :
 DÉTAIL PAR TABLE :
     - Nom de la table
     - Lignes récupérées / insérées
-    - Type d'import (full / differential)
+    - Type d'import (full / delta)
     - Statut (success / error)
     - Fingerprint (tronqué)
 
@@ -60,7 +60,7 @@ FORMAT DU RAPPORT DANS LES LOGS
       Table           |     Récup. |     Inséré | Type         | Statut
     ----------------------------------------------------------------------
       CSKS            |     15,000 |     15,000 | full         | [OK]
-      COST            |     50,000 |     50,000 | differential | [OK]
+      COST            |     50,000 |     50,000 | delta        | [OK]
       ...
 
 ================================================================================

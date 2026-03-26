@@ -14,7 +14,7 @@ PROCESSUS DE FILTRAGE :
     2. Vérifie que TOUTES les tables configurées existent dans l'API
     3. Si tables manquantes → notification + ARRÊT du DAG
     4. Enrichit chaque table avec son statut actuel
-    5. Détermine le type d'import (FULL ou DIFFERENTIAL)
+    5. Détermine le type d'import (FULL ou DELTA)
 
 COMPORTEMENT FAIL-FAST :
     Si une table configurée n'existe pas dans l'API, le DAG s'arrête
@@ -41,7 +41,7 @@ FULL (import complet) :
     - Utilisé si pas de date de dernier import
     - Résultat : TRUNCATE + INSERT de toutes les données
 
-DIFFERENTIAL (import incrémental) :
+DELTA (import incrémental) :
     - Nécessite une colonne delta (date de modification)
     - Nécessite une date de dernier import
     - Résultat : UPSERT des données modifiées depuis le dernier import
@@ -445,10 +445,10 @@ class AMUETableFilter:
 
         # Détermine le type d'import selon le timestamp global et la colonne delta
         has_delta = bool(table_config.get('delta'))
-        is_differential = bool(self._last_report_start) and has_delta
+        is_delta = bool(self._last_report_start) and has_delta
 
-        table_config['import_type'] = 'differential' if is_differential else 'full'
-        if is_differential:
+        table_config['import_type'] = 'delta' if is_delta else 'full'
+        if is_delta:
             # Injecte last_import pour que data_streamer puisse filtrer les données
             table_config['last_import'] = self._last_report_start
         table_config['to_process'] = True

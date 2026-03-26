@@ -11,7 +11,7 @@ class TestSaveMetadata:
             'rows_inserted': 100,
             'rows_updated': 10,
             'rows_fetched': 110,
-            'import_type': 'differential',
+            'import_type': 'delta',
             'status': 'success',
             'target_schema': target_schema,
         }

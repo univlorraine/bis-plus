@@ -55,7 +55,7 @@ class TestDataStreamer:
         streamer = AMUEDataStreamer(mock_api_hook, 'https://api.example.com/table')
 
         import_config = {
-            'import_type': 'differential',
+            'import_type': 'delta',
             'delta': 'AEDAT',
             'last_import': '2024-01-15'
         }

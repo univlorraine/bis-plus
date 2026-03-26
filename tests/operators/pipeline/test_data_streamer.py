@@ -52,7 +52,7 @@ class TestBuildQueryParams:
         """Test import différentiel avec delta."""
         streamer = AMUEDataStreamer(Mock(), "http://api")
         import_config = {
-            "import_type": "differential",
+            "import_type": "delta",
             "delta": "AEDAT",
             "last_import": "2024-01-15T10:30:00"
         }
@@ -67,7 +67,7 @@ class TestBuildQueryParams:
         """Test import différentiel sans colonne delta - mode full."""
         streamer = AMUEDataStreamer(Mock(), "http://api")
         import_config = {
-            "import_type": "differential",
+            "import_type": "delta",
             "delta": "",
             "last_import": "2024-01-15"
         }
@@ -80,7 +80,7 @@ class TestBuildQueryParams:
         """Test import différentiel sans date de dernier import - mode full."""
         streamer = AMUEDataStreamer(Mock(), "http://api")
         import_config = {
-            "import_type": "differential",
+            "import_type": "delta",
             "delta": "AEDAT",
             "last_import": ""
         }

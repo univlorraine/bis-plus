@@ -19,7 +19,7 @@ class TestImportData:
             'rows_inserted': 1500,
             'rows_updated': 50,
             'rows_fetched': 1550,
-            'import_type': 'differential',
+            'import_type': 'delta',
             'fingerprint_API': 'abc123',
             'fingerprint_UL': 'def456',
             'status': 'success',

@@ -294,7 +294,7 @@ class AdminStateManager:
                 f"""
                 UPDATE {_TABLE}
                 SET import_in_progress    = FALSE,
-                    active_schema         = %s,
+                    active_schema         = COALESCE(%s, active_schema),
                     import_started_at     = NULL,
                     import_correlation_id = NULL,
                     updated_at            = NOW()

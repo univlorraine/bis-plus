@@ -55,7 +55,7 @@ class AMUEDataStreamer:
         Args:
             table_name: Nom de la table a recuperer
             import_config: Configuration d'import contenant:
-                - import_type: "full" ou "differential"
+                - import_type: "full" ou "delta"
                 - delta: Nom de la colonne de date pour import differentiel
                 - last_import: Date ISO du dernier import
 
@@ -103,7 +103,7 @@ class AMUEDataStreamer:
         delta_column = import_config.get('delta', '')
         last_import = import_config.get('last_import', '')
 
-        if import_type == 'differential' and delta_column and last_import:
+        if import_type == 'delta' and delta_column and last_import:
             last_import_str = self._format_date_for_query(last_import)
             # Utilise >= pour récupérer toutes les modifications depuis le dernier import
             params['q'] = f"{delta_column}>='{last_import_str}'"

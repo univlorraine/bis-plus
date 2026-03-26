@@ -143,7 +143,7 @@ class TestTableFilterFilterTables:
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
     def test_filter_tables_differential_with_report_start(self):
-        """Table avec delta + last_report_start = differential"""
+        """Table avec delta + last_report_start = delta"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         tables_config = [
@@ -161,7 +161,7 @@ class TestTableFilterFilterTables:
 
         assert len(result) == 1
         prks = result[0]
-        assert prks['import_type'] == 'differential'
+        assert prks['import_type'] == 'delta'
         assert prks['last_import'] == '2026-02-17T10:08:19+00:00'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
@@ -343,7 +343,7 @@ class TestTableFilterShouldProcess:
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
     def test_import_type_differential(self):
-        """Import type differential si last_report_start et delta présents"""
+        """Import type delta si last_report_start et delta présents"""
         from amue.operators.table_management.table_filter import AMUETableFilter
 
         filter_obj = AMUETableFilter(tables_config=[])
@@ -357,7 +357,7 @@ class TestTableFilterShouldProcess:
 
         filter_obj._should_process_table(table_config)
 
-        assert table_config['import_type'] == 'differential'
+        assert table_config['import_type'] == 'delta'
         assert table_config['last_import'] == '2026-02-17T10:08:19+00:00'
 
 

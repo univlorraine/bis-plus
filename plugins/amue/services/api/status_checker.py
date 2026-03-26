@@ -153,6 +153,7 @@ class AMUEStatusChecker:
             return {
                 'http_status': 200,
                 'finish': finish_value,
+                'start': response.get('start'),
                 'tables_status': tables_status,
                 'raw_response': response
             }

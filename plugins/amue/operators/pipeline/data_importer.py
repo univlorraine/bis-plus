@@ -67,7 +67,7 @@ class AMUEDataImporter:
         ...     table_name='CSKS',
         ...     columns=['bukrs', 'kostl', 'datab'],
         ...     primary_keys=['bukrs', 'kostl'],
-        ...     import_config={'import_type': 'differential'}
+        ...     import_config={'import_type': 'delta'}
         ... )
     """
 
