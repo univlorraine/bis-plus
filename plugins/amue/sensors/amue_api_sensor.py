@@ -94,6 +94,7 @@ class AMUEAPISensor(BaseSensorOperator):
         self._polling_result = {
             'http_code': http_code,
             'finish': finish,
+            'report_start': full_status.get('start', '') or '',
             'tables_status': full_status.get('tables_status', {}),
             'start_time': datetime.now().isoformat(),
             'attempts': 1,
