@@ -56,7 +56,7 @@ def sync_ecc_to_active(imported: List[Dict]) -> Dict:
         """,
         parameters=(table_names,)
     )
-    pk_map = {name: [pk.strip() for pk in pks.split(',') if pk.strip()] for name, pks in pk_rows}
+    pk_map = {name: [pk.strip().lower() for pk in pks.split(',') if pk.strip()] for name, pks in pk_rows}
 
     conn = create_postgres_hook().get_conn()
     conn.autocommit = False

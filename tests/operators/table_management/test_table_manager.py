@@ -335,9 +335,8 @@ class TestTableManagementResult:
 class TestTableManagerMetaColumns:
     """Tests pour ensure_meta_columns"""
 
-    def test_ensure_meta_columns_no_sql_injection(self):
-        """hook.run reçoit un pgsql.Composed (pas une str contenant default_source)"""
-        from psycopg2 import sql as pgsql
+    def test_ensure_meta_columns_sql_content(self):
+        """hook.run reçoit une string SQL valide avec ALTER TABLE et les deux meta colonnes"""
         from amue.operators.table_management.table_manager import AMUETableManager
 
         mock_hook = MagicMock()
@@ -347,6 +346,7 @@ class TestTableManagerMetaColumns:
 
         mock_hook.run.assert_called_once()
         arg = mock_hook.run.call_args[0][0]
-        assert isinstance(arg, pgsql.Composed), (
-            f"hook.run doit recevoir un pgsql.Composed, pas {type(arg).__name__}"
-        )
+        assert isinstance(arg, str), f"hook.run doit recevoir une str, pas {type(arg).__name__}"
+        assert 'ALTER TABLE' in arg
+        assert '_source' in arg
+        assert '_imported_at' in arg

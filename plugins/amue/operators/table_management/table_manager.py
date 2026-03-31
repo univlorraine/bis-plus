@@ -56,7 +56,7 @@ _SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_.]*$')
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
-from psycopg2 import sql as pgsql
+
 from amue.exceptions import AMUESchemaError, AMUEDatabaseError
 from common.utils.database.hooks import create_postgres_hook
 from common.utils.database.schema_utils import SchemaQualifier
@@ -141,13 +141,11 @@ class AMUETableManager:
         qualified_name = self._get_qualified_table_name(table_name)
         logger.info(f"[TABLE_MGT] Vérification meta colonnes pour {qualified_name}")
 
-        parts = qualified_name.split('.')
-        table_ref = pgsql.Identifier(*parts)
-        alter_sql = pgsql.SQL(
-            "ALTER TABLE {} "
-            "ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT {}, "
-            "ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-        ).format(table_ref, pgsql.Literal(self.default_source))
+        alter_sql = (
+            f"ALTER TABLE {qualified_name} "
+            f"ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT '{self.default_source}', "
+            f"ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
 
         try:
             self.postgres_hook.run(alter_sql)
