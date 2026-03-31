@@ -49,20 +49,23 @@ from amue.notifications import (
     dag_failure_rollback,
 )
 from amue.notifications.report_generator import AMUEReportGenerator
-# Operators - Import de donnees
-from amue.operators.pipeline.data_importer import AMUEDataImporter
-from amue.operators.pipeline.data_streamer import AMUEDataStreamer
-from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
-from amue.operators.pipeline.duplicate_detector import DuplicateDetector
-from amue.operators.table_management.table_filter import AMUETableFilter
-from amue.operators.table_management.table_manager import AMUETableManager
-from amue.operators.table_management.table_verifier import AMUETableVerifier
+# Operators - importés en lazy pour éviter les imports circulaires avec common.*
+# (accessible via `from amue import AMUEDataImporter` ou via le chemin complet)
+_LAZY_OPERATORS = {
+    'AMUEDataImporter': ('amue.operators.pipeline.data_importer', 'AMUEDataImporter'),
+    'AMUEDataStreamer': ('amue.operators.pipeline.data_streamer', 'AMUEDataStreamer'),
+    'AMUEBatchInserter': ('common.operators.batch_inserter', 'AMUEBatchInserter'),
+    'DuplicateDetector': ('amue.operators.pipeline.duplicate_detector', 'DuplicateDetector'),
+    'AMUETableFilter': ('amue.operators.table_management.table_filter', 'AMUETableFilter'),
+    'AMUETableManager': ('amue.operators.table_management.table_manager', 'AMUETableManager'),
+    'AMUETableVerifier': ('amue.operators.table_management.table_verifier', 'AMUETableVerifier'),
+}
 # Services
-from amue.services.admin_state_manager import AdminStateManager
+from common.services.admin_state_manager import AdminStateManager
 from amue.services.metadata_manager import AMUEMetadataManager
 from amue.services.table_config_manager import TableConfigManager
 from amue.services.api.polling_service import AMUEPollingService
-from amue.services.retry_service import (
+from common.services.retry_service import (
     RetryService,
     RetryConfig,
     RetryStrategy,
@@ -72,15 +75,15 @@ from amue.services.retry_service import (
 )
 from amue.services.api.status_checker import AMUEStatusChecker
 # Services Blue/Green
-from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
-from amue.services.bluegreen.view_switcher import ViewSwitcher
-from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+from common.services.bluegreen.view_switcher import ViewSwitcher
+from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 # Utils
-from amue.utils.config.airflow_helpers import AirflowVariableManager
-from amue.utils.database.hooks import HookManager, create_postgres_hook, create_api_hook, create_bluegreen_hook
+from common.utils.config.airflow_helpers import AirflowVariableManager
+from common.utils.database.hooks import HookManager, create_postgres_hook, create_api_hook, create_bluegreen_hook
 from amue.utils.config.settings import AMUEConfig, get_config, reload_config, Defaults
-from amue.utils.database.schema_utils import SchemaQualifier
-from amue.utils.database.connection_manager import PostgresConnectionManager
+from common.utils.database.schema_utils import SchemaQualifier
+from common.utils.database.connection_manager import PostgresConnectionManager
 from amue.utils.tracing import (
     generate_correlation_id,
     generate_run_id,
@@ -98,6 +101,19 @@ from amue.utils.transformers import (
     validate_column_name,
     validate_identifier,
 )
+
+
+def __getattr__(name):
+    """Lazy loading des opérateurs pour éviter les imports circulaires avec common.*"""
+    import importlib
+    if name in _LAZY_OPERATORS:
+        module_path, attr = _LAZY_OPERATORS[name]
+        mod = importlib.import_module(module_path)
+        obj = getattr(mod, attr)
+        globals()[name] = obj  # cache pour les accès suivants
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     # Types

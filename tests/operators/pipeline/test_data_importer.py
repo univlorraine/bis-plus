@@ -72,10 +72,10 @@ class TestDataStreamer:
 class TestBatchInserter:
     """Tests pour AMUEBatchInserter"""
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_build_insert_sql_simple(self, mock_sql):
         """Test construction requete INSERT simple"""
-        from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+        from common.operators.batch_inserter import AMUEBatchInserter
 
         inserter = AMUEBatchInserter()
 
@@ -98,10 +98,10 @@ class TestBatchInserter:
 
         assert 'INSERT INTO' in sql_query
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_build_insert_sql_upsert(self, mock_sql):
         """Test construction requete UPSERT"""
-        from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+        from common.operators.batch_inserter import AMUEBatchInserter
 
         inserter = AMUEBatchInserter()
 

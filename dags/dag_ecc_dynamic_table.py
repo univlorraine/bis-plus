@@ -57,7 +57,7 @@ _import_schedule = VarMgr.get('ecc_import_schedule', default=None)
     description='Import ECC Oracle SAP → PostgreSQL avec protection sifac_plus',
 
     # --- Planification (configurable via Variable Airflow 'ecc_import_schedule') ---
-    schedule=_import_schedule,
+    schedule=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,

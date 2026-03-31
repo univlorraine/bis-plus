@@ -8,7 +8,7 @@ from unittest.mock import Mock, MagicMock, patch
 from psycopg2 import sql, OperationalError, InterfaceError
 from psycopg2.errors import UniqueViolation
 
-from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+from common.operators.batch_inserter import AMUEBatchInserter
 from amue.exceptions import AMUEBatchError, AMUEDatabaseError, AMUEDataError
 
 
@@ -164,7 +164,7 @@ class TestCloseConnection:
 class TestExecuteBatch:
     """Tests pour execute_batch."""
 
-    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    @patch('common.operators.batch_inserter.execute_values')
     def test_successful_batch_insert_upsert(self, mock_exec_values):
         """UPSERT : execute_values(fetch=True) retourne (True/False) → compte INSERT vs UPDATE."""
         # 1 INSERT (xmax=0 → True) + 1 UPDATE (xmax≠0 → False)
@@ -189,7 +189,7 @@ class TestExecuteBatch:
         assert result['rows_affected'] == 2
         assert result['batch_size'] == 2
 
-    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    @patch('common.operators.batch_inserter.execute_values')
     def test_successful_batch_insert_no_pk(self, mock_exec_values):
         """INSERT simple (sans PK) : toutes les lignes comptent comme insérées."""
         mock_cursor = Mock()
@@ -212,7 +212,7 @@ class TestExecuteBatch:
         assert result['rows_affected'] == 2
         assert result['batch_size'] == 2
 
-    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    @patch('common.operators.batch_inserter.execute_values')
     def test_batch_insert_no_commit(self, mock_exec_values):
         """Test insertion sans commit."""
         mock_exec_values.return_value = [(True,)]
@@ -250,7 +250,7 @@ class TestExecuteBatch:
 
         assert "Doublons detectes" in str(exc_info.value)
 
-    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    @patch('common.operators.batch_inserter.execute_values')
     def test_raises_database_error_on_connection_issue(self, mock_exec_values):
         """Test erreur de connexion DB."""
         mock_exec_values.side_effect = OperationalError("Connection lost")
@@ -270,7 +270,7 @@ class TestExecuteBatch:
 
         assert exc_info.value.is_connection_error is True
 
-    @patch('amue.operators.pipeline.batch_inserter.execute_values')
+    @patch('common.operators.batch_inserter.execute_values')
     def test_raises_database_error_on_interface_error(self, mock_exec_values):
         """Test erreur d'interface DB."""
         mock_exec_values.side_effect = InterfaceError("Interface error")
@@ -299,7 +299,7 @@ class TestBuildInsertSql:
     pour as_string().
     """
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_simple_insert(self, mock_sql):
         """Test INSERT simple sans UPSERT."""
         # Mock the SQL construction
@@ -320,7 +320,7 @@ class TestBuildInsertSql:
 
         assert "INSERT INTO" in result
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_upsert_with_primary_keys(self, mock_sql):
         """Test INSERT avec UPSERT."""
         mock_query = Mock()
@@ -345,7 +345,7 @@ class TestBuildInsertSql:
         assert "ON CONFLICT" in result
         assert "DO UPDATE SET" in result
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_upsert_with_schema(self, mock_sql):
         """Test INSERT avec schéma blue/green."""
         mock_query = Mock()
@@ -368,7 +368,7 @@ class TestBuildInsertSql:
 
         assert "splus_blue" in result
 
-    @patch('amue.operators.pipeline.batch_inserter.sql')
+    @patch('common.operators.batch_inserter.sql')
     def test_upsert_excludes_source_column(self, mock_sql):
         """Test que _source n'est pas mis à jour."""
         mock_query = Mock()

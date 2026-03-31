@@ -10,7 +10,7 @@ class TestBlueGreenState:
 
     def test_to_dict_default(self):
         """to_dict() retourne tous les champs avec valeurs par défaut."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         state = BlueGreenState()
         result = state.to_dict()
@@ -24,7 +24,7 @@ class TestBlueGreenState:
 
     def test_to_dict_with_values(self):
         """to_dict() retourne les valeurs correctement."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         state = BlueGreenState(
             last_import_schema="green",
@@ -45,7 +45,7 @@ class TestBlueGreenState:
 
     def test_from_dict_full(self):
         """from_dict() recrée un état depuis un dictionnaire complet."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         data = {
             "last_import_schema": "blue",
@@ -66,7 +66,7 @@ class TestBlueGreenState:
 
     def test_from_dict_defaults_on_missing_keys(self):
         """from_dict() utilise les valeurs par défaut pour les clés manquantes."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         state = BlueGreenState.from_dict({})
 
@@ -76,7 +76,7 @@ class TestBlueGreenState:
 
     def test_from_dict_ignores_unknown_keys(self):
         """from_dict() ignore silencieusement les champs inconnus."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         data = {
             "last_import_schema": "green",
@@ -91,7 +91,7 @@ class TestBlueGreenState:
 
     def test_to_dict_roundtrip(self):
         """to_dict() puis from_dict() reconstitue le même état."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         original = BlueGreenState(
             last_import_schema="green",
@@ -104,7 +104,7 @@ class TestBlueGreenState:
 
     def test_frozen_immutable(self):
         """BlueGreenState est frozen — la mutation directe est impossible."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
         state = BlueGreenState()
 
@@ -115,10 +115,10 @@ class TestBlueGreenState:
 class TestBlueGreenStateManagerLoadState:
     """Tests pour BlueGreenStateManager.load_state()."""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_load_state_nominal(self, MockAdmin):
         """Retourne l'état chargé depuis la BDD."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -132,10 +132,10 @@ class TestBlueGreenStateManagerLoadState:
         assert result.last_import_schema == "green"
         assert result.import_in_progress is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_load_state_returns_default_when_none(self, MockAdmin):
         """Retourne l'état par défaut si AdminStateManager retourne None."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -148,10 +148,10 @@ class TestBlueGreenStateManagerLoadState:
         assert isinstance(result, BlueGreenState)
         assert result == BlueGreenState()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_load_state_returns_default_on_db_error(self, MockAdmin):
         """Retourne l'état par défaut en cas d'erreur BDD (pas d'exception propagée)."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -168,10 +168,10 @@ class TestBlueGreenStateManagerLoadState:
 class TestBlueGreenStateManagerSaveState:
     """Tests pour BlueGreenStateManager.save_state()."""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_save_state_nominal(self, MockAdmin):
         """Retourne True si la sauvegarde réussit."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -185,10 +185,10 @@ class TestBlueGreenStateManagerSaveState:
         assert result is True
         MockAdmin.return_value.save_bluegreen_state.assert_called_once_with(state)
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_save_state_returns_false_on_failure(self, MockAdmin):
         """Retourne False si AdminStateManager retourne False."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -200,10 +200,10 @@ class TestBlueGreenStateManagerSaveState:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_save_state_returns_false_on_db_error(self, MockAdmin):
         """Retourne False en cas d'exception BDD (pas de propagation)."""
-        from amue.services.bluegreen.bluegreen_state_manager import (
+        from common.services.bluegreen.bluegreen_state_manager import (
             BlueGreenState,
             BlueGreenStateManager,
         )
@@ -219,10 +219,10 @@ class TestBlueGreenStateManagerSaveState:
 class TestBlueGreenStateManagerMarkers:
     """Tests pour les marqueurs mark_switch_completed et mark_sync_completed."""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_switch_completed_nominal(self, MockAdmin):
         """Délègue à AdminStateManager et retourne son résultat."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
 
         MockAdmin.return_value.mark_switch_completed.return_value = True
 
@@ -232,10 +232,10 @@ class TestBlueGreenStateManagerMarkers:
         assert result is True
         MockAdmin.return_value.mark_switch_completed.assert_called_once_with("green")
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_switch_completed_failure(self, MockAdmin):
         """Retourne False si AdminStateManager échoue."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
 
         MockAdmin.return_value.mark_switch_completed.return_value = False
 
@@ -244,10 +244,10 @@ class TestBlueGreenStateManagerMarkers:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_sync_completed_nominal(self, MockAdmin):
         """Délègue à AdminStateManager et retourne True en cas de succès."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
 
         MockAdmin.return_value.mark_sync_completed.return_value = True
 
@@ -257,10 +257,10 @@ class TestBlueGreenStateManagerMarkers:
         assert result is True
         MockAdmin.return_value.mark_sync_completed.assert_called_once()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_sync_completed_failure(self, MockAdmin):
         """Retourne False si AdminStateManager échoue."""
-        from amue.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
+        from common.services.bluegreen.bluegreen_state_manager import BlueGreenStateManager
 
         MockAdmin.return_value.mark_sync_completed.return_value = False
 

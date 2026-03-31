@@ -7,8 +7,8 @@ from airflow.exceptions import AirflowSkipException
 from airflow.sdk import task
 from airflow.task.trigger_rule import TriggerRule
 
-from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-from amue.utils.database.hooks import create_postgres_hook
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.utils.database.hooks import create_postgres_hook
 
 logger = logging.getLogger(__name__)
 

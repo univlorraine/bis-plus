@@ -11,7 +11,7 @@ class TestBlueGreenState:
 
     def test_default_state(self):
         """État par défaut correctement initialisé"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         state = BlueGreenState()
 
@@ -20,7 +20,7 @@ class TestBlueGreenState:
 
     def test_to_dict(self):
         """Conversion en dictionnaire"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         state = BlueGreenState(last_import_schema="green")
 
@@ -34,7 +34,7 @@ class TestBlueGreenState:
 
     def test_from_dict(self):
         """Création depuis un dictionnaire"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         data = {
             "last_import_schema": "green",
@@ -48,7 +48,7 @@ class TestBlueGreenState:
 
     def test_from_dict_ignores_old_schema_fields(self):
         """from_dict ignore silencieusement les anciens champs schema"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         # Ancien format avec les champs supprimés
         data = {
@@ -66,7 +66,7 @@ class TestBlueGreenState:
 
     def test_frozen_state_is_immutable(self):
         """BlueGreenState est frozen - mutation directe impossible."""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         state = BlueGreenState()
 
@@ -75,7 +75,7 @@ class TestBlueGreenState:
 
     def test_frozen_state_replace_creates_new_instance(self):
         """replace() crée une nouvelle instance sans modifier l'originale."""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenState
 
         state = BlueGreenState(import_in_progress=False)
         new_state = replace(state, import_in_progress=True)
@@ -88,10 +88,10 @@ class TestBlueGreenState:
 class TestBlueGreenManagerState:
     """Tests pour la gestion de l'état"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_get_state_from_empty(self, mock_admin_cls):
         """État par défaut si AdminStateManager retourne un état vide"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState()
@@ -101,10 +101,10 @@ class TestBlueGreenManagerState:
 
         assert state.import_in_progress is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_get_state_from_json(self, mock_admin_cls):
         """État chargé depuis la BDD"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState(last_import_schema="green")
@@ -116,7 +116,7 @@ class TestBlueGreenManagerState:
 
     def test_get_target_schema_blue_active(self):
         """Schéma cible = green si views pointent vers blue"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -129,7 +129,7 @@ class TestBlueGreenManagerState:
 
     def test_get_target_schema_green_active(self):
         """Schéma cible = blue si views pointent vers green"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -142,7 +142,7 @@ class TestBlueGreenManagerState:
 
     def test_get_target_schema_no_views(self):
         """Schéma cible = blue si aucune vue (premier import)"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -157,10 +157,10 @@ class TestBlueGreenManagerState:
 class TestBlueGreenManagerMarkers:
     """Tests pour les marqueurs d'état"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_import_started(self, mock_admin_cls):
         """Marque le début de l'import"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.try_acquire_import_lock.return_value = True
@@ -172,10 +172,10 @@ class TestBlueGreenManagerMarkers:
         assert result is True
         assert manager.get_state().import_in_progress is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_import_completed(self, mock_admin_cls):
         """Marque la fin de l'import"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         # Premier appel : état initial avec import en cours
@@ -199,10 +199,10 @@ class TestBlueGreenManagerMarkers:
         assert state.import_in_progress is False
         assert state.last_import_schema == "green"
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_import_completed_with_explicit_target(self, mock_admin_cls):
         """target_schema explicite → correct active_schema passé à release_lock, sans lire les vues"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState(import_in_progress=True)
@@ -216,10 +216,10 @@ class TestBlueGreenManagerMarkers:
         # ViewSwitcher n'a jamais été instancié (pas de lecture de vues)
         assert manager._view_switcher is None
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_import_completed_without_target_reads_views(self, mock_admin_cls):
         """Sans target_schema → fallback sur get_target_schema() (lecture des vues)"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState(import_in_progress=True)
@@ -236,10 +236,10 @@ class TestBlueGreenManagerMarkers:
         mock_vs.get_current_target_schema.assert_called()
         mock_admin.release_import_lock.assert_called_once_with('green')
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_switch_completed(self, mock_admin_cls):
         """Marque la fin du switch"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.mark_switch_completed.return_value = True
@@ -258,10 +258,10 @@ class TestBlueGreenManagerMarkers:
         state = manager.get_state()
         assert state.last_switch_timestamp != ""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_mark_sync_completed(self, mock_admin_cls):
         """Marque la fin de la sync"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.mark_sync_completed.return_value = True
@@ -281,7 +281,7 @@ class TestBlueGreenManagerHelpers:
 
     def test_get_active_schema_blue(self):
         """Retourne le schéma actif complet quand views pointent vers blue"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -294,7 +294,7 @@ class TestBlueGreenManagerHelpers:
 
     def test_get_active_schema_no_views(self):
         """Retourne splus_green si aucune vue (premier import)"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -307,7 +307,7 @@ class TestBlueGreenManagerHelpers:
 
     def test_get_inactive_schema(self):
         """Retourne le schéma inactif complet (opposé de l'actif)"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -320,7 +320,7 @@ class TestBlueGreenManagerHelpers:
 
     def test_get_view_schema(self):
         """Retourne le schéma des vues"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         result = manager.get_view_schema()
@@ -329,7 +329,7 @@ class TestBlueGreenManagerHelpers:
 
     def test_get_schema_for_table(self):
         """Retourne le nom qualifié de la table dans le schéma cible"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         mock_vs = MagicMock()
@@ -340,10 +340,10 @@ class TestBlueGreenManagerHelpers:
 
         assert result == "splus_green.csks"
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_needs_sync_true_if_no_sync(self, mock_admin_cls):
         """Sync nécessaire si pas de last_sync_timestamp"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState()
@@ -353,10 +353,10 @@ class TestBlueGreenManagerHelpers:
 
         assert result is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_needs_sync_false_after_sync(self, mock_admin_cls):
         """Sync pas nécessaire si déjà sync"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager, BlueGreenState
         mock_admin = MagicMock()
         mock_admin_cls.return_value = mock_admin
         mock_admin.get_bluegreen_state.return_value = BlueGreenState(
@@ -373,7 +373,7 @@ class TestBlueGreenManagerOfflineRename:
     """Tests pour le renommage offline du schéma inactif"""
 
     def _make_manager(self, mock_hook):
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
         manager = BlueGreenManager(postgres_hook=mock_hook)
         return manager
 
@@ -444,5 +444,5 @@ class TestBlueGreenManagerOfflineRename:
 
     def test_offline_suffix_constant(self):
         """La constante OFFLINE_SUFFIX est bien définie"""
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
         assert BlueGreenManager.OFFLINE_SUFFIX == "_offline"

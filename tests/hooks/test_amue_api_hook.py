@@ -48,13 +48,20 @@ class TestAMUEAPIHookTokenExpiration:
         mock_conn.extra = '{}'
         mock_get_conn.return_value = mock_conn
 
-        from amue.hooks.amue_api_hook import AMUEAPIHook
+        from amue.hooks.amue_api_hook import AMUEAPIHook, _token_cache
+
+        _token_cache.invalidate()
+        _token_cache.set_token('expired_token', 3600)  # validité réelle = 3240s (×0.9)
 
         hook = AMUEAPIHook()
-        hook.access_token = 'expired_token'
-        hook.token_expires_at = datetime.now() - timedelta(hours=1)
 
-        assert hook._is_token_expired() is True
+        # Simule un now() 2 heures dans le futur → token expiré
+        future = datetime.now() + timedelta(hours=2)
+        with patch('amue.hooks.amue_api_hook.datetime') as mock_dt:
+            mock_dt.now.return_value = future
+            assert hook._is_token_expired() is True
+
+        _token_cache.invalidate()
 
     @patch('amue.hooks.amue_api_hook.get_airflow_connection')
     @patch('amue.hooks.amue_api_hook.requests.post')

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 
 def make_manager(mock_hook=None):
-    from amue.services.admin_state_manager import AdminStateManager
+    from common.services.admin_state_manager import AdminStateManager
     if mock_hook is None:
         mock_hook = MagicMock()
     return AdminStateManager(postgres_hook=mock_hook), mock_hook
@@ -224,7 +224,7 @@ class TestAdminStateManagerImportLock:
         manager, hook = make_manager()
         hook.get_first.return_value = None
 
-        with patch('amue.services.admin_state_manager.logger') as mock_logger:
+        with patch('common.services.admin_state_manager.logger') as mock_logger:
             manager.release_import_lock('blue')
 
         mock_logger.warning.assert_called_once()

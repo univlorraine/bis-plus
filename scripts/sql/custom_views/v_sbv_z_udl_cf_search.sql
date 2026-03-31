@@ -13,3 +13,9 @@ CREATE VIEW splus.v_sbv_z_udl_cf_search AS
         AND ((datbis IS NULL) OR (datbis >= '20250304'::bpchar)))
     ORDER BY fictr
     LIMIT 50;
+
+COMMENT ON COLUMN splus.v_sbv_z_udl_cf_search.fikrs IS 'Périmètre financier';
+COMMENT ON COLUMN splus.v_sbv_z_udl_cf_search.fictr IS 'Centre financier';
+COMMENT ON COLUMN splus.v_sbv_z_udl_cf_search.beschr IS 'Description';
+COMMENT ON COLUMN splus.v_sbv_z_udl_cf_search.datbis IS 'FM : date val. jusq.';
+COMMENT ON COLUMN splus.v_sbv_z_udl_cf_search.datab IS 'FM : date début de validité';

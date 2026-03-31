@@ -183,22 +183,27 @@ PHASE 1 : INITIALISATION BLUE/GREEN
                               ↓
 PHASE 2 : POLLING & SÉLECTION
 ┌─────────────────────────────────────────────────────────────────┐
-│ wait_for_api_and_select()                                       │
+│ AMUEAPISensor + select_tables()                                 │
 │   • Polling jusqu'à disponibilité d'un nouveau rapport API      │
+│   • Compare finish avec last_finish_timestamp (BDD)             │
 │   • Sélection des tables configurées (enable=true) depuis BDD   │
 │   • Injection du target_schema dans chaque table                │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
-PHASE 3 : VÉRIFICATION (parallèle par table)
+PHASE 3 : VÉRIFICATION (sous-DAG dédié)
 ┌─────────────────────────────────────────────────────────────────┐
-│ verify_table.expand()                                           │
-│   • Vérifie statut + structure + fingerprints                   │
-│   • Vérifie dans le schéma cible                                │
+│ TriggerDagRunOperator → amue_table_setup (wait_for_completion)  │
+│   • Vérifie la présence et le statut de chaque table dans       │
+│     le rapport API (fail-fast si absente ou KO)                 │
+│   • Calcule et compare les fingerprints (fingerprint_API,       │
+│     fingerprint_UL) — arrêt + mail si changement détecté       │
+│   • Persiste le résultat dans setup_status (ready / blocked)    │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ validate_tables()                                               │
-│   • Agrège les résultats, arrête si erreurs                     │
+│ check_setup_status()                                            │
+│   • Lit setup_status depuis splus_admin.amue_tables             │
+│   • Arrête le DAG si pending ou blocked                         │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 PHASE 4 : IMPORT (parallèle par table)
@@ -224,6 +229,7 @@ PHASE 5 : SWITCH & FINALISATION
 │ switch_views()                                                  │
 │   • Bascule atomique des vues vers schéma cible                 │
 │   • Crée les vues manquantes (DROP + CREATE)                    │
+│   • Exécute les vues custom (scripts/sql/custom_views/)         │
 │   • Active le rollback vers l'ancien schéma                     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -250,7 +256,7 @@ PHASE 5 : SWITCH & FINALISATION
 - Verrou d'import atomique via PostgreSQL (sans race condition)
 
 ### Retry intelligent
-Stratégies adaptées selon le type d'erreur :
+Stratégies adaptées selon le type d'erreur (appels de récupération de données) :
 
 | Code       | Tentatives | Stratégie                                    |
 |------------|------------|----------------------------------------------|
@@ -259,6 +265,8 @@ Stratégies adaptées selon le type d'erreur :
 | 5xx        | 3          | Backoff exponentiel 5s→10s→20s + jitter      |
 | Timeout    | 2          | Délai fixe 3s                                |
 | Connexion  | 3          | Backoff exponentiel 5s→10s→20s + jitter      |
+
+Le backoff exponentiel du **polling** (intervalle × 2^(n-1), plafonné à `amue_polling_max_backoff_minutes`) est **désactivé par défaut**. Pour l'activer : `amue_polling_exponential_backoff = true`.
 
 ### Notifications
 - Emails HTML responsive (succès et erreur)
@@ -375,7 +383,7 @@ Stratégies adaptées selon le type d'erreur :
   "amue_import_batch_size": "5000",
   "amue_polling_interval_minutes": "10",
   "amue_polling_max_backoff_minutes": "60",
-  "amue_max_wait_hours": "6",
+  "amue_polling_exponential_backoff": "false",
   "amue_api_max_retries": "3",
   "amue_import_schedule": "0 2 * * *",
   "amue_sync_schedule": "0 6 * * *",
@@ -387,6 +395,8 @@ Stratégies adaptées selon le type d'erreur :
   "ecc_report_recipients": "admin@example.com"
 }
 ```
+
+> **Note :** `amue_max_wait_hours` (défaut : 6h) n'est pas dans ce fichier. Sa valeur de repli est codée en dur. Pour la surcharger, créer la variable manuellement dans l'interface Airflow ou via `./manage.sh var-set amue_max_wait_hours 8`.
 
 ### Configuration des tables (`splus_admin.amue_tables`)
 
@@ -421,6 +431,7 @@ SELECT * FROM splus_admin.amue_state WHERE id = 1;
 | `last_finish_timestamp`| Timestamp finish du dernier rapport AMUE traité          |
 | `last_report_start`    | Timestamp start du dernier rapport (référence delta)     |
 | `last_successful_run`  | Horodatage du dernier import réussi                      |
+| `active_schema`        | Champ d'audit (`blue` ou `green`) — la source de vérité reste `information_schema.views` |
 | `import_in_progress`   | Import en cours                                          |
 | `import_started_at`    | Début de l'import en cours                               |
 | `import_correlation_id`| Identifiant de corrélation de l'import                   |

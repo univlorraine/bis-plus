@@ -103,3 +103,29 @@ CREATE VIEW splus.v_bs_z_udl_0050_read AS
                 AND ((t1.doctype = 'CVRA'::bpchar) OR (t1.doctype = 'REAJ'::bpchar) OR (t1.doctype = 'VIEX'::bpchar) OR (t1.doctype = 'VIIN'::bpchar))
                 AND ((t1.docstate = '1'::bpchar) OR (t1.docstate = '3'::bpchar)))
     ORDER BY 2, 3;
+
+COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.docyear IS 'Exercice pièce';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.docnr IS 'Numéro de la pièce de saisie du budget';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.docln IS 'Poste de la pièce de saisie de budget';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.flg_added IS 'Code pour ligne supplémentaire';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.fiscyear IS 'Exercice comptable';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.budcat IS 'Catégorie budgétaire';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.budtype IS 'Type de budget';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.ctem_category IS 'Type de compte budgétaire';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.fund IS 'Fonds';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.fundsctr IS 'Centre financier';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.cmmtitem IS 'Compte budgétaire';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.funcarea IS 'Domaine fonctionnel';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.measure IS 'Programme de financement';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.grant_nbr IS 'Subvention';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.tcurr IS 'Devise de transaction';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.total_amount_tcur IS 'Montant total du budget en devise de transaction';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.text50 IS 'Texte du poste';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.valtype IS 'Type de valeur BCS';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.process IS 'Opération de budgétisation interne';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.crtuser IS 'Utilisateur ayant créé ou mis à jour l\'objet';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.crtdate IS 'Date de création  ou de mise à jour de l\'objet';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.process_ui IS 'Opération de budgétisation';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.revstate IS 'Statut de contre-passation';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.rev_refnr IS 'Numéro de référence de la pièce d\'annulation';
+ COMMENT ON COLUMN splus.v_bs_z_udl_0050_read.doctype IS 'Type de pièce de saisie du budget';

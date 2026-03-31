@@ -12,13 +12,13 @@ _NO_CUSTOM_VIEWS = Path("/nonexistent/custom_views")
 class TestViewSwitcherInit:
     """Tests pour l'initialisation de ViewSwitcher"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_init_default_hook(self, mock_create_hook):
         """Utilise le hook par défaut si non fourni"""
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
 
@@ -29,7 +29,7 @@ class TestViewSwitcherInit:
         """Utilise le hook personnalisé si fourni"""
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(postgres_hook=mock_postgres_hook)
 
@@ -39,7 +39,7 @@ class TestViewSwitcherInit:
 class TestViewSwitcherGetTables:
     """Tests pour la récupération des tables"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_tables_in_schema(self, mock_create_hook):
         """Liste les tables dans un schéma"""
         mock_postgres_hook = MagicMock()
@@ -50,7 +50,7 @@ class TestViewSwitcherGetTables:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         tables = switcher.get_tables_in_schema('splus_blue')
@@ -58,21 +58,21 @@ class TestViewSwitcherGetTables:
         assert tables == ['csks', 'prps', 'fmbl']
         mock_postgres_hook.get_records.assert_called_once()
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_tables_empty(self, mock_create_hook):
         """Retourne liste vide si pas de tables"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         tables = switcher.get_tables_in_schema('splus_blue')
 
         assert tables == []
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_views_in_schema(self, mock_create_hook):
         """Liste les vues dans un schéma"""
         mock_postgres_hook = MagicMock()
@@ -82,7 +82,7 @@ class TestViewSwitcherGetTables:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         views = switcher.get_views_in_schema('splus')
@@ -93,7 +93,7 @@ class TestViewSwitcherGetTables:
 class TestViewSwitcherSwitch:
     """Tests pour le switch des vues"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_switch_views_to_schema_success(self, mock_create_hook):
         """Switch réussi vers un schéma - 2 appels par table (DROP + CREATE)"""
         mock_conn = MagicMock()
@@ -111,7 +111,7 @@ class TestViewSwitcherSwitch:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         result = switcher.switch_views_to_schema('splus_green')
@@ -122,21 +122,21 @@ class TestViewSwitcherSwitch:
         assert mock_cursor.execute.call_count == 4
         mock_cursor.close.assert_called_once()
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_switch_views_to_schema_no_tables(self, mock_create_hook):
         """Retourne False si pas de tables"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.switch_views_to_schema('splus_green')
 
         assert result is False
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_switch_views_to_schema_error_rollback(self, mock_create_hook):
         """Rollback en cas d'erreur"""
         mock_conn = MagicMock()
@@ -153,7 +153,7 @@ class TestViewSwitcherSwitch:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         result = switcher.switch_views_to_schema('splus_green')
@@ -166,14 +166,14 @@ class TestViewSwitcherSwitch:
         """Lève ValueError si le schéma cible n'est pas splus_blue ou splus_green"""
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(postgres_hook=mock_postgres_hook)
 
         with pytest.raises(ValueError, match="Schéma invalide"):
             switcher.switch_views_to_schema('splus_evil')
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_switch_views_single_columns_query(self, mock_create_hook):
         """Une seule requête batch pour toutes les colonnes (pas N+1)"""
         mock_conn = MagicMock()
@@ -193,7 +193,7 @@ class TestViewSwitcherSwitch:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         result = switcher.switch_views_to_schema('splus_blue')
@@ -206,7 +206,7 @@ class TestViewSwitcherSwitch:
 class TestViewSwitcherDropCreate:
     """Tests pour le pattern DROP+CREATE"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_switch_uses_drop_create_not_replace(self, mock_create_hook):
         """Vérifie que le switch utilise DROP+CREATE (2 appels par table)"""
         mock_conn = MagicMock()
@@ -222,7 +222,7 @@ class TestViewSwitcherDropCreate:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=_NO_CUSTOM_VIEWS)
         switcher.switch_views_to_schema('splus_green')
@@ -255,7 +255,7 @@ class TestViewSwitcherDropCreate:
 class TestViewSwitcherGetViewColumns:
     """Tests pour _get_view_columns"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_view_columns_excludes_meta(self, mock_create_hook):
         """Exclut _source et _imported_at"""
         mock_postgres_hook = MagicMock()
@@ -264,7 +264,7 @@ class TestViewSwitcherGetViewColumns:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         cols = switcher._get_view_columns('csks', 'splus_blue')
@@ -276,7 +276,7 @@ class TestViewSwitcherGetViewColumns:
         assert '_source' in query
         assert '_imported_at' in query
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_all_view_columns_returns_dict(self, mock_create_hook):
         """_get_all_view_columns retourne un dict keyed par table_name"""
         mock_postgres_hook = MagicMock()
@@ -287,7 +287,7 @@ class TestViewSwitcherGetViewColumns:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher._get_all_view_columns(['csks', 'prps'], 'splus_blue')
@@ -299,14 +299,14 @@ class TestViewSwitcherGetViewColumns:
         assert '_source' in query
         assert '_imported_at' in query
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_view_columns_empty(self, mock_create_hook):
         """Retourne liste vide si pas de colonnes"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         cols = switcher._get_view_columns('csks', 'splus_blue')
@@ -317,7 +317,7 @@ class TestViewSwitcherGetViewColumns:
 class TestViewSwitcherVerify:
     """Tests pour la vérification des vues"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_verify_views_point_to_correct(self, mock_create_hook):
         """Vérifie que les vues pointent vers le bon schéma"""
         mock_postgres_hook = MagicMock()
@@ -327,14 +327,14 @@ class TestViewSwitcherVerify:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.verify_views_point_to('splus_blue')
 
         assert result is True
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_verify_views_point_to_wrong(self, mock_create_hook):
         """Détecte les vues pointant vers le mauvais schéma"""
         mock_postgres_hook = MagicMock()
@@ -343,21 +343,21 @@ class TestViewSwitcherVerify:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.verify_views_point_to('splus_blue')
 
         assert result is False
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_verify_views_empty(self, mock_create_hook):
         """Retourne True si pas de vues"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.verify_views_point_to('splus_blue')
@@ -368,7 +368,7 @@ class TestViewSwitcherVerify:
 class TestViewSwitcherCreateView:
     """Tests pour la création de vues individuelles"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_create_view_for_table_success(self, mock_create_hook):
         """Crée une vue avec succès (DROP + CREATE) sans _source ni _imported_at"""
         mock_conn = MagicMock()
@@ -381,7 +381,7 @@ class TestViewSwitcherCreateView:
         mock_postgres_hook.get_records.return_value = [('bukrs',), ('kostl',), ('datbi',)]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.create_view_for_table('csks', 'splus_blue')
@@ -391,7 +391,7 @@ class TestViewSwitcherCreateView:
         assert mock_cursor.execute.call_count == 2
         mock_conn.commit.assert_called_once()
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_create_view_for_table_no_commit(self, mock_create_hook):
         """Crée une vue sans commit (DROP + CREATE)"""
         mock_conn = MagicMock()
@@ -404,7 +404,7 @@ class TestViewSwitcherCreateView:
         mock_postgres_hook.get_records.return_value = [('bukrs',), ('kostl',)]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.create_view_for_table('csks', 'splus_blue', commit=False)
@@ -414,7 +414,7 @@ class TestViewSwitcherCreateView:
         assert mock_cursor.execute.call_count == 2
         mock_conn.commit.assert_not_called()
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_create_view_fallback_select_star_when_no_columns(self, mock_create_hook):
         """Fallback SELECT * si aucune colonne trouvée"""
         mock_conn = MagicMock()
@@ -427,7 +427,7 @@ class TestViewSwitcherCreateView:
         mock_postgres_hook.get_records.return_value = []  # Aucune colonne
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.create_view_for_table('csks', 'splus_blue')
@@ -443,7 +443,7 @@ class TestViewSwitcherCustomViews:
         """Si le dossier n'existe pas, _load_custom_view_sqls retourne liste vide"""
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(
             postgres_hook=mock_postgres_hook,
@@ -464,7 +464,7 @@ class TestViewSwitcherCustomViews:
 
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(postgres_hook=mock_postgres_hook, custom_views_dir=tmp_path)
         sqls = switcher._load_custom_view_sqls("splus_green")
@@ -482,7 +482,7 @@ class TestViewSwitcherCustomViews:
 
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(postgres_hook=mock_postgres_hook, custom_views_dir=tmp_path)
         sqls = switcher._load_custom_view_sqls("splus_blue")
@@ -492,7 +492,7 @@ class TestViewSwitcherCustomViews:
         assert "SELECT 2" in sqls[1]
         assert "SELECT 3" in sqls[2]
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_custom_views_applied_individually(self, mock_create_hook, tmp_path):
         """Les vues custom sont exécutées une à une avec leur propre commit (best-effort)"""
         sql_file = tmp_path / "01_custom.sql"
@@ -516,7 +516,7 @@ class TestViewSwitcherCustomViews:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=tmp_path)
         result = switcher.switch_views_to_schema('splus_green')
@@ -527,7 +527,7 @@ class TestViewSwitcherCustomViews:
         # 2 commits : 1 pour les vues standard, 1 pour la vue custom (best-effort)
         assert mock_conn.commit.call_count == 2
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_custom_views_dir_empty_no_extra_calls(self, mock_create_hook, tmp_path):
         """Un dossier custom_views vide ne génère pas d'appels cursor supplémentaires"""
         mock_conn = MagicMock()
@@ -543,7 +543,7 @@ class TestViewSwitcherCustomViews:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher(custom_views_dir=tmp_path)  # dossier vide
         result = switcher.switch_views_to_schema('splus_green')
@@ -556,42 +556,42 @@ class TestViewSwitcherCustomViews:
 class TestViewSwitcherCurrentTarget:
     """Tests pour la détection du schéma cible actuel"""
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_current_target_schema_blue(self, mock_create_hook):
         """Détecte splus_blue comme schéma cible"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = ('SELECT * FROM splus_blue.csks',)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.get_current_target_schema()
 
         assert result == 'splus_blue'
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_current_target_schema_green(self, mock_create_hook):
         """Détecte splus_green comme schéma cible"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = ('SELECT * FROM splus_green.csks',)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.get_current_target_schema()
 
         assert result == 'splus_green'
 
-    @patch('amue.services.bluegreen.view_switcher.create_postgres_hook')
+    @patch('common.services.bluegreen.view_switcher.create_postgres_hook')
     def test_get_current_target_schema_none(self, mock_create_hook):
         """Retourne None si pas de vues"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = None
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.view_switcher import ViewSwitcher
+        from common.services.bluegreen.view_switcher import ViewSwitcher
 
         switcher = ViewSwitcher()
         result = switcher.get_current_target_schema()

@@ -8,26 +8,26 @@ from unittest.mock import MagicMock, patch
 class TestSchemaSynchronizerInit:
     """Tests pour l'initialisation de SchemaSynchronizer"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_init_default_hook(self, mock_create_hook, mock_bg_manager):
         """Utilise le hook par défaut si non fourni"""
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
 
         assert sync.postgres_hook == mock_postgres_hook
         mock_create_hook.assert_called_once_with(schema='public')
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
     def test_init_custom_hook(self, mock_bg_manager):
         """Utilise le hook personnalisé si fourni"""
         mock_postgres_hook = MagicMock()
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer(postgres_hook=mock_postgres_hook)
 
@@ -37,8 +37,8 @@ class TestSchemaSynchronizerInit:
 class TestSchemaSynchronizerGetTables:
     """Tests pour la récupération des tables"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_get_tables_to_sync(self, mock_create_hook, mock_bg_manager):
         """Liste les tables à synchroniser"""
         mock_postgres_hook = MagicMock()
@@ -49,22 +49,22 @@ class TestSchemaSynchronizerGetTables:
         ]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         tables = sync.get_tables_to_sync('splus_blue')
 
         assert tables == ['csks', 'prps', 'fmbl']
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_get_tables_to_sync_empty(self, mock_create_hook, mock_bg_manager):
         """Retourne liste vide si pas de tables"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         tables = sync.get_tables_to_sync('splus_blue')
@@ -75,8 +75,8 @@ class TestSchemaSynchronizerGetTables:
 class TestSchemaSynchronizerSyncTable:
     """Tests pour la synchronisation d'une table"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_table_success(self, mock_create_hook, mock_bg_manager):
         """Synchronise une table avec succès (TRUNCATE + INSERT)"""
         mock_conn = MagicMock()
@@ -89,7 +89,7 @@ class TestSchemaSynchronizerSyncTable:
         mock_postgres_hook.get_first.return_value = (True,)  # Tables existent
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_table('csks', 'splus_blue', 'splus_green')
@@ -102,15 +102,15 @@ class TestSchemaSynchronizerSyncTable:
         # TRUNCATE + INSERT = 2 executes
         assert mock_cursor.execute.call_count == 2
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_table_source_missing(self, mock_create_hook, mock_bg_manager):
         """Skip si table source manquante"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (False,)  # Source manquante
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_table('csks', 'splus_blue', 'splus_green')
@@ -118,8 +118,8 @@ class TestSchemaSynchronizerSyncTable:
         assert result['status'] == 'skipped'
         assert 'source' in result['error'].lower()
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_table_target_missing_creates_table(self, mock_create_hook, mock_bg_manager):
         """Crée la table cible si elle n'existe pas, puis INSERT"""
         mock_conn = MagicMock()
@@ -133,7 +133,7 @@ class TestSchemaSynchronizerSyncTable:
         mock_postgres_hook.get_first.side_effect = [(True,), (False,)]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_table('csks', 'splus_blue', 'splus_green')
@@ -145,8 +145,8 @@ class TestSchemaSynchronizerSyncTable:
         # CREATE TABLE + INSERT = 2 executes (pas de TRUNCATE)
         assert mock_cursor.execute.call_count == 2
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_table_error_rollback(self, mock_create_hook, mock_bg_manager):
         """Rollback en cas d'erreur"""
         mock_conn = MagicMock()
@@ -159,7 +159,7 @@ class TestSchemaSynchronizerSyncTable:
         mock_postgres_hook.get_first.return_value = (True,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_table('csks', 'splus_blue', 'splus_green')
@@ -172,8 +172,8 @@ class TestSchemaSynchronizerSyncTable:
 class TestSchemaSynchronizerSyncSchemas:
     """Tests pour la synchronisation complète"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_schemas_all_success(self, mock_create_hook, mock_bg_manager):
         """Synchronise tous les schémas avec succès"""
         mock_conn = MagicMock()
@@ -187,7 +187,7 @@ class TestSchemaSynchronizerSyncSchemas:
         mock_postgres_hook.get_first.return_value = (True,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_schemas('splus_blue', 'splus_green')
@@ -198,8 +198,8 @@ class TestSchemaSynchronizerSyncSchemas:
         assert result['tables_failed'] == 0
         assert result['total_rows_copied'] == 100
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_schemas_with_created_tables(self, mock_create_hook, mock_bg_manager):
         """tables_created incrémenté quand une table est créée"""
         mock_conn = MagicMock()
@@ -214,7 +214,7 @@ class TestSchemaSynchronizerSyncSchemas:
         mock_postgres_hook.get_first.side_effect = [(True,), (False,)]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_schemas('splus_blue', 'splus_green')
@@ -223,8 +223,8 @@ class TestSchemaSynchronizerSyncSchemas:
         assert result['tables_synced'] == 1
         assert result['tables_created'] == 1
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_schemas_partial(self, mock_create_hook, mock_bg_manager):
         """Statut partial si certaines tables échouent"""
         mock_conn = MagicMock()
@@ -247,7 +247,7 @@ class TestSchemaSynchronizerSyncSchemas:
         mock_postgres_hook.get_first.return_value = (True,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_schemas('splus_blue', 'splus_green')
@@ -256,15 +256,15 @@ class TestSchemaSynchronizerSyncSchemas:
         assert result['tables_synced'] == 1
         assert result['tables_failed'] == 1
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_schemas_empty(self, mock_create_hook, mock_bg_manager):
         """Retourne success si pas de tables"""
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = []
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_schemas('splus_blue', 'splus_green')
@@ -276,8 +276,8 @@ class TestSchemaSynchronizerSyncSchemas:
 class TestSchemaSynchronizerActiveToTarget:
     """Tests pour sync_active_to_target"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_sync_active_to_target_success(self, mock_create_hook, mock_bg_manager):
         """Sync automatique avec succès"""
         mock_manager = MagicMock()
@@ -296,7 +296,7 @@ class TestSchemaSynchronizerActiveToTarget:
         mock_postgres_hook.get_first.return_value = (True,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.sync_active_to_target()
@@ -308,8 +308,8 @@ class TestSchemaSynchronizerActiveToTarget:
 class TestSchemaSynchronizerCompare:
     """Tests pour la comparaison des schémas"""
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_compare_row_counts_identical(self, mock_create_hook, mock_bg_manager):
         """Schémas identiques"""
         mock_postgres_hook = MagicMock()
@@ -318,7 +318,7 @@ class TestSchemaSynchronizerCompare:
         mock_postgres_hook.get_first.return_value = (100,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.compare_row_counts('splus_blue', 'splus_green')
@@ -326,8 +326,8 @@ class TestSchemaSynchronizerCompare:
         assert result['identical'] is True
         assert len(result['differences']) == 0
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_compare_row_counts_different(self, mock_create_hook, mock_bg_manager):
         """Schémas différents"""
         mock_postgres_hook = MagicMock()
@@ -336,7 +336,7 @@ class TestSchemaSynchronizerCompare:
         mock_postgres_hook.get_first.side_effect = [(100,), (95,)]
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         result = sync.compare_row_counts('splus_blue', 'splus_green')
@@ -344,8 +344,8 @@ class TestSchemaSynchronizerCompare:
         assert result['identical'] is False
         assert len(result['differences']) == 1
 
-    @patch('amue.services.bluegreen.schema_synchronizer.BlueGreenManager')
-    @patch('amue.services.bluegreen.schema_synchronizer.create_postgres_hook')
+    @patch('common.services.bluegreen.schema_synchronizer.BlueGreenManager')
+    @patch('common.services.bluegreen.schema_synchronizer.create_postgres_hook')
     def test_get_row_count_uses_identifier(self, mock_create_hook, mock_bg_manager):
         """_get_row_count passe un objet sql.Composed à get_first (pas une f-string)"""
         from psycopg2 import sql as pgsql
@@ -354,7 +354,7 @@ class TestSchemaSynchronizerCompare:
         mock_postgres_hook.get_first.return_value = (42,)
         mock_create_hook.return_value = mock_postgres_hook
 
-        from amue.services.bluegreen.schema_synchronizer import SchemaSynchronizer
+        from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
 
         sync = SchemaSynchronizer()
         count = sync._get_row_count('csks', 'splus_blue')

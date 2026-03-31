@@ -106,3 +106,14 @@ CREATE VIEW splus.v_bs_z_udl_read_pfis AS
                 OR (t1.modified_on >= '20250303'::bpchar)
             )
         );
+
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.measure IS 'Programme de financement';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.valid_from IS 'FM : date début de validité';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.valid_to IS 'FM : date val. jusq.';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.short_desc IS 'Désignation';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.description IS 'Description';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.fp_type IS 'Type de programme de financement';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.rfundsctr IS 'Centre financier';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.created_on IS 'FIFM : date de saisie';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.modified_on IS 'FIFM : date modification';
+COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.zfleche IS 'Programme de financement fléché';
