@@ -18,7 +18,7 @@ POURQUOI CE WRAPPER ?
 USAGE
 ================================================================================
 
-    from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+    from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
     # Lecture
     value = VarMgr.get('my_variable', default='fallback')

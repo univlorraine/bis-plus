@@ -22,7 +22,7 @@ class TestMetadataManagerInit:
 class TestMetadataManagerUpdateMetadata:
     """Tests pour update_metadata"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_success(self, mock_admin_cls):
         """Mise à jour réussie — sauvegarde atomique des timestamps"""
         mock_admin = MagicMock()
@@ -47,7 +47,7 @@ class TestMetadataManagerUpdateMetadata:
         # Vérifie que l'UPDATE atomique est appelé
         mock_admin.update_import_timestamps.assert_called_once()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_empty_results(self, mock_admin_cls):
         """Résultats vides — timestamps toujours sauvegardés"""
         mock_admin = MagicMock()
@@ -63,7 +63,7 @@ class TestMetadataManagerUpdateMetadata:
         mock_admin.update_import_timestamps.assert_called_once()
 
     @patch('amue.services.metadata_manager.time.sleep')
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_retry_on_error(self, mock_admin_cls, mock_sleep):
         """Retry en cas d'erreur de sauvegarde"""
         mock_admin = MagicMock()
@@ -81,7 +81,7 @@ class TestMetadataManagerUpdateMetadata:
         assert mock_sleep.called
 
     @patch('amue.services.metadata_manager.time.sleep')
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_fail_after_retries(self, mock_admin_cls, mock_sleep):
         """Échec après tous les retries"""
         from airflow.exceptions import AirflowException
@@ -97,7 +97,7 @@ class TestMetadataManagerUpdateMetadata:
         with pytest.raises(AirflowException, match="Impossible de sauvegarder"):
             manager.update_metadata([])
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_saves_report_start(self, mock_admin_cls):
         """update_metadata sauvegarde le report_start via update_import_timestamps"""
         mock_admin = MagicMock()
@@ -116,7 +116,7 @@ class TestMetadataManagerUpdateMetadata:
 class TestMetadataManagerGetLastSuccess:
     """Tests pour get_last_success_date"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_get_last_success_date_valid(self, mock_admin_cls):
         """Récupère une date valide"""
         mock_admin = MagicMock()
@@ -133,7 +133,7 @@ class TestMetadataManagerGetLastSuccess:
         assert result.month == 1
         assert result.day == 15
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_get_last_success_date_empty(self, mock_admin_cls):
         """Retourne None si vide"""
         mock_admin = MagicMock()
@@ -147,7 +147,7 @@ class TestMetadataManagerGetLastSuccess:
 
         assert result is None
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_get_last_success_date_invalid(self, mock_admin_cls):
         """Retourne None si date invalide"""
         mock_admin = MagicMock()
@@ -255,7 +255,7 @@ class TestMetadataManagerResetTable:
 class TestMetadataManagerFinishTimestamp:
     """Tests pour la sauvegarde du finish timestamp"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_update_metadata_with_finish_timestamp(self, mock_admin_cls):
         """update_metadata transmet le finish_timestamp à update_import_timestamps"""
         mock_admin = MagicMock()

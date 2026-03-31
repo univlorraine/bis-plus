@@ -75,7 +75,7 @@ class TestAMUEAPISensor:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.sensors.amue_api_sensor.AMUEStatusChecker')
     @patch('amue.sensors.amue_api_sensor.AMUEAPIHook')
     def test_poke_returns_false_when_same_finish(self, mock_hook_cls, mock_checker_cls, mock_admin_cls):

@@ -26,7 +26,7 @@ class TestEmailConfig:
         assert config.password is None
         assert config.timeout == 30
 
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_email_config_from_airflow(self, mock_varmgr):
         """Charge la config depuis Airflow"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
@@ -87,7 +87,7 @@ class TestEmail:
 class TestEmailService:
     """Tests pour EmailService"""
 
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_init_default_config(self, mock_varmgr):
         """Initialisation avec config par defaut"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
@@ -114,7 +114,7 @@ class TestEmailService:
         assert service.config.host == 'custom.smtp.com'
 
     @patch('common.notifications.email_service.smtplib.SMTP')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_send_success(self, mock_varmgr, mock_smtp):
         """Envoi reussi"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
@@ -136,7 +136,7 @@ class TestEmailService:
         mock_server.sendmail.assert_called_once()
 
     @patch('common.notifications.email_service.smtplib.SMTP')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_send_failure(self, mock_varmgr, mock_smtp):
         """Envoi echoue retourne False"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
@@ -155,7 +155,7 @@ class TestEmailService:
 
         assert result is False
 
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_message(self, mock_varmgr):
         """Construction du message MIME"""
         mock_varmgr.get.side_effect = lambda key, default=None: default
@@ -182,7 +182,7 @@ class TestNotificationService:
     """Tests pour NotificationService (nouvelle architecture)"""
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_init(self, mock_email_varmgr, mock_notifier_varmgr):
         """Initialisation du service"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
@@ -198,7 +198,7 @@ class TestNotificationService:
         assert 'admin@example.com' in service.recipients
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_load_recipients(self, mock_email_varmgr, mock_notifier_varmgr):
         """Charge les destinataires"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: {
@@ -215,7 +215,7 @@ class TestNotificationService:
         assert 'user2@test.com' in service.recipients
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     @patch('common.notifications.email_service.smtplib.SMTP')
     def test_notify_error(self, mock_smtp, mock_email_varmgr, mock_notifier_varmgr):
         """Envoi notification d'erreur"""
@@ -244,7 +244,7 @@ class TestNotificationService:
         mock_server.sendmail.assert_called_once()
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_error_context(self, mock_email_varmgr, mock_notifier_varmgr):
         """Construction du contexte d'erreur"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: default
@@ -270,7 +270,7 @@ class TestNotificationService:
         assert context['status'] == 'failed'
 
     @patch('amue.notifications.notifier.VarMgr')
-    @patch('amue.utils.config.airflow_helpers.AirflowVariableManager')
+    @patch('common.utils.config.airflow_helpers.AirflowVariableManager')
     def test_build_error_subject(self, mock_email_varmgr, mock_notifier_varmgr):
         """Construction du sujet d'erreur"""
         mock_notifier_varmgr.get.side_effect = lambda key, default=None: default
@@ -377,7 +377,7 @@ class TestSendFailureNotification:
 
         mock_service.notify_error.assert_called_once()
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     @patch('amue.notifications.notifier.NotificationService')
     def test_send_failure_notification_no_exception(self, mock_service_class, MockBGM):
         """Callback sans exception (niveau DAG) — notification générique envoyée quand même."""
@@ -397,7 +397,7 @@ class TestSendFailureNotification:
 
         mock_service.notify_error.assert_called_once()
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_dag_failure_rollback_releases_bluegreen_lock(self, mock_bg_class):
         """dag_failure_rollback libere le verrou blue/green si actif et import en cours"""
         mock_manager = MagicMock()
@@ -415,7 +415,7 @@ class TestSendFailureNotification:
 
         mock_manager.release_import_lock.assert_called_once_with(mark_completed=False)
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     @patch('amue.notifications.notifier.NotificationService')
     def test_send_failure_no_release_when_no_import_in_progress(self, mock_service_class, mock_bg_class):
         """Callback ne libere pas le verrou si aucun import en cours"""

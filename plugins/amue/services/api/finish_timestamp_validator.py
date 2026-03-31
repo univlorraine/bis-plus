@@ -103,7 +103,7 @@ class FinishTimestampValidator:
             logger.warning("[POLLING] Finish invalide - import exécuté par précaution")
             return False
 
-        from amue.services.admin_state_manager import AdminStateManager
+        from common.services.admin_state_manager import AdminStateManager
         stored_finish = AdminStateManager().get_last_finish_timestamp() or ''
 
         if not stored_finish or not stored_finish.strip():

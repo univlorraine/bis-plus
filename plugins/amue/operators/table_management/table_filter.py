@@ -392,7 +392,7 @@ class AMUETableFilter:
 
     def _load_last_report_start(self) -> str:
         """Charge le timestamp de début du dernier rapport depuis AdminStateManager."""
-        from amue.services.admin_state_manager import AdminStateManager
+        from common.services.admin_state_manager import AdminStateManager
         try:
             ts = AdminStateManager().get_last_report_start()
             return ts or ''

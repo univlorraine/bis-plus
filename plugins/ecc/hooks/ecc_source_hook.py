@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Iterator, List, Tuple
 
-from amue.utils.config.airflow_helpers import get_airflow_connection
+from common.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ from airflow.sdk import task
 from amue.exceptions import AMUEDataError
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.operators.pipeline.data_importer import AMUEDataImporter
-from amue.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import create_postgres_hook
 from common.logging_context import set_correlation_id
 
 logger = logging.getLogger(__name__)

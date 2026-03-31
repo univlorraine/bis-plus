@@ -38,11 +38,11 @@ from amue.exceptions import (
     AMUEBatchError,
 )
 from amue.operators.pipeline.data_streamer import AMUEDataStreamer
-from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+from common.operators.batch_inserter import AMUEBatchInserter
 from amue.operators.pipeline.import_config_validator import ImportConfigValidator
 from amue.operators.pipeline.data_import_pipeline import DataImportPipeline
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.database.hooks import create_postgres_hook
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.database.hooks import create_postgres_hook
 from amue.utils.tracing import generate_correlation_id, TracingContext
 from amue.types_amue import ImportResult, ImportConfig
 

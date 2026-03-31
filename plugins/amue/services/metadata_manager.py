@@ -118,7 +118,7 @@ class AMUEMetadataManager:
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                from amue.services.admin_state_manager import AdminStateManager
+                from common.services.admin_state_manager import AdminStateManager
                 AdminStateManager().update_import_timestamps(
                     finish_timestamp=finish_timestamp or None,
                     report_start=report_start or None,
@@ -148,7 +148,7 @@ class AMUEMetadataManager:
         Returns:
             Date du dernier succès ou None si jamais exécuté
         """
-        from amue.services.admin_state_manager import AdminStateManager
+        from common.services.admin_state_manager import AdminStateManager
         try:
             last_success_str = AdminStateManager().get_last_successful_run()
             if last_success_str:

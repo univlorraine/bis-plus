@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 import requests
 
-from amue.services.retry_service import (
+from common.services.retry_service import (
     RetryService,
     RetryConfig,
     RetryStrategy,

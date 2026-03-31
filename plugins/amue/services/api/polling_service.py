@@ -41,7 +41,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from airflow.exceptions import AirflowException
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
 from amue.services.api.polling_strategy_calculator import PollingStrategyCalculator
 

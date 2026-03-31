@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 
 from psycopg2.extras import execute_values
 
-from amue.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import create_postgres_hook
 
 logger = logging.getLogger(__name__)
 

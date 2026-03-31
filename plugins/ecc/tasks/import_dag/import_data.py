@@ -6,9 +6,9 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
+from common.operators.batch_inserter import AMUEBatchInserter
 from amue.operators.table_management.table_manager import AMUETableManager
-from amue.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import create_postgres_hook
 from ecc.hooks.ecc_source_hook import ECCSourceHook
 from ecc.utils.config.settings import get_ecc_batch_size
 

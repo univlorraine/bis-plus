@@ -37,7 +37,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag
 
 from amue import send_failure_notification
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.tasks.sync_dag import init_sync, run_sync, send_sync_report
 
 

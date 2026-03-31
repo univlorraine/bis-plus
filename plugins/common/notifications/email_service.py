@@ -88,7 +88,7 @@ class EmailConfig:
     def from_airflow_variables(cls) -> 'EmailConfig':
         """Charge la configuration depuis les variables Airflow"""
         # Import local pour éviter les imports circulaires (common → amue → common)
-        from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+        from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
         return cls(
             host=VarMgr.get('smtp_host', default='mailhog'),
             port=int(VarMgr.get('smtp_port', default='1025')),

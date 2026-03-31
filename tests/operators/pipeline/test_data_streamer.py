@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch, MagicMock
 from airflow.exceptions import AirflowException
 
 from amue.operators.pipeline.data_streamer import AMUEDataStreamer
-from amue.services.retry_service import ErrorCategory, RetryResult
+from common.services.retry_service import ErrorCategory, RetryResult
 
 
 class TestAMUEDataStreamerInit:

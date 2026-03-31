@@ -83,8 +83,8 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from amue.services.retry_service import get_retry_service, ErrorCategory
-from amue.utils.config.airflow_helpers import get_airflow_connection
+from common.services.retry_service import get_retry_service, ErrorCategory
+from common.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 

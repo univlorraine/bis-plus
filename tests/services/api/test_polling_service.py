@@ -245,7 +245,7 @@ class TestPollingServiceElapsedTime:
 class TestPollingServiceWaitForReady:
     """Tests pour wait_for_ready (utilise fetch_full_status)"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_immediate_success(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -284,7 +284,7 @@ class TestPollingServiceWaitForReady:
         # Un seul appel à fetch_full_status (au lieu de 2 appels séparés)
         mock_status_checker.fetch_full_status.assert_called_once()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_after_retries(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -320,7 +320,7 @@ class TestPollingServiceWaitForReady:
         # 3 appels à fetch_full_status (un par tentative)
         assert mock_status_checker.fetch_full_status.call_count == 3
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_critical_error(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -349,7 +349,7 @@ class TestPollingServiceWaitForReady:
         with pytest.raises(AirflowException, match="Code HTTP critique 401"):
             service.wait_for_ready()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_timeout(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -438,7 +438,7 @@ class TestPollingResult:
 class TestPollingServiceSkipImport:
     """Tests pour la détection de skip (même timestamp finish)"""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_skip_import_same_timestamp(self, mock_varmgr, mock_admin_cls):
         """Skip si même timestamp finish"""
@@ -461,7 +461,7 @@ class TestPollingServiceSkipImport:
 
         assert service._should_skip_import('2024-01-15T10:00:00') is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_not_skip_import_greater_timestamp(self, mock_varmgr, mock_admin_cls):
         """Ne skip pas si timestamp strictement supérieur (nouvelles données)"""
@@ -484,7 +484,7 @@ class TestPollingServiceSkipImport:
 
         assert service._should_skip_import('2024-01-16T10:00:00') is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_skip_import_inferior_timestamp(self, mock_varmgr, mock_admin_cls):
         """Skip si timestamp inférieur au précédent (cas anormal)"""
@@ -508,7 +508,7 @@ class TestPollingServiceSkipImport:
         # Timestamp antérieur → cas anormal, doit être ignoré
         assert service._should_skip_import('2024-01-14T10:00:00') is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_not_skip_import_no_previous(self, mock_varmgr, mock_admin_cls):
         """Ne skip pas si pas de timestamp précédent (première exécution)"""
@@ -531,7 +531,7 @@ class TestPollingServiceSkipImport:
 
         assert service._should_skip_import('2024-01-15T10:00:00') is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_not_skip_import_force_enabled(self, mock_varmgr, mock_admin_cls):
         """Ne skip jamais si force_import activé"""
@@ -582,7 +582,7 @@ class TestPollingServiceSkipImport:
         assert service._validate_finish_timestamp('none') is False
         assert service._validate_finish_timestamp('0') is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     def test_should_not_skip_import_invalid_timestamp(self, mock_varmgr, mock_admin_cls):
         """Ne skip pas si timestamp actuel invalide (sécurité)"""
@@ -607,7 +607,7 @@ class TestPollingServiceSkipImport:
         assert service._should_skip_import('') is False
         assert service._should_skip_import('null') is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_continues_polling_same_timestamp(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -640,7 +640,7 @@ class TestPollingServiceSkipImport:
         with pytest.raises(AirflowException, match="Timeout"):
             service.wait_for_ready()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.api.polling_service.VarMgr')
     @patch('amue.services.api.polling_service.time.sleep')
     def test_wait_for_ready_first_execution(self, mock_sleep, mock_varmgr, mock_admin_cls):
@@ -749,7 +749,7 @@ class TestFinishTimestampValidatorNormalize:
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
         assert FinishTimestampValidator._normalize_ts('') == ''
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_detects_same_timestamp_despite_format_mismatch(self, mock_admin_cls):
         """
         Régression : API retourne espace, DB retourne T — doit quand même détecter INCHANGÉ.
@@ -769,7 +769,7 @@ class TestFinishTimestampValidatorNormalize:
 
         assert result is True, "Même timestamp (format différent) doit déclencher le skip"
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_not_skip_newer_timestamp_despite_format_mismatch(self, mock_admin_cls):
         """Timestamp plus récent côté API → import doit être lancé, quel que soit le format."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator

@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 from psycopg2 import sql
 
-from amue.utils.database.schema_utils import (
+from common.utils.database.schema_utils import (
     SchemaQualifier,
     list_tables,
     list_views,

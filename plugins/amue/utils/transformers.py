@@ -105,7 +105,7 @@ import re
 import threading
 from typing import Any, List, Dict
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

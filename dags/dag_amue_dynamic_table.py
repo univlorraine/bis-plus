@@ -71,7 +71,7 @@ from airflow.sdk import dag
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
 from amue import send_failure_notification, dag_failure_rollback
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.utils.config.settings import Defaults
 from amue.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (

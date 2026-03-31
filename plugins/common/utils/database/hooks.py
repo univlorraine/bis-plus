@@ -47,13 +47,13 @@ USAGE
 ================================================================================
 
     # Factory (nouvelle instance à chaque appel)
-    from amue.utils.database.hooks import create_postgres_hook, create_api_hook
+    from common.utils.database.hooks import create_postgres_hook, create_api_hook
 
     pg_hook = create_postgres_hook()
     api_hook = create_api_hook()
 
     # Singleton (même instance réutilisée)
-    from amue.utils.database.hooks import HookManager
+    from common.utils.database.hooks import HookManager
 
     manager = HookManager()
     pg_hook = manager.postgres_hook

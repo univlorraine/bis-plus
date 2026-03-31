@@ -8,7 +8,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager
+from common.utils.config.airflow_helpers import AirflowVariableManager
 
 
 class TestAirflowVariableManagerGet:

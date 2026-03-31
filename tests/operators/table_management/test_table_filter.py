@@ -25,7 +25,7 @@ class TestTableFilterInit:
         assert filter_obj._last_report_start == ''
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_init_load_config(self, mock_tcm_cls, mock_admin_cls):
         """Initialisation charge la config et last_report_start depuis la BDD"""
@@ -386,7 +386,7 @@ class TestTableFilterLoadConfig:
     """Tests pour _load_config"""
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_load_config_from_db(self, mock_tcm_cls, mock_admin_cls):
         """Charge une configuration depuis la BDD"""
@@ -409,7 +409,7 @@ class TestTableFilterLoadConfig:
         assert filter_obj.tables_config[0]['table_name'] == 'CSKS'
 
     @patch('amue.operators.table_management.table_filter.NotificationService', None)
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_load_config_empty(self, mock_tcm_cls, mock_admin_cls):
         """Config vide lève ValueError (aucune table configurée)"""

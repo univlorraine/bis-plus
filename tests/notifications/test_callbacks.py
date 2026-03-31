@@ -114,7 +114,7 @@ class TestSendFailureNotification:
         # Ne doit pas lever
         send_failure_notification(ctx)
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     @patch('amue.notifications.notifier.NotificationService')
     def test_does_not_call_bluegreen_manager(self, MockNS, MockBGM):
         """send_failure_notification ne touche pas au blue/green (rollback délégué à dag_failure_rollback)."""
@@ -131,7 +131,7 @@ class TestSendFailureNotification:
 class TestDagFailureRollback:
     """Tests pour dag_failure_rollback (callback niveau DAG — rollback blue/green uniquement)."""
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_releases_bluegreen_lock_when_in_progress(self, MockBGM):
         """Le verrou blue/green est libéré si un import est en cours."""
         from amue.notifications.callbacks import dag_failure_rollback
@@ -143,7 +143,7 @@ class TestDagFailureRollback:
 
         MockBGM.return_value.release_import_lock.assert_called_once_with(mark_completed=False)
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_renames_target_schema_to_offline_on_failure(self, MockBGM):
         """Le schéma cible est renommé en _offline après libération du verrou."""
         from amue.notifications.callbacks import dag_failure_rollback
@@ -155,7 +155,7 @@ class TestDagFailureRollback:
 
         MockBGM.return_value.rename_schema_to_offline.assert_called_once_with('splus_green')
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_rename_called_even_when_not_in_progress(self, MockBGM):
         """rename_schema_to_offline est toujours appelé (idempotent), même sans verrou actif."""
         from amue.notifications.callbacks import dag_failure_rollback
@@ -168,7 +168,7 @@ class TestDagFailureRollback:
         MockBGM.return_value.rename_schema_to_offline.assert_called_once_with('splus_green')
         MockBGM.return_value.release_import_lock.assert_not_called()
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_no_lock_release_when_not_in_progress(self, MockBGM):
         """Pas de libération de verrou si aucun import en cours."""
         from amue.notifications.callbacks import dag_failure_rollback
@@ -179,7 +179,7 @@ class TestDagFailureRollback:
 
         MockBGM.return_value.release_import_lock.assert_not_called()
 
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_does_not_raise_on_lock_release_failure(self, MockBGM):
         """Exception lors de la libération du verrou est swallowée."""
         from amue.notifications.callbacks import dag_failure_rollback
@@ -190,7 +190,7 @@ class TestDagFailureRollback:
         dag_failure_rollback(make_context())
 
     @patch('amue.notifications.notifier.NotificationService')
-    @patch('amue.services.bluegreen.bluegreen_manager.BlueGreenManager')
+    @patch('common.services.bluegreen.bluegreen_manager.BlueGreenManager')
     def test_does_not_send_email(self, MockBGM, MockNS):
         """dag_failure_rollback n'envoie pas d'email (c'est le rôle de send_failure_notification)."""
         from amue.notifications.callbacks import dag_failure_rollback

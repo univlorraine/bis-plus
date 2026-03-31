@@ -11,7 +11,7 @@ def _make_mock_conn(closed=False):
 
 
 def _make_manager(conn=None):
-    from amue.utils.database.connection_manager import PostgresConnectionManager
+    from common.utils.database.connection_manager import PostgresConnectionManager
     hook = MagicMock()
     if conn is not None:
         hook.get_conn.return_value = conn
@@ -49,7 +49,7 @@ class TestGetConnection:
         assert hook.get_conn.call_count == 2
 
     def test_raises_when_hook_is_none(self):
-        from amue.utils.database.connection_manager import PostgresConnectionManager
+        from common.utils.database.connection_manager import PostgresConnectionManager
         from airflow.exceptions import AirflowException
         manager = PostgresConnectionManager(postgres_hook=None)
         with pytest.raises(AirflowException):

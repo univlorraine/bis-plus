@@ -57,7 +57,7 @@ from string import Template
 from typing import Dict, List
 
 from airflow.exceptions import AirflowException
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

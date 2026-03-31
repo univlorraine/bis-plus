@@ -4,8 +4,8 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-from amue.services.bluegreen.view_switcher import ViewSwitcher
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.services.bluegreen.view_switcher import ViewSwitcher
 
 logger = logging.getLogger(__name__)
 

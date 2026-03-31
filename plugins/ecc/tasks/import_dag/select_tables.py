@@ -5,8 +5,8 @@ from typing import List, Dict
 
 from airflow.sdk import task
 
-from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
-from amue.utils.database.hooks import create_postgres_hook
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.utils.database.hooks import create_postgres_hook
 from ecc.utils.config.settings import ECCDefaults
 
 logger = logging.getLogger(__name__)

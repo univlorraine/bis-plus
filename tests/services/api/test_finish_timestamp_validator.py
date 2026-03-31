@@ -131,7 +131,7 @@ class TestFinishTimestampValidatorNormalizeTs:
 class TestFinishTimestampValidatorShouldSkip:
     """Tests pour should_skip()."""
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_false_on_first_execution(self, MockAdmin):
         """Retourne False (import exécuté) si aucun timestamp stocké."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -143,7 +143,7 @@ class TestFinishTimestampValidatorShouldSkip:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_false_when_new_timestamp(self, MockAdmin):
         """Retourne False si le timestamp actuel est supérieur au stocké."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -155,7 +155,7 @@ class TestFinishTimestampValidatorShouldSkip:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_true_when_same_timestamp(self, MockAdmin):
         """Retourne True si le timestamp est identique au stocké."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -167,7 +167,7 @@ class TestFinishTimestampValidatorShouldSkip:
 
         assert result is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_true_when_older_timestamp(self, MockAdmin):
         """Retourne True si le timestamp actuel est inférieur au stocké (cas anormal)."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -179,7 +179,7 @@ class TestFinishTimestampValidatorShouldSkip:
 
         assert result is True
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_false_when_invalid_finish(self, MockAdmin):
         """Retourne False (import exécuté par précaution) si le finish est invalide."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -193,7 +193,7 @@ class TestFinishTimestampValidatorShouldSkip:
         # get_last_finish_timestamp ne doit pas être appelé si le finish est invalide
         MockAdmin.return_value.get_last_finish_timestamp.assert_not_called()
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_false_when_stored_empty_string(self, MockAdmin):
         """Retourne False si le timestamp stocké est une chaîne vide."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
@@ -205,7 +205,7 @@ class TestFinishTimestampValidatorShouldSkip:
 
         assert result is False
 
-    @patch('amue.services.admin_state_manager.AdminStateManager')
+    @patch('common.services.admin_state_manager.AdminStateManager')
     def test_should_skip_normalizes_timestamps_for_comparison(self, MockAdmin):
         """Normalise les deux timestamps avant comparaison (espace vs T)."""
         from amue.services.api.finish_timestamp_validator import FinishTimestampValidator

@@ -82,7 +82,7 @@ from pathlib import Path
 from typing import List, Dict
 
 from amue.notifications.notifier import NotificationService
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

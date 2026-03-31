@@ -77,8 +77,8 @@ from airflow.exceptions import AirflowException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import json
 from amue.exceptions import AMUESchemaError
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.database.hooks import create_postgres_hook
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.database.hooks import create_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
 
 logger = logging.getLogger(__name__)

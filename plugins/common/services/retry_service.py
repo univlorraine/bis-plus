@@ -72,7 +72,7 @@ USAGE
 ================================================================================
 
     # Via singleton (recommandé)
-    from amue.services.retry_service import get_retry_service
+    from common.services.retry_service import get_retry_service
 
     service = get_retry_service()
     result = service.execute_with_retry(lambda: api.call())

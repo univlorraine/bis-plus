@@ -58,8 +58,8 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
 from psycopg2 import sql as pgsql
 from amue.exceptions import AMUESchemaError, AMUEDatabaseError
-from amue.utils.database.hooks import create_postgres_hook
-from amue.utils.database.schema_utils import SchemaQualifier
+from common.utils.database.hooks import create_postgres_hook
+from common.utils.database.schema_utils import SchemaQualifier
 from common.config import PROTECTED_SOURCE
 
 logger = logging.getLogger(__name__)

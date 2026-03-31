@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, Generator
 
 from airflow.exceptions import AirflowException
-from amue.services.retry_service import get_retry_service, ErrorCategory
+from common.services.retry_service import get_retry_service, ErrorCategory
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 def _make_resolver(view_schema_result):
     """Crée un BlueGreenSchemaResolver avec un ViewSwitcher mocké."""
-    from amue.services.bluegreen.bluegreen_schema_resolver import BlueGreenSchemaResolver
+    from common.services.bluegreen.bluegreen_schema_resolver import BlueGreenSchemaResolver
 
     mock_vs = MagicMock()
     mock_vs.get_current_target_schema.return_value = view_schema_result
@@ -108,7 +108,7 @@ class TestBlueGreenSchemaResolverConsistency:
 
     def test_lazy_view_switcher_instantiated_on_first_access(self):
         """Le ViewSwitcher est créé lazily quand view_switcher=None."""
-        from amue.services.bluegreen.bluegreen_schema_resolver import BlueGreenSchemaResolver
+        from common.services.bluegreen.bluegreen_schema_resolver import BlueGreenSchemaResolver
 
         resolver = BlueGreenSchemaResolver(view_switcher=None)
         assert resolver._view_switcher is None  # Pas encore instancié

@@ -43,7 +43,7 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import dag
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from ecc.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, sync_ecc_to_active, save_ecc_metadata, send_ecc_report
 from ecc.utils.config.settings import ECCDefaults

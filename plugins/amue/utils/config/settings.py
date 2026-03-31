@@ -79,7 +79,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from common.config import PROTECTED_SOURCE  # noqa: F401 — re-export pour rétro-compatibilité
 
 logger = logging.getLogger(__name__)

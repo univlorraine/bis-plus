@@ -21,7 +21,7 @@ from airflow.sdk.bases.sensor import BaseSensorOperator
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.services.api.status_checker import AMUEStatusChecker
 from amue.services.api.finish_timestamp_validator import FinishTimestampValidator
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
 

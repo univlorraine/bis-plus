@@ -1,6 +1,6 @@
 # ecc/utils/config/settings.py
 """Configuration centralisée ECC."""
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from common.config import PROTECTED_SOURCE
 
 

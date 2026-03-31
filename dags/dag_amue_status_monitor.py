@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 
 from airflow.sdk import dag, task
 
-from amue.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 _MONITOR_DURATION_HOURS = 4
 _POLL_INTERVAL_SECONDS = 60

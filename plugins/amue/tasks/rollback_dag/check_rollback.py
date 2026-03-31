@@ -4,7 +4,7 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
 logger = logging.getLogger(__name__)
 

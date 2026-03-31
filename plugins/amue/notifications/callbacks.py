@@ -135,7 +135,7 @@ def dag_failure_rollback(context: Dict[str, Any]) -> None:
     # Le rename est tenté indépendamment du verrou (idempotent : no-op si le schéma n'existe pas).
     # Cela couvre aussi le cas où init_bluegreen a renommé le schéma mais échoué avant mark_import_started.
     try:
-        from amue.services.bluegreen.bluegreen_manager import BlueGreenManager
+        from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 
         manager = BlueGreenManager()
         target_schema = manager.get_target_schema()

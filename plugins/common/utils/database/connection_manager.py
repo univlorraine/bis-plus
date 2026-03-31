@@ -10,7 +10,7 @@ qui centralise la logique de gestion des connexions, évitant la duplication
 dans les différents opérateurs.
 
 USAGE :
-    >>> from amue.utils.database.connection_manager import PostgresConnectionManager
+    >>> from common.utils.database.connection_manager import PostgresConnectionManager
     >>> with PostgresConnectionManager(postgres_hook) as manager:
     ...     conn = manager.get_connection()
     ...     cursor = conn.cursor()

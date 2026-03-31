@@ -15,8 +15,8 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Any
 
 from amue.exceptions import AMUEDatabaseError, AMUEBatchError, AMUEDataError
-from amue.operators.pipeline.batch_inserter import AMUEBatchInserter
-from amue.utils.database.hooks import create_postgres_hook
+from common.operators.batch_inserter import AMUEBatchInserter
+from common.utils.database.hooks import create_postgres_hook
 from common.config import PROTECTED_SOURCE
 
 logger = logging.getLogger(__name__)
