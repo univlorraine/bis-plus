@@ -60,45 +60,10 @@ import logging
 from datetime import datetime
 from typing import Dict, List
 
-from airflow.exceptions import AirflowException
+from amue.exceptions import TableNotFoundError
 from amue.notifications import NotificationService, send_failure_notification
 
 logger = logging.getLogger(__name__)
-
-
-class TableNotFoundError(AirflowException):
-    """
-    Exception levée quand une table configurée n'est pas trouvée dans le statut API.
-
-    Cette exception est CRITIQUE : elle indique une incohérence entre la
-    configuration Airflow et les données disponibles côté AMUE.
-
-    Causes possibles :
-        - Nom de table mal orthographié dans la configuration
-        - Table supprimée côté AMUE
-        - API AMUE en cours de maintenance
-        - Problème de droits d'accès à la table
-
-    Attributes:
-        missing_tables: Liste des noms de tables manquantes
-        configured_count: Nombre total de tables configurées
-        found_count: Nombre de tables trouvées dans l'API
-    """
-
-    def __init__(self, missing_tables: List[str], configured_count: int, found_count: int):
-        self.missing_tables = missing_tables
-        self.configured_count = configured_count
-        self.found_count = found_count
-
-        message = (
-            f"ERREUR CRITIQUE: {len(missing_tables)} table(s) configurée(s) "
-            f"absente(s) du statut API.\n"
-            f"Tables configurées: {configured_count}\n"
-            f"Tables trouvées: {found_count}\n"
-            f"Tables manquantes: {', '.join(missing_tables)}"
-        )
-
-        super().__init__(message)
 
 
 class AMUETableFilter:

@@ -73,20 +73,27 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
         logger.error(f"[SETUP_REPORT]   {t.get('error')}")
 
     if tables_blocked or tables_error:
-        blocked_names = [t['table_name'] for t in tables_blocked]
-        error_names = [t['table_name'] for t in tables_error]
-        problems = []
-        if blocked_names:
-            problems.append(f"Tables bloquées (changement de structure) : {', '.join(blocked_names)}")
-        if error_names:
-            problems.append(f"Tables en erreur : {', '.join(error_names)}")
-
         try:
-            NotificationService().notify_error({
+            NotificationService().notify_setup_error({
                 'dag_id': 'amue_table_setup',
-                'task_id': 'send_setup_report',
-                'error_message': '\n'.join(problems),
-                'error_type': 'SetupIncomplete',
+                'tables_blocked': [
+                    {
+                        'table_name': t['table_name'],
+                        'fp_api_changed': t.get('fp_api_changed'),
+                        'fp_ul_changed': t.get('fp_ul_changed'),
+                        'columns_count': t.get('columns_count'),
+                        'ul_diff': t.get('ul_diff', ''),
+                        'error': t.get('error', ''),
+                    }
+                    for t in tables_blocked
+                ],
+                'tables_error': [
+                    {
+                        'table_name': t['table_name'],
+                        'error': t.get('error', ''),
+                    }
+                    for t in tables_error
+                ],
             })
         except Exception as e:
             logger.warning(f"[SETUP_REPORT] Envoi notification échoué: {e}")

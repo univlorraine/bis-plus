@@ -36,7 +36,8 @@ def send_ecc_report(import_results: List[Dict]) -> Dict:
     )
 
     generator = AMUEReportGenerator()
-    generator.generate_and_send(import_results, {}, title='RAPPORT IMPORT ECC')
+    generator.generate_and_send(import_results, {}, title='RAPPORT IMPORT ECC',
+                                dag_id='ecc_multi_table_import')
 
     return {
         'ecc_summary': {

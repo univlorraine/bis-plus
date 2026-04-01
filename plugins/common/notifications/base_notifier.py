@@ -53,8 +53,8 @@ class BaseNotificationService:
         return self.email_service.send(email)
 
     def notify_success(self, data: Dict[str, Any]) -> bool:
-        """Envoie une notification de succes."""
-        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de succes")
+        """Envoie une notification de succès."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de succès")
 
         context = self._build_success_context(data)
         subject = self._build_success_subject(context)
@@ -67,12 +67,13 @@ class BaseNotificationService:
         """Construit le contexte pour le template d'erreur."""
         task_instance = data.get('task_instance')
         exception = data.get('exception')
+        dag_run = data.get('dag_run')
 
         if task_instance:
             dag_id = task_instance.dag_id
             task_id = task_instance.task_id
         else:
-            dag_id = data.get('dag_id', self.DEFAULT_DAG_ID)
+            dag_id = data.get('dag_id') or (dag_run.dag_id if dag_run else None) or self.DEFAULT_DAG_ID
             task_id = data.get('task_id', 'unknown')
 
         if exception:
@@ -108,7 +109,7 @@ class BaseNotificationService:
         total_fetched = sum(t.get('rows_fetched', t.get('rows_inserted', 0)) for t in tables_imported)
 
         context = {
-            'title': f"Import {self.SYSTEM_NAME} Reussi",
+            'title': data.get('title') or f"Import {self.SYSTEM_NAME} Réussi",
             'subtitle': execution_date,
             'dag_id': dag_id,
             'execution_date': execution_date,
@@ -125,3 +126,84 @@ class BaseNotificationService:
     def _extra_success_fields(self, data: Dict[str, Any], tables: list) -> Dict[str, Any]:
         """Champs supplémentaires pour le contexte de succes. Surcharger si besoin."""
         return {}
+
+    # ------------------------------------------------------------------
+    # Notifications spécialisées (sync, rollback, setup)
+    # ------------------------------------------------------------------
+
+    def notify_sync_success(self, data: Dict[str, Any]) -> bool:
+        """Envoie une notification de succès de synchronisation blue/green."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de synchronisation")
+
+        tables_detail = data.get('tables_imported', [])
+        tables_synced = len(tables_detail)
+        tables_failed = data.get('tables_failed', 0)
+        source = data.get('sync_source', data.get('source', '?'))
+        target = data.get('sync_target', data.get('target', '?'))
+        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+        context = {
+            'title': data.get('title', f"Synchronisation {self.SYSTEM_NAME} Réussie"),
+            'subtitle': data.get('execution_date', date_str),
+            'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
+            'source': source,
+            'target': target,
+            'tables_synced': tables_synced,
+            'tables_failed': tables_failed,
+            'tables_detail': tables_detail,
+        }
+        suffix = ' (partiel)' if tables_failed > 0 else ''
+        subject = (
+            f"[SUCCÈS] Synchronisation {self.SYSTEM_NAME}"
+            f" — {tables_synced} table(s){suffix} — {date_str}"
+        )
+        html_content = self.TEMPLATES_CLASS.render_sync_success(context)
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
+    def notify_rollback_success(self, data: Dict[str, Any]) -> bool:
+        """Envoie une notification de succès de rollback blue/green."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de rollback")
+
+        previous = data.get('previous_active', '?')
+        new_active = data.get('new_active', '?')
+        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+        context = {
+            'title': data.get('title', f"Rollback {self.SYSTEM_NAME} Réussi"),
+            'subtitle': date_str,
+            'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
+            'previous_schema': previous,
+            'new_schema': new_active,
+        }
+        subject = (
+            f"[SUCCÈS] Rollback {self.SYSTEM_NAME}"
+            f" — {previous} → {new_active} — {date_str}"
+        )
+        html_content = self.TEMPLATES_CLASS.render_rollback_success(context)
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
+    def notify_setup_error(self, data: Dict[str, Any]) -> bool:
+        """Envoie une alerte d'anomalie de setup (tables bloquées ou en erreur)."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de setup")
+
+        tables_blocked = data.get('tables_blocked', [])
+        tables_error = data.get('tables_error', [])
+        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+        context = {
+            'title': data.get('title', f"Anomalie Setup {self.SYSTEM_NAME}"),
+            'subtitle': date_str,
+            'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
+            'tables_blocked': tables_blocked,
+            'tables_error': tables_error,
+        }
+        subject = (
+            f"[ALERTE] Setup {self.SYSTEM_NAME}"
+            f" — {len(tables_blocked)} bloquée(s)"
+            f", {len(tables_error)} erreur(s) — {date_str}"
+        )
+        html_content = self.TEMPLATES_CLASS.render_setup_error(context)
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)

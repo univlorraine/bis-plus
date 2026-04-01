@@ -21,7 +21,7 @@ class ECCNotificationService(BaseNotificationService):
     def _load_recipients(self) -> List[str]:
         """Charge les destinataires depuis la variable Airflow ecc_report_recipients."""
         recipients = get_ecc_recipients()
-        logger.debug(f"Destinataires ECC charges: {recipients}")
+        logger.debug(f"Destinataires ECC chargés: {recipients}")
         return recipients
 
     def _build_error_subject(self, context: Dict[str, Any]) -> str:
@@ -31,9 +31,10 @@ class ECCNotificationService(BaseNotificationService):
         return f"[ERREUR ECC] Import ECC - {dag_id} - {date_str}"
 
     def _build_success_subject(self, context: Dict[str, Any]) -> str:
-        """Sujet : [RAPPORT ECC] ecc_multi_table_import - {date}"""
+        """Sujet : [RAPPORT ECC] {dag_id} - {date}"""
         date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-        return f"[RAPPORT ECC] ecc_multi_table_import - {date_str}"
+        dag_id = context.get('dag_id', self.DEFAULT_DAG_ID)
+        return f"[RAPPORT ECC] {dag_id} - {date_str}"
 
     def _extra_success_fields(self, data: Dict[str, Any], tables: list) -> Dict[str, Any]:
         """Ajoute le total des lignes ignorées au contexte de succes."""

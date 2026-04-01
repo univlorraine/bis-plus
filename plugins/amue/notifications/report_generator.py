@@ -174,18 +174,19 @@ class AMUEReportGenerator:
 
         return "N/A"
 
-    def send_notification(self, report: Dict) -> None:
+    def send_notification(self, report: Dict, dag_id: str = 'amue_multi_table_import') -> None:
         """
         Envoie une notification par email
 
         Args:
             report: Rapport à envoyer
+            dag_id: ID du DAG (affiché dans l'email et le lien Airflow)
         """
         logger.info("[REPORT] Envoi notification email")
 
         # Prépare les données pour le service de notification
         notification_data = {
-            'dag_id': 'amue_multi_table_import',
+            'dag_id': dag_id,
             'execution_date': report.get('execution_date', datetime.now().isoformat()),
             'duration': report.get('duration', 'N/A'),
             'tables_imported': report.get('tables_detail', []),
@@ -264,7 +265,8 @@ class AMUEReportGenerator:
             logger.warning(f"[REPORT] Impossible d'archiver le rapport en fichier: {e}")
 
     def generate_and_send(self, import_results: List[Dict], polling_result: Dict,
-                          title: str = 'RAPPORT IMPORT AMUE') -> Dict:
+                          title: str = 'RAPPORT IMPORT AMUE',
+                          dag_id: str = 'amue_multi_table_import') -> Dict:
         """
         Génère le rapport et envoie la notification en une seule opération
 
@@ -272,6 +274,7 @@ class AMUEReportGenerator:
             import_results: Résultats des imports
             polling_result: Résultat du polling
             title: Titre affiché dans les logs (défaut: 'RAPPORT IMPORT AMUE')
+            dag_id: ID du DAG (affiché dans l'email, défaut: 'amue_multi_table_import')
 
         Returns:
             Rapport généré avec statut d'envoi
@@ -280,6 +283,6 @@ class AMUEReportGenerator:
         report = self.generate_report(import_results, polling_result, title=title)
 
         # Envoie la notification
-        self.send_notification(report)
+        self.send_notification(report, dag_id=dag_id)
 
         return report

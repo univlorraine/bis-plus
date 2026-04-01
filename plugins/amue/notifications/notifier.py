@@ -33,8 +33,8 @@ class NotificationService(BaseNotificationService):
         return f"[ERREUR] Import AMUE - {dag_id} - {date_str}"
 
     def _build_success_subject(self, context: Dict[str, Any]) -> str:
-        """Construit le sujet de l'email de succes."""
+        """Construit le sujet de l'email de succès."""
         date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
         tables_count = len(context.get('tables_imported', []))
         total_rows = context.get('total_rows', 0)
-        return f"[SUCCES] Import AMUE - {tables_count} table(s) - {total_rows:,} nouvelles lignes - {date_str}"
+        return f"[SUCCÈS] Import AMUE - {tables_count} table(s) - {total_rows:,} nouvelles lignes - {date_str}"

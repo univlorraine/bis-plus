@@ -161,5 +161,5 @@ class TestGenerateAndSend:
         with patch.object(gen, '_save_report'), \
              patch.object(gen, 'send_notification') as mock_send:
             report = gen.generate_and_send(_sample_import_results(), _sample_polling_result())
-        mock_send.assert_called_once_with(report)
+        mock_send.assert_called_once_with(report, dag_id='amue_multi_table_import')
         assert report['status'] == 'success'

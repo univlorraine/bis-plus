@@ -35,7 +35,7 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
             - dag_run: Informations sur l'execution du DAG
             - execution_date: Date d'execution
     """
-    logger.info("Declenchement du callback d'erreur")
+    logger.info("Déclenchement du callback d'erreur")
 
     # Au niveau DAG, exception et task_instance sont absents du contexte.
     # On enrichit le contexte avec la liste des tâches en échec.
@@ -75,9 +75,9 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
         success = service.notify_error(context)
 
         if success:
-            logger.info("Notification d'erreur envoyee avec succes")
+            logger.info("Notification d'erreur envoyée avec succès")
         else:
-            logger.warning("Echec de l'envoi de la notification d'erreur")
+            logger.warning("Échec de l'envoi de la notification d'erreur")
 
     except Exception as e:
         logger.error(f"Erreur dans le callback de notification: {e}")
@@ -114,7 +114,7 @@ def send_failure_notification(context: Dict[str, Any]) -> None:
     except Exception as report_err:
         logger.warning(f"Impossible de générer le rapport partiel: {report_err}")
 
-    logger.info("Callback d'erreur termine")
+    logger.info("Callback d'erreur terminé")
 
 
 def dag_failure_rollback(context: Dict[str, Any]) -> None:
@@ -183,7 +183,7 @@ def send_success_notification(context: Dict[str, Any]) -> None:
             - dag_run: Informations sur l'execution du DAG
             - execution_date: Date d'execution
     """
-    logger.info("Declenchement du callback de succes")
+    logger.info("Déclenchement du callback de succès")
 
     try:
         # Import local pour eviter les imports circulaires
@@ -218,11 +218,11 @@ def send_success_notification(context: Dict[str, Any]) -> None:
         success = service.notify_success(data)
 
         if success:
-            logger.info("Notification de succes envoyee")
+            logger.info("Notification de succès envoyée")
         else:
-            logger.warning("Echec de l'envoi de la notification de succes")
+            logger.warning("Échec de l'envoi de la notification de succès")
 
     except Exception as e:
         logger.error(f"Erreur dans le callback de succes: {e}")
 
-    logger.info("Callback de succes termine")
+    logger.info("Callback de succès terminé")

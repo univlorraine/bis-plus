@@ -29,14 +29,10 @@ def send_rollback_report(rollback_result: Dict) -> Dict:
 
     try:
         service = NotificationService()
-        service.notify_success({
+        service.notify_rollback_success({
             'dag_id': 'amue_rollback',
-            'tables_imported': [],
-            'extra_message': (
-                f"Rollback blue/green effectué avec succès.\n"
-                f"Schéma précédent : {previous}\n"
-                f"Schéma restauré  : {new_active}"
-            ),
+            'previous_active': previous,
+            'new_active': new_active,
         })
         return {"sent": True, "previous_active": previous, "new_active": new_active}
     except Exception as e:

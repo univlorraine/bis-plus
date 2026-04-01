@@ -36,22 +36,21 @@ def send_sync_report(sync_result: Dict) -> Dict:
     service = NotificationService()
     try:
         if status in ('success', 'partial'):
-            sent = service.notify_success({
+            sent = service.notify_sync_success({
                 'dag_id': 'amue_sync_schemas',
                 'execution_date': datetime.now().isoformat(),
-                'duration': '',
+                'sync_source': source,
+                'sync_target': target,
+                'tables_failed': tables_failed,
                 'tables_imported': [
                     {
                         'table_name': d.get('table_name', '?'),
                         'rows_inserted': d.get('rows_copied', 0),
-                        'rows_fetched': d.get('rows_copied', 0),
+                        'status': d.get('status', 'success'),
                     }
                     for d in sync_result.get('details', [])
                     if d.get('status') == 'success'
                 ],
-                'sync_source': source,
-                'sync_target': target,
-                'tables_failed': tables_failed,
             })
         else:
             details = sync_result.get('details', [])

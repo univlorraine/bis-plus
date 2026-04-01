@@ -39,7 +39,7 @@ class TestSendSetupReport:
         results = [_r('csks', 'blocked', 'error', error='structure modifiée')]
         send_setup_report.function(results)
 
-        MockNotif.return_value.notify_error.assert_called_once()
+        MockNotif.return_value.notify_setup_error.assert_called_once()
 
     @patch('amue.tasks.setup_dag.send_setup_report.NotificationService')
     def test_no_notification_when_all_ready(self, MockNotif):
@@ -49,14 +49,14 @@ class TestSendSetupReport:
         results = [_r('csks', 'ready'), _r('lfa1', 'ready', created=True)]
         send_setup_report.function(results)
 
-        MockNotif.return_value.notify_error.assert_not_called()
+        MockNotif.return_value.notify_setup_error.assert_not_called()
 
     @patch('amue.tasks.setup_dag.send_setup_report.NotificationService')
     def test_notification_failure_does_not_crash(self, MockNotif):
         """Si la notification échoue, la task ne plante pas."""
         from amue.tasks.setup_dag.send_setup_report import send_setup_report
 
-        MockNotif.return_value.notify_error.side_effect = Exception("SMTP error")
+        MockNotif.return_value.notify_setup_error.side_effect = Exception("SMTP error")
         results = [_r('csks', 'blocked', 'error')]
 
         # Ne doit pas lever d'exception
@@ -85,4 +85,4 @@ class TestSendSetupReport:
         results = [_r('csks', 'ready', 'error', error='timeout')]
         send_setup_report.function(results)
 
-        MockNotif.return_value.notify_error.assert_called_once()
+        MockNotif.return_value.notify_setup_error.assert_called_once()
