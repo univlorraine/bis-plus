@@ -5,13 +5,12 @@ from unittest.mock import MagicMock, patch
 def _run_orchestrator(table_info, verifier_result, manage_result=None):
     """
     Helper : crée un orchestrateur avec mocks actifs, appelle run() et retourne
-    (result, config_manager, notifier).
+    (result, config_manager).
     """
     from amue.services.table_setup_orchestrator import TableSetupOrchestrator
 
     api_hook = MagicMock()
     config_manager = MagicMock()
-    notifier = MagicMock()
 
     with patch('amue.services.table_setup_orchestrator.AMUETableVerifier') as MockVerifier, \
          patch('amue.services.table_setup_orchestrator.AMUETableManager') as MockManager:
@@ -22,11 +21,10 @@ def _run_orchestrator(table_info, verifier_result, manage_result=None):
         orch = TableSetupOrchestrator(
             api_hook=api_hook,
             table_config_manager=config_manager,
-            notification_service=notifier,
         )
         result = orch.run(table_info)
 
-    return result, config_manager, notifier
+    return result, config_manager
 
 
 class TestTableSetupOrchestratorSuccess:
@@ -47,7 +45,7 @@ class TestTableSetupOrchestratorSuccess:
             'fingerprint_UL': '',
         }
 
-        result, config_manager, _ = _run_orchestrator(table_info, structure, {'created': True})
+        result, config_manager = _run_orchestrator(table_info, structure, {'created': True})
 
         assert result['status'] == 'success'
         assert result['setup_status'] == 'ready'
@@ -73,14 +71,14 @@ class TestTableSetupOrchestratorSuccess:
             'fingerprint_UL': fp_ul,
         }
 
-        result, config_manager, _ = _run_orchestrator(table_info, structure, {'created': False})
+        result, config_manager = _run_orchestrator(table_info, structure, {'created': False})
 
         assert result['status'] == 'success'
         assert result['created'] is False
         config_manager.save_setup_result.assert_called_once()
 
     def test_structure_change_returns_blocked(self):
-        """Fingerprint changé → blocked, notification envoyée."""
+        """Fingerprint changé → blocked, statut sauvegardé."""
         structure = {
             'status': 'success',
             'fingerprint_API': 'NEW_api_fp_NEW_api_fp_',
@@ -95,12 +93,11 @@ class TestTableSetupOrchestratorSuccess:
             'fingerprint_UL': 'OLD_ul_fp_OLD_ul_fp__',
         }
 
-        result, config_manager, notifier = _run_orchestrator(table_info, structure)
+        result, config_manager = _run_orchestrator(table_info, structure)
 
         assert result['status'] == 'blocked'
         assert result['setup_status'] == 'blocked'
         config_manager.set_setup_status.assert_called_once_with('CSKS', 'blocked')
-        notifier.notify_error.assert_called_once()
 
     def test_api_error_returns_error_result(self):
         """Erreur inattendue → status='error', setup_status='pending'."""
@@ -114,7 +111,6 @@ class TestTableSetupOrchestratorSuccess:
             orch = TableSetupOrchestrator(
                 api_hook=MagicMock(),
                 table_config_manager=config_manager,
-                notification_service=MagicMock(),
             )
             result = orch.run({'table_name': 'CSKS', 'target_schema': 'splus_blue'})
 
@@ -132,42 +128,8 @@ class TestTableSetupOrchestratorSuccess:
             'fingerprint_UL': '',
         }
 
-        result, _, _ = _run_orchestrator(table_info, structure)
+        result, _ = _run_orchestrator(table_info, structure)
 
         assert result['status'] == 'error'
         assert result['error'] == 'API unreachable'
 
-    def test_notification_failure_does_not_block_blocked_result(self):
-        """Échec d'envoi de notification → quand même 'blocked' (warning silencieux)."""
-        structure = {
-            'status': 'success',
-            'fingerprint_API': 'NEW_NEW_NEW_NEW_NEW__',
-            'fingerprint_UL': 'NEW_NEW_NEW_NEW_NEW__',
-            'primary_keys': 'id',
-            'columns': [],
-        }
-        table_info = {
-            'table_name': 'CSKS',
-            'target_schema': 'splus_blue',
-            'fingerprint_API': 'OLD_OLD_OLD_OLD_OLD__',
-            'fingerprint_UL': 'OLD_OLD_OLD_OLD_OLD__',
-        }
-
-        from amue.services.table_setup_orchestrator import TableSetupOrchestrator
-
-        config_manager = MagicMock()
-        notifier = MagicMock()
-        notifier.notify_error.side_effect = Exception("SMTP error")
-
-        with patch('amue.services.table_setup_orchestrator.AMUETableVerifier') as MockVerifier, \
-             patch('amue.services.table_setup_orchestrator.AMUETableManager'):
-            MockVerifier.return_value.verify_structure.return_value = structure
-
-            orch = TableSetupOrchestrator(
-                api_hook=MagicMock(),
-                table_config_manager=config_manager,
-                notification_service=notifier,
-            )
-            result = orch.run(table_info)
-
-        assert result['status'] == 'blocked'
