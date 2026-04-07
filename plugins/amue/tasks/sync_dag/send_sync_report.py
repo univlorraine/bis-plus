@@ -2,10 +2,13 @@
 import logging
 from datetime import datetime
 from typing import Dict
+from zoneinfo import ZoneInfo
 
 from airflow.sdk import task
 
 from amue.notifications import NotificationService
+
+_TZ_PARIS = ZoneInfo('Europe/Paris')
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,7 @@ def send_sync_report(sync_result: Dict) -> Dict:
         if status in ('success', 'partial'):
             sent = service.notify_sync_success({
                 'dag_id': 'amue_sync_schemas',
-                'execution_date': datetime.now().isoformat(),
+                'execution_date': datetime.now(tz=_TZ_PARIS).isoformat(),
                 'sync_source': source,
                 'sync_target': target,
                 'tables_failed': tables_failed,

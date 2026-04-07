@@ -1,8 +1,7 @@
 -- View: splus.v_bs_z_udl_read_cp
 
--- DROP VIEW splus.v_bs_z_udl_read_cp;
-
-CREATE OR REPLACE VIEW splus.v_bs_z_udl_read_cp
+DROP VIEW if exists splus.v_bs_z_udl_read_cp;
+CREATE VIEW splus.v_bs_z_udl_read_cp
  AS
  SELECT prctr,
     kokrs,

@@ -1,4 +1,5 @@
-CREATE OR REPLACE VIEW splus.v_bs_z_udl_read_eotp
+DROP VIEW IF EXISTS splus.v_bs_z_udl_read_eotp;
+CREATE VIEW splus.v_bs_z_udl_read_eotp
  AS
  SELECT pspnr,
     posid,
