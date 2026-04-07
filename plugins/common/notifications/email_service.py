@@ -83,6 +83,7 @@ class EmailConfig:
     username: Optional[str] = None
     password: Optional[str] = None
     timeout: int = 30  # Timeout en secondes
+    sender_name: str = 'Airflow'
 
     @classmethod
     def from_airflow_variables(cls) -> 'EmailConfig':
@@ -96,7 +97,8 @@ class EmailConfig:
             use_tls=VarMgr.get('smtp_use_tls', default='false').lower() == 'true',
             username=VarMgr.get('smtp_username', default=None),
             password=VarMgr.get('smtp_password', default=None),
-            timeout=int(VarMgr.get('smtp_timeout', default='30'))
+            timeout=int(VarMgr.get('smtp_timeout', default='30')),
+            sender_name=VarMgr.get('smtp_sender_name', default='Airflow'),
         )
 
 
@@ -156,14 +158,22 @@ class EmailService:
         """Construit le message MIME"""
         msg = MIMEMultipart('alternative')
         msg['Subject'] = email.subject
-        msg['From'] = self.config.from_email
+        from_display = (
+            f"{self.config.sender_name} <{self.config.from_email}>"
+            if self.config.sender_name
+            else self.config.from_email
+        )
+        msg['From'] = from_display
         msg['To'] = ', '.join(email.to)
 
-        # Ajoute le texte brut si fourni
-        if email.text_content:
-            msg.attach(MIMEText(email.text_content, 'plain', 'utf-8'))
+        # Texte brut : contenu fourni ou fallback minimal pour clients sans HTML
+        text_body = email.text_content or (
+            f"{email.subject}\n\n"
+            "(Ce message est au format HTML — merci d'utiliser un client mail compatible.)"
+        )
+        msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
 
-        # Ajoute le contenu HTML
+        # Contenu HTML
         msg.attach(MIMEText(email.html_content, 'html', 'utf-8'))
 
         return msg

@@ -18,33 +18,8 @@ def send_ecc_failure_notification(context: Dict[str, Any]) -> None:
     """
     logger.info("[ECC] Déclenchement du callback d'erreur")
 
-    exception = context.get('exception')
-    if not exception:
-        dag_run = context.get('dag_run')
-        if dag_run:
-            try:
-                failed_tis = dag_run.get_task_instances(state='failed')
-            except Exception:
-                failed_tis = []
-            if failed_tis:
-                failed_names = [
-                    f"{ti.task_id}[{ti.map_index}]" if getattr(ti, 'map_index', -1) >= 0 else ti.task_id
-                    for ti in failed_tis
-                ]
-                context.setdefault('error_message',
-                    f"Tâches en échec : {', '.join(failed_names)}")
-                context['failed_tasks'] = [
-                    {
-                        'task_id': ti.task_id,
-                        'map_index': getattr(ti, 'map_index', -1),
-                        'duration': round(ti.duration, 1) if getattr(ti, 'duration', None) else None,
-                    }
-                    for ti in failed_tis
-                ]
-            else:
-                context.setdefault('error_message',
-                    "Le DAG ECC a échoué — consulter les logs des tâches pour le détail")
-            context.setdefault('error_type', 'DAGFailure')
+    from common.notifications.callbacks_utils import enrich_context_with_failed_tasks
+    enrich_context_with_failed_tasks(context, dag_label='ECC')
 
     try:
         from ecc.notifications.ecc_notifier import ECCNotificationService

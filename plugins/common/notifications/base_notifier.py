@@ -43,6 +43,9 @@ class BaseNotificationService:
 
     def notify_error(self, data: Dict[str, Any]) -> bool:
         """Envoie une notification d'erreur."""
+        if not self.recipients:
+            logger.warning(f"[{self.SYSTEM_NAME}] Aucun destinataire configuré — notification ignorée")
+            return False
         logger.info(f"[{self.SYSTEM_NAME}] Envoi notification d'erreur")
 
         context = self._build_error_context(data)
@@ -54,6 +57,9 @@ class BaseNotificationService:
 
     def notify_success(self, data: Dict[str, Any]) -> bool:
         """Envoie une notification de succès."""
+        if not self.recipients:
+            logger.warning(f"[{self.SYSTEM_NAME}] Aucun destinataire configuré — notification ignorée")
+            return False
         logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de succès")
 
         context = self._build_success_context(data)
@@ -83,7 +89,7 @@ class BaseNotificationService:
             error_message = data.get('error_message', 'Erreur inconnue')
             error_type = data.get('error_type', 'UnknownError')
 
-        execution_date = data.get('execution_date', datetime.now().isoformat())
+        execution_date = self._format_date(data.get('execution_date'))
 
         return {
             'title': f"Erreur Import {self.SYSTEM_NAME}",
@@ -100,7 +106,7 @@ class BaseNotificationService:
     def _build_success_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Construit le contexte pour le template de succes."""
         dag_id = data.get('dag_id', self.DEFAULT_DAG_ID)
-        execution_date = data.get('execution_date', datetime.now().isoformat())
+        execution_date = self._format_date(data.get('execution_date'))
         duration = data.get('duration', 'N/A')
         tables_imported = data.get('tables_imported', [])
 
@@ -127,6 +133,27 @@ class BaseNotificationService:
         """Champs supplémentaires pour le contexte de succes. Surcharger si besoin."""
         return {}
 
+    @staticmethod
+    def _format_date(value: Any) -> str:
+        """Formate une date en chaîne lisible 'YYYY-MM-DD HH:MM'.
+
+        Accepte un objet datetime, une chaîne ISO (avec ou sans microsecondes),
+        ou None (retourne la date/heure courante).
+        """
+        if value is None:
+            return datetime.now().strftime('%Y-%m-%d %H:%M')
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M')
+        # Chaîne ISO : on parse puis on reformate
+        raw = str(value)
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(raw, fmt).strftime('%Y-%m-%d %H:%M')
+            except ValueError:
+                continue
+        # Fallback : retourner la valeur brute telle quelle
+        return raw
+
     # ------------------------------------------------------------------
     # Notifications spécialisées (sync, rollback, setup)
     # ------------------------------------------------------------------
@@ -144,7 +171,7 @@ class BaseNotificationService:
 
         context = {
             'title': data.get('title', f"Synchronisation {self.SYSTEM_NAME} Réussie"),
-            'subtitle': data.get('execution_date', date_str),
+            'subtitle': self._format_date(data.get('execution_date')),
             'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
             'source': source,
             'target': target,

@@ -1,7 +1,11 @@
 # ecc/utils/config/settings.py
 """Configuration centralisée ECC."""
+import logging
+
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from common.config import PROTECTED_SOURCE
+
+logger = logging.getLogger(__name__)
 
 
 class ECCDefaults:
@@ -28,5 +32,11 @@ def get_ecc_batch_size() -> int:
 
 def get_ecc_recipients() -> list:
     """Récupère les destinataires des rapports ECC depuis Airflow."""
-    recipients_str = VarMgr.get('ecc_report_recipients', 'admin@example.com')
+    recipients_str = VarMgr.get('ecc_report_recipients', default=None)
+    if not recipients_str:
+        logger.warning(
+            "Variable Airflow 'ecc_report_recipients' non configurée"
+            " — les notifications email ECC ne seront pas envoyées"
+        )
+        return []
     return [r.strip() for r in recipients_str.split(',') if r.strip()]

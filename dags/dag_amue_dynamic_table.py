@@ -68,6 +68,8 @@ Max runs : 1 seul DAG run actif à la fois
 """
 import json
 from datetime import datetime, timedelta
+
+import pendulum
 from airflow.sdk import dag
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
@@ -118,7 +120,7 @@ _post_import_dags = json.loads(
 
     # --- Planification ---
     schedule=_import_schedule,      # Configurable via amue_import_schedule
-    start_date=datetime(2024, 1, 1),
+    start_date=pendulum.datetime(2024, 1, 1,tz="Europe/Paris"),
     catchup=False,                  # Pas de rattrapage des runs manqués
     max_active_runs=1,              # Un seul run actif à la fois
 

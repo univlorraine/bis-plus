@@ -72,7 +72,6 @@ class SetupTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_WARNING)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez les changements de structure dans l'API AMUE<br>"
@@ -156,7 +155,7 @@ class SetupTemplates(BaseTemplates):
         return f"""
         <div style="margin-top: 25px;">
             <h3 style="color: #e65100; font-size: 16px; margin-bottom: 12px;">
-                🔒 Tables Bloquées — Structure Modifiée
+                Tables Bloquées — Structure Modifiée
             </h3>
             <p style="color: #555; font-size: 13px; margin-bottom: 12px;">
                 Ces tables ne peuvent pas être importées tant que leur structure

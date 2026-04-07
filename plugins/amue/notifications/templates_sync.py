@@ -89,7 +89,7 @@ class SyncTemplates(BaseTemplates):
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_SYNC)
-        footer = cls._render_footer(dag_id)
+        footer = cls._render_footer()
         return cls._wrap_html(header, content, footer)
 
     @classmethod

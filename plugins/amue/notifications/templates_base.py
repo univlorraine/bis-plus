@@ -141,8 +141,6 @@ class BaseTemplates:
     @classmethod
     def _render_footer(
         cls,
-        dag_id: str = '',
-        airflow_url: str = 'https://airflow-dev.univ-lorraine.fr',
         show_actions: bool = False,
         actions: str = '',
     ) -> str:
@@ -150,19 +148,9 @@ class BaseTemplates:
         Rendu du footer commun.
 
         Args:
-            dag_id: ID du DAG pour le lien Airflow (optionnel).
-            airflow_url: URL de base Airflow.
             show_actions: Affiche le bloc "Actions recommandées" si True.
             actions: Contenu HTML des actions (lignes séparées par <br>).
         """
-        button_html = ''
-        if dag_id:
-            button_html = f'''
-            <a href="{airflow_url}/dags/{dag_id}" class="button button-primary">
-                Voir dans Airflow
-            </a>
-            '''
-
         actions_html = ''
         if show_actions:
             actions_content = actions or (
@@ -180,7 +168,6 @@ class BaseTemplates:
         return f"""
         <div class="footer">
             {actions_html}
-            {button_html}
         </div>
         """
 

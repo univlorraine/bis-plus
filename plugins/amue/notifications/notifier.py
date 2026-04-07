@@ -21,9 +21,15 @@ class NotificationService(BaseNotificationService):
 
     def _load_recipients(self) -> List[str]:
         """Charge la liste des destinataires depuis les variables Airflow."""
-        recipients_var = VarMgr.get('amue_report_recipients', default='admin@example.com')
+        recipients_var = VarMgr.get('amue_report_recipients', default=None)
+        if not recipients_var:
+            logger.warning(
+                "Variable Airflow 'amue_report_recipients' non configurée"
+                " — les notifications email AMUE ne seront pas envoyées"
+            )
+            return []
         recipients = [r.strip() for r in recipients_var.split(',') if r.strip()]
-        logger.debug(f"Destinataires charges: {recipients}")
+        logger.debug(f"Destinataires chargés: {recipients}")
         return recipients
 
     def _build_error_subject(self, context: Dict[str, Any]) -> str:

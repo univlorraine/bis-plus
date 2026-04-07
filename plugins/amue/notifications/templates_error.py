@@ -66,8 +66,6 @@ _DATABASE_ERRORS = frozenset({
     'AMUEImportError',
 })
 
-# Longueur maximale de l'extrait dans le fallback
-_EXCERPT_MAX_LEN = 800
 
 
 class ErrorTemplates(BaseTemplates):
@@ -176,7 +174,7 @@ class ErrorTemplates(BaseTemplates):
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
-        footer = cls._render_footer(dag_id, show_actions=True)
+        footer = cls._render_footer(show_actions=True)
         return cls._wrap_html(header, content, footer)
 
     @classmethod
@@ -228,7 +226,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez que le VPN est actif et que la source de données est joignable<br>"
@@ -288,7 +285,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez les variables Airflow : <code>amue_client_id</code>,"
@@ -343,7 +339,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_WARNING)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez dans Airflow que l'import en cours se termine correctement<br>"
@@ -370,15 +365,6 @@ class ErrorTemplates(BaseTemplates):
         failed_tasks_html = cls._render_failed_tasks(failed_tasks) if failed_tasks else ''
 
         excerpt = cls._excerpt(error_message)
-        truncated = len(error_message) > _EXCERPT_MAX_LEN
-
-        truncation_note = ''
-        if truncated:
-            truncation_note = (
-                f'<p style="color: #888; font-size: 12px; margin: 4px 0 0;">'
-                f'Message tronqué — {len(error_message)} caractères au total. '
-                f'Consultez les logs Airflow pour le message complet.</p>'
-            )
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -404,16 +390,15 @@ class ErrorTemplates(BaseTemplates):
             </div>
 
             <div style="margin-top: 20px;">
-                <strong>Extrait de l'erreur :</strong>
+                <strong>Message d'erreur :</strong>
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
-                {truncation_note}
             </div>
         </div>
         {failed_tasks_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
-        footer = cls._render_footer(dag_id, show_actions=True)
+        footer = cls._render_footer(show_actions=True)
         return cls._wrap_html(header, content, footer)
 
     @classmethod
@@ -478,7 +463,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_WARNING)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez les colonnes ajoutées/supprimées côté API AMUE<br>"
@@ -541,7 +525,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez que les tables sont bien exposées par l'API AMUE<br>"
@@ -608,7 +591,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Consultez les logs de <code>run_sync</code> pour identifier les tables en erreur<br>"
@@ -678,7 +660,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez immédiatement les vues <code>splus.*</code> en base PostgreSQL<br>"
@@ -742,7 +723,6 @@ class ErrorTemplates(BaseTemplates):
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
         footer = cls._render_footer(
-            dag_id,
             show_actions=True,
             actions=(
                 "- Vérifiez la connexion PostgreSQL (host, port, credentials, pool)<br>"
@@ -798,10 +778,6 @@ class ErrorTemplates(BaseTemplates):
         """
 
     @staticmethod
-    def _excerpt(message: str, max_len: int = _EXCERPT_MAX_LEN) -> str:
-        """Tronque un message à max_len caractères."""
-        if not message:
-            return 'Erreur inconnue'
-        if len(message) <= max_len:
-            return message
-        return message[:max_len].rstrip() + '\n…'
+    def _excerpt(message: str) -> str:
+        """Retourne le message complet, ou 'Erreur inconnue' si vide."""
+        return message if message else 'Erreur inconnue'
