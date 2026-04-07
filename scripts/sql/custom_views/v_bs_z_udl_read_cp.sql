@@ -17,9 +17,6 @@ CREATE VIEW splus.v_bs_z_udl_read_cp
 ALTER TABLE splus.v_bs_z_udl_read_cp
     OWNER TO sifacplus;
 
-GRANT ALL ON TABLE splus.v_bs_z_udl_read_cp TO root;
-GRANT ALL ON TABLE splus.v_bs_z_udl_read_cp TO sifacplus;
-
 COMMENT ON COLUMN splus.v_bs_z_udl_read_cp.prctr
     IS 'Centre de profit';
 

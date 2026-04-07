@@ -14,10 +14,7 @@ CREATE VIEW splus.v_bs_z_udl_read_eotp
    FROM {target_schema}.prps;
 
 ALTER TABLE splus.v_bs_z_udl_read_eotp
-    OWNER TO root;
-
-GRANT ALL ON TABLE splus.v_bs_z_udl_read_eotp TO root;
-GRANT ALL ON TABLE splus.v_bs_z_udl_read_eotp TO sifacplus;
+    OWNER TO sifacplus;
 
 COMMENT ON COLUMN splus.v_bs_z_udl_read_eotp.pspnr
     IS 'Elément d''OTP';
