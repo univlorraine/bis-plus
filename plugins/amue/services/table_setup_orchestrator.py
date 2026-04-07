@@ -27,7 +27,6 @@ from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.operators.table_management.table_verifier import AMUETableVerifier
 from amue.operators.table_management.table_manager import AMUETableManager
 from amue.services.table_config_manager import TableConfigManager
-from amue.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,6 @@ class TableSetupOrchestrator:
         self,
         api_hook: AMUEAPIHook = None,
         table_config_manager: TableConfigManager = None,
-        notification_service: NotificationService = None,
     ):
         """
         Initialise l'orchestrateur.
@@ -58,11 +56,9 @@ class TableSetupOrchestrator:
         Args:
             api_hook: Hook API AMUE (créé si non fourni)
             table_config_manager: Gestionnaire de config tables (créé si non fourni)
-            notification_service: Service de notification (créé si non fourni)
         """
         self._api_hook = api_hook or AMUEAPIHook()
         self._config_manager = table_config_manager or TableConfigManager()
-        self._notifier = notification_service or NotificationService()
 
     def run(self, table_info: Dict) -> Dict:
         """
@@ -174,16 +170,6 @@ class TableSetupOrchestrator:
         )
         logger.error(error_msg)
         self._config_manager.set_setup_status(table_name, 'blocked')
-
-        try:
-            self._notifier.notify_error({
-                'dag_id': 'amue_table_setup',
-                'task_id': 'setup_table',
-                'error_message': error_msg,
-                'error_type': 'StructureChangeDetected',
-            })
-        except Exception as notif_err:
-            logger.warning(f"[SETUP] Envoi notification échoué: {notif_err}")
 
         return {
             'table_name': table_name,

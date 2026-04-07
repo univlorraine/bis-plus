@@ -18,6 +18,8 @@
   "ecc_import_batch_size": "5000",
   "ecc_report_recipients": "admin@example.com",
   "amue_report_recipients": "admin@example.com",
+  "amue_pre_import_dags": "[]",
+  "amue_post_import_dags": "[]",
   "amue_reports_dir": "/opt/airflow/logs/reports",
   "smtp_host": "mailhog",
   "smtp_port": "1025",

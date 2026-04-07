@@ -66,6 +66,7 @@ Max runs : 1 seul DAG run actif à la fois
 
 ================================================================================
 """
+import json
 from datetime import datetime, timedelta
 from airflow.sdk import dag
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
@@ -99,6 +100,16 @@ _sensor_poke_interval = int(VarMgr.get('amue_polling_interval_minutes',
                                         Defaults.POLLING_INTERVAL_MINUTES)) * 60
 _sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
                                   Defaults.POLLING_MAX_WAIT_HOURS)) * 3600
+
+# DAGs à déclencher séquentiellement avant l'import (JSON array de dag_ids)
+_pre_import_dags = json.loads(
+    VarMgr.get('amue_pre_import_dags', default='[]') or '[]'
+)
+
+# DAGs à déclencher séquentiellement après un import réussi (JSON array de dag_ids)
+_post_import_dags = json.loads(
+    VarMgr.get('amue_post_import_dags', default='[]') or '[]'
+)
 
 
 @dag(
@@ -153,8 +164,23 @@ def amue_multi_table_import():
     # WORKFLOW (enchaînement des tasks)
     # ==========================================================================
 
+    # Phase -1 : Déclenchement séquentiel des DAGs pré-import (via amue_pre_import_dags)
+    prev = None
+    for i, upstream_dag_id in enumerate(_pre_import_dags):
+        trigger = TriggerDagRunOperator(
+            task_id=f'trigger_pre_import_{upstream_dag_id}',
+            trigger_dag_id=upstream_dag_id,
+            wait_for_completion=True,
+            deferrable=True,
+        )
+        if prev is not None:
+            prev >> trigger
+        prev = trigger
+
     # Phase 0 : Blue/Green Initialisation
     bluegreen_ctx = init_bluegreen()
+    if prev is not None:
+        prev >> bluegreen_ctx
 
     # Phase 1 : Sensor polling (mode reschedule - libère le worker)
     wait_sensor = AMUEAPISensor(
@@ -195,7 +221,19 @@ def amue_multi_table_import():
     switch_result = switch_views(metadata)
 
     # Phase 6 : Rapport
-    send_report(imported, switch_result, wait_sensor.output)
+    report_task = send_report(imported, switch_result, wait_sensor.output)
+
+    # Phase 7 : Déclenchement séquentiel des DAGs post-import (via amue_post_import_dags)
+    prev = report_task
+    for i, downstream_dag_id in enumerate(_post_import_dags):
+        trigger = TriggerDagRunOperator(
+            task_id=f'trigger_post_import_{downstream_dag_id}',
+            trigger_dag_id=downstream_dag_id,
+            wait_for_completion=True,
+            deferrable=True,
+        )
+        prev >> trigger
+        prev = trigger
 
 
 # ==============================================================================
