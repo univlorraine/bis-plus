@@ -39,8 +39,9 @@ Tables configurées dans : splus_admin.ecc_tables
 
 ================================================================================
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
 
+import pendulum
 from airflow.sdk import dag
 
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -58,7 +59,7 @@ _import_schedule = VarMgr.get('ecc_import_schedule', default=None)
 
     # --- Planification (configurable via Variable Airflow 'ecc_import_schedule') ---
     schedule=None,
-    start_date=datetime(2024, 1, 1),
+    start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
     catchup=False,
     max_active_runs=1,
 

@@ -19,8 +19,9 @@ Une seule task en boucle :
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
+import pendulum
 from airflow.sdk import dag, task
 
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -35,7 +36,7 @@ _schedule = VarMgr.get('amue_monitor_schedule', default='0 22 * * *')
     dag_id='amue_status_monitor',
     description='Monitoring statut API AMUE — log les changements toutes les minutes pendant 4h',
     schedule=_schedule,
-    start_date=datetime(2025, 1, 1),
+    start_date=pendulum.datetime(2025, 1, 1, tz="Europe/Paris"),
     catchup=False,
     max_active_runs=1,
     tags=['amue', 'monitoring'],

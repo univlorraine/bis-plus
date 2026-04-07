@@ -82,6 +82,7 @@ from pathlib import Path
 from typing import List, Dict
 
 from amue.notifications.notifier import NotificationService
+from common.notifications.base_notifier import _TZ_PARIS
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,7 @@ class AMUEReportGenerator:
             })
 
         report = {
-            'execution_date': datetime.now().isoformat(),
+            'execution_date': datetime.now(tz=_TZ_PARIS).isoformat(),
             'start_time': polling_result.get('start_time', ''),
             'duration': duration,
             'polling_attempts': polling_result.get('attempts', 0),
@@ -219,7 +220,7 @@ class AMUEReportGenerator:
         logger.info("=" * 70)
         logger.info(f"                    {title}")
         logger.info("=" * 70)
-        logger.info(f"  Date d'exécution : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"  Date d'exécution : {datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"  Durée totale     : {report.get('duration', 'N/A')}")
         logger.info(f"  Polling          : {report.get('polling_attempts', 0)} tentative(s), "
                     f"{report.get('polling_wait_minutes', 0)}min d'attente")
@@ -257,7 +258,7 @@ class AMUEReportGenerator:
         try:
             reports_dir = Path(VarMgr.get('amue_reports_dir', default='/opt/airflow/logs/reports'))
             reports_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now(tz=_TZ_PARIS).strftime('%Y%m%d_%H%M%S')
             filepath = reports_dir / f"import_report_{timestamp}.json"
             filepath.write_text(json.dumps(report, default=str, indent=2), encoding='utf-8')
             logger.info(f"[REPORT] Rapport archivé: {filepath}")

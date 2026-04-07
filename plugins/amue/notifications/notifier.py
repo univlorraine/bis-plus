@@ -3,8 +3,9 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
-from common.notifications.base_notifier import BaseNotificationService
+from common.notifications.base_notifier import BaseNotificationService, _TZ_PARIS
 from common.notifications.email_service import EmailService
 from amue.notifications.templates import NotificationTemplates
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
@@ -34,13 +35,13 @@ class NotificationService(BaseNotificationService):
 
     def _build_error_subject(self, context: Dict[str, Any]) -> str:
         """Construit le sujet de l'email d'erreur."""
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
         dag_id = context.get('dag_id', 'unknown')
         return f"[ERREUR] Import AMUE - {dag_id} - {date_str}"
 
     def _build_success_subject(self, context: Dict[str, Any]) -> str:
         """Construit le sujet de l'email de succès."""
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
         tables_count = len(context.get('tables_imported', []))
         total_rows = context.get('total_rows', 0)
         return f"[SUCCÈS] Import AMUE - {tables_count} table(s) - {total_rows:,} nouvelles lignes - {date_str}"

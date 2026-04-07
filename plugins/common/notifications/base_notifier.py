@@ -3,6 +3,9 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+_TZ_PARIS = ZoneInfo('Europe/Paris')
 
 from common.notifications.email_service import Email, EmailService
 
@@ -135,22 +138,27 @@ class BaseNotificationService:
 
     @staticmethod
     def _format_date(value: Any) -> str:
-        """Formate une date en chaîne lisible 'YYYY-MM-DD HH:MM'.
+        """Formate une date en chaîne lisible 'YYYY-MM-DD HH:MM' en heure de Paris.
 
-        Accepte un objet datetime, une chaîne ISO (avec ou sans microsecondes),
-        ou None (retourne la date/heure courante).
+        Accepte un objet datetime (naïf ou avec timezone), une chaîne ISO,
+        ou None (retourne la date/heure courante à Paris).
         """
+        fmt = '%Y-%m-%d %H:%M'
         if value is None:
-            return datetime.now().strftime('%Y-%m-%d %H:%M')
+            return datetime.now(tz=_TZ_PARIS).strftime(fmt)
         if isinstance(value, datetime):
-            return value.strftime('%Y-%m-%d %H:%M')
-        # Chaîne ISO : on parse puis on reformate
+            if value.tzinfo is not None:
+                value = value.astimezone(_TZ_PARIS)
+            return value.strftime(fmt)
+        # Chaîne ISO : on parse puis on convertit
         raw = str(value)
-        for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
-            try:
-                return datetime.strptime(raw, fmt).strftime('%Y-%m-%d %H:%M')
-            except ValueError:
-                continue
+        try:
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(_TZ_PARIS)
+            return dt.strftime(fmt)
+        except ValueError:
+            pass
         # Fallback : retourner la valeur brute telle quelle
         return raw
 
@@ -167,7 +175,7 @@ class BaseNotificationService:
         tables_failed = data.get('tables_failed', 0)
         source = data.get('sync_source', data.get('source', '?'))
         target = data.get('sync_target', data.get('target', '?'))
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
 
         context = {
             'title': data.get('title', f"Synchronisation {self.SYSTEM_NAME} Réussie"),
@@ -194,7 +202,7 @@ class BaseNotificationService:
 
         previous = data.get('previous_active', '?')
         new_active = data.get('new_active', '?')
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
 
         context = {
             'title': data.get('title', f"Rollback {self.SYSTEM_NAME} Réussi"),
@@ -217,7 +225,7 @@ class BaseNotificationService:
 
         tables_blocked = data.get('tables_blocked', [])
         tables_error = data.get('tables_error', [])
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
 
         context = {
             'title': data.get('title', f"Anomalie Setup {self.SYSTEM_NAME}"),
