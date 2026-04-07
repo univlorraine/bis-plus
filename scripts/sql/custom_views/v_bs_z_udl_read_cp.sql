@@ -15,7 +15,7 @@ CREATE VIEW splus.v_bs_z_udl_read_cp
    FROM {target_schema}.cepc;
 
 ALTER TABLE splus.v_bs_z_udl_read_cp
-    OWNER TO root;
+    OWNER TO sifacplus;
 
 GRANT ALL ON TABLE splus.v_bs_z_udl_read_cp TO root;
 GRANT ALL ON TABLE splus.v_bs_z_udl_read_cp TO sifacplus;
