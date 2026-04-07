@@ -23,7 +23,7 @@ CREATE VIEW splus.v_sbv_z_udl_cji3 AS
         ) LEFT JOIN {target_schema}.cobk cobk ON ((covp.kokrs = cobk.kokrs) AND (covp.belnr = cobk.belnr))
     );
 
-COMMENT ON COLUMN splus.v_sbv_z_udl_cji3.posid IS 'Elément d\'organigramme technique de projet (élt OTP)';
+COMMENT ON COLUMN splus.v_sbv_z_udl_cji3.posid IS 'Elément d''organigramme technique de projet (élt OTP)';
 COMMENT ON COLUMN splus.v_sbv_z_udl_cji3.gjahr IS 'Exercice comptable';
 COMMENT ON COLUMN splus.v_sbv_z_udl_cji3.kokrs IS 'Périmètre analytique';
 COMMENT ON COLUMN splus.v_sbv_z_udl_cji3.belnr IS 'Nº de pièce';

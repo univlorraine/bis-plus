@@ -16,10 +16,10 @@ CREATE VIEW splus.v_z_udl_get_auth_values_cf AS
     )
     WHERE ((agr_users.uname = 'VIDARD5'::bpchar) AND (agr_users.agr_name ~~ 'YP%'::text));
 
-COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.uname IS 'Nom de l\'utilisateur ds fiche utilisateur';
+COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.uname IS 'Nom de l''utilisateur ds fiche utilisateur';
 COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.agr_name IS 'Nom du rôle';
 COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.from_dat IS 'Date de validité (de)';
 COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.to_dat IS 'Date de validité (à)';
-COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.object IS 'Objet d\'autorisation';
-COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.field IS 'Zone d\'autorisation';
-COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.von IS 'Valeur de l\'autorisation';
+COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.object IS 'Objet d''autorisation';
+COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.field IS 'Zone d''autorisation';
+COMMENT ON COLUMN splus.v_z_udl_get_auth_values_cf.von IS 'Valeur de l''autorisation';

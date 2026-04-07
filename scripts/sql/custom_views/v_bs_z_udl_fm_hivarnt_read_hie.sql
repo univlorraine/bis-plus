@@ -32,4 +32,4 @@ COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.hiroot_st IS 'Centre fina
 COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.parent_st IS 'Centre financier supérieur';
 COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.next_st IS 'Centre financier suivant au même niveau hiérarchique';
 COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.child_st IS 'Centre financier subordonné';
-COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.hilevel IS 'FIFM : niveau au sein d\'une hiérarchie';
+COMMENT ON COLUMN splus.v_bs_z_udl_fm_hivarnt_read_hie.hilevel IS 'FIFM : niveau au sein d''une hiérarchie';
