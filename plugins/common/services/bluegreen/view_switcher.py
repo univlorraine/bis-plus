@@ -186,6 +186,67 @@ class ViewSwitcher:
             cursor.close()
             return True
 
+    def refresh_custom_views(self, target_schema: str) -> Dict:
+        """
+        Recrée toutes les vues custom du répertoire custom_views_dir vers le schéma cible.
+
+        Opération indépendante de switch_views_to_schema() : ouvre sa propre connexion
+        et traite chaque vue en best-effort (un échec n'arrête pas les suivantes).
+
+        Args:
+            target_schema: Schéma cible ('splus_blue' ou 'splus_green')
+
+        Returns:
+            {"ok": int, "ko": int, "target_schema": str, "files_processed": List[str]}
+            files_processed contient uniquement les fichiers exécutés avec succès.
+
+        Raises:
+            ValueError: Si target_schema n'est pas un schéma valide
+            FileNotFoundError: Si le répertoire custom_views est absent
+        """
+        if target_schema not in VALID_TARGET_SCHEMAS:
+            raise ValueError(
+                f"Schéma invalide: {target_schema!r}. Attendu: {VALID_TARGET_SCHEMAS}"
+            )
+        if not self.custom_views_dir.exists():
+            raise FileNotFoundError(
+                f"Répertoire custom_views introuvable : {self.custom_views_dir}"
+            )
+
+        ok = ko = 0
+        files_processed: List[str] = []
+
+        with PostgresConnectionManager(self.postgres_hook) as conn_mgr:
+            conn = conn_mgr.get_connection()
+            cursor = conn.cursor()
+            try:
+                for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
+                    content = sql_file.read_text(encoding="utf-8").replace(
+                        "{target_schema}", target_schema
+                    )
+                    try:
+                        cursor.execute(content)
+                        conn_mgr.commit()
+                        logger.info(f"[REFRESH_VIEWS] Vue custom OK : {sql_file.name}")
+                        ok += 1
+                        files_processed.append(sql_file.name)
+                    except Exception as e:
+                        conn_mgr.rollback()
+                        logger.warning(
+                            f"[REFRESH_VIEWS] Vue custom ÉCHEC ({sql_file.name}) : {e}"
+                        )
+                        ko += 1
+            finally:
+                cursor.close()
+
+        logger.info(f"[REFRESH_VIEWS] {ok} OK, {ko} en échec → {target_schema}")
+        return {
+            "ok": ok,
+            "ko": ko,
+            "target_schema": target_schema,
+            "files_processed": files_processed,
+        }
+
     def verify_views_point_to(self, expected_schema: str) -> bool:
         """
         Vérifie que toutes les vues pointent vers le schéma attendu.

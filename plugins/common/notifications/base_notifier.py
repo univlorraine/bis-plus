@@ -219,6 +219,33 @@ class BaseNotificationService:
         email = Email(to=self.recipients, subject=subject, html_content=html_content)
         return self.email_service.send(email)
 
+    def notify_refresh_views_success(self, data: Dict[str, Any]) -> bool:
+        """Envoie une notification de succès de rafraîchissement des vues custom."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de rafraîchissement des vues")
+
+        ok = data.get('ok', 0)
+        ko = data.get('ko', 0)
+        target_schema = data.get('target_schema', '?')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
+
+        context = {
+            'title': data.get('title', f"Rafraîchissement Vues {self.SYSTEM_NAME} Réussi"),
+            'subtitle': self._format_date(data.get('execution_date')),
+            'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
+            'target_schema': target_schema,
+            'ok': ok,
+            'ko': ko,
+            'files_processed': data.get('files_processed', []),
+        }
+        suffix = ' (partiel)' if ko > 0 else ''
+        subject = (
+            f"[SUCCÈS] Rafraîchissement vues {self.SYSTEM_NAME}"
+            f" — {ok} vue(s){suffix} → {target_schema} — {date_str}"
+        )
+        html_content = self.TEMPLATES_CLASS.render_refresh_views_success(context)
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
     def notify_setup_error(self, data: Dict[str, Any]) -> bool:
         """Envoie une alerte d'anomalie de setup (tables bloquées ou en erreur)."""
         logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de setup")

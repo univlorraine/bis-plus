@@ -16,6 +16,7 @@ Structure des templates :
 from amue.notifications.templates_base import BaseTemplates
 from amue.notifications.templates_error import ErrorTemplates
 from amue.notifications.templates_import import ImportTemplates
+from amue.notifications.templates_refresh_views import RefreshViewsTemplates
 from amue.notifications.templates_rollback import RollbackTemplates
 from amue.notifications.templates_setup import SetupTemplates
 from amue.notifications.templates_sync import SyncTemplates
@@ -27,15 +28,17 @@ class NotificationTemplates(
     SyncTemplates,
     RollbackTemplates,
     SetupTemplates,
+    RefreshViewsTemplates,
     BaseTemplates,
 ):
     """
     Classe assemblant tous les templates de notification.
 
     Méthodes disponibles :
-        render_error(context)            — erreur générique
-        render_success(context)          — import AMUE / ECC réussi
-        render_sync_success(context)     — synchronisation blue/green réussie
-        render_rollback_success(context) — rollback blue/green réussi
-        render_setup_error(context)      — anomalie de setup (tables bloquées)
+        render_error(context)                  — erreur générique
+        render_success(context)                — import AMUE / ECC réussi
+        render_sync_success(context)           — synchronisation blue/green réussie
+        render_rollback_success(context)       — rollback blue/green réussi
+        render_setup_error(context)            — anomalie de setup (tables bloquées)
+        render_refresh_views_success(context)  — rafraîchissement vues custom réussi
     """
