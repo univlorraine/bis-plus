@@ -43,7 +43,7 @@ from amue.tasks.sync_dag import init_sync, run_sync, send_sync_report
 
 
 # Schedule configurable via variable Airflow
-_sync_schedule = VarMgr.get('amue_sync_schedule', default='0 6 * * *')
+_sync_schedule = VarMgr.get('amue_sync_schedule', default=None)
 
 
 @dag(
