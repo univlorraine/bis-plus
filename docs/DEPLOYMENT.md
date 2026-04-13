@@ -126,7 +126,7 @@ airflow variables import config/airflow_variables.json
 ```
 
 Variables importantes à personnaliser :
-- `universite` : Code de votre université
+- `universite` : Code de l'établissement
 - `environment` : `dev` ou `production`
 - `amue_bluegreen_enabled` : `true` pour activer blue/green
 
@@ -138,7 +138,7 @@ Variables importantes à personnaliser :
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `universite` | Code université | `UNI01` |
+| `universite` | Code établissement | `UNI01` |
 | `environment` | Environnement | `production` |
 | `api_endpoint_table` | Template URL API | `https://api.amue.fr/$univ/$table` |
 | `amue_bluegreen_enabled` | Activer blue/green | `true` |
