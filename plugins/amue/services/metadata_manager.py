@@ -23,7 +23,7 @@ Pour chaque table importée, le gestionnaire sauvegarde :
 │ fingerprint_API │ Hash MD5 structure originale API + PKs API                  │
 │                 │ → Détecte les changements côté fournisseur                 │
 ├─────────────────┼────────────────────────────────────────────────────────────┤
-│ fingerprint_UL  │ Hash MD5 structure transformée PG + PKs config             │
+│ fingerprint_local  │ Hash MD5 structure transformée PG + PKs config             │
 │                 │ → Détecte les changements côté local                       │
 ├─────────────────┼────────────────────────────────────────────────────────────┤
 │ primary_key     │ Liste des colonnes formant la clé primaire (CSV)           │
@@ -73,7 +73,7 @@ class TableMetadata:
     """Métadonnées d'une table importée"""
     name: str
     fingerprint_API: str
-    fingerprint_UL: str
+    fingerprint_local: str
     primary_key: str = ''
     delta: str = ''
 
@@ -175,7 +175,7 @@ class AMUEMetadataManager:
             return TableMetadata(
                 name=table.get('table_name', ''),
                 fingerprint_API=table.get('fingerprint_API', ''),
-                fingerprint_UL=table.get('fingerprint_UL', ''),
+                fingerprint_local=table.get('fingerprint_local', ''),
                 primary_key=table.get('primary_key', ''),
                 delta=table.get('delta', '')
             )

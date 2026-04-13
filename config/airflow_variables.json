@@ -3,7 +3,7 @@
   "amue_sync_schedule": "0 6 * * *",
   "amue_monitor_schedule": "0 22 * * *",
   "ecc_import_schedule": "0 4 * * *",
-  "universite": "ul",
+  "universite": "univ",
   "api_endpoint_admin": "finances/cdv/v1/preprod/${univ}/admin",
   "api_endpoint_table": "finances/cdv/v1/preprod/${univ}/table",
   "amue_import_batch_size": "5000",

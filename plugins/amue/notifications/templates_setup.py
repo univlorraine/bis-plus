@@ -18,7 +18,7 @@ class SetupTemplates(BaseTemplates):
             subtitle       : date
             dag_id         : ID du DAG
             tables_blocked : liste de dicts pour les tables bloquées
-                             {table_name, fp_api_changed, fp_ul_changed,
+                             {table_name, fp_api_changed, fp_local_changed,
                               columns_count, ul_diff}
             tables_error   : liste de dicts pour les tables en erreur
                              {table_name, error}
@@ -88,7 +88,7 @@ class SetupTemplates(BaseTemplates):
         for t in tables:
             name = t.get('table_name', 'unknown')
             fp_api = t.get('fp_api_changed')
-            fp_ul = t.get('fp_ul_changed')
+            fp_local = t.get('fp_local_changed')
             cols = t.get('columns_count')
             ul_diff = t.get('ul_diff', '')
 
@@ -101,19 +101,19 @@ class SetupTemplates(BaseTemplates):
                 fp_api_html = '<span style="color:#999">N/A</span>'
 
             # Cellule FP UL
-            if fp_ul is True:
+            if fp_local is True:
                 fp_ul_html = '<span class="badge badge-error">modifié</span>'
-            elif fp_ul is False:
+            elif fp_local is False:
                 fp_ul_html = '<span class="badge badge-success">inchangé</span>'
             else:
                 fp_ul_html = '<span style="color:#999">N/A</span>'
 
             # Cause probable
-            if fp_api is True and fp_ul is True:
+            if fp_api is True and fp_local is True:
                 cause = "Colonnes ajoutées / supprimées (API + config locale)"
             elif fp_api is True:
                 cause = "Types ou colonnes côté API uniquement"
-            elif fp_ul is True:
+            elif fp_local is True:
                 cause = "Clés primaires UL ou types PG modifiés (config locale)"
             else:
                 cause = t.get('error', 'Structure modifiée')

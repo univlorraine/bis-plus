@@ -34,7 +34,7 @@ class TestTableSetupOrchestratorSuccess:
         structure = {
             'status': 'success',
             'fingerprint_API': 'abc123',
-            'fingerprint_UL': 'def456',
+            'fingerprint_local': 'def456',
             'primary_keys': 'id',
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
@@ -42,7 +42,7 @@ class TestTableSetupOrchestratorSuccess:
             'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': '',
-            'fingerprint_UL': '',
+            'fingerprint_local': '',
         }
 
         result, config_manager = _run_orchestrator(table_info, structure, {'created': True})
@@ -56,11 +56,11 @@ class TestTableSetupOrchestratorSuccess:
 
     def test_existing_table_same_fingerprint(self):
         """Table existante, fingerprint identique → success + created=False."""
-        fp_api, fp_ul = 'abc123', 'def456'
+        fp_api, fp_local = 'abc123', 'def456'
         structure = {
             'status': 'success',
             'fingerprint_API': fp_api,
-            'fingerprint_UL': fp_ul,
+            'fingerprint_local': fp_local,
             'primary_keys': 'id',
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
@@ -68,7 +68,7 @@ class TestTableSetupOrchestratorSuccess:
             'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': fp_api,
-            'fingerprint_UL': fp_ul,
+            'fingerprint_local': fp_local,
         }
 
         result, config_manager = _run_orchestrator(table_info, structure, {'created': False})
@@ -82,7 +82,7 @@ class TestTableSetupOrchestratorSuccess:
         structure = {
             'status': 'success',
             'fingerprint_API': 'NEW_api_fp_NEW_api_fp_',
-            'fingerprint_UL': 'NEW_ul_fp_NEW_ul_fp__',
+            'fingerprint_local': 'NEW_ul_fp_NEW_ul_fp__',
             'primary_keys': 'id',
             'columns': [{'name': 'id', 'type_postgres': 'INTEGER'}],
         }
@@ -90,7 +90,7 @@ class TestTableSetupOrchestratorSuccess:
             'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': 'OLD_api_fp_OLD_api_fp_',
-            'fingerprint_UL': 'OLD_ul_fp_OLD_ul_fp__',
+            'fingerprint_local': 'OLD_ul_fp_OLD_ul_fp__',
         }
 
         result, config_manager = _run_orchestrator(table_info, structure)
@@ -125,7 +125,7 @@ class TestTableSetupOrchestratorSuccess:
             'table_name': 'CSKS',
             'target_schema': 'splus_blue',
             'fingerprint_API': '',
-            'fingerprint_UL': '',
+            'fingerprint_local': '',
         }
 
         result, _ = _run_orchestrator(table_info, structure)

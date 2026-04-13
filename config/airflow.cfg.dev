@@ -1763,13 +1763,13 @@ smtp_retry_limit = 5
 # smtp_mail_from = votre-email@company.com
 
 # Pour un serveur SMTP personnalisé:
-# smtp_host = smtp.univ-lorraine.fr
+# smtp_host = smtp.votre-universite.fr
 # smtp_starttls = True
 # smtp_ssl = False
 # smtp_port = 587
 # smtp_user =
 # smtp_password =
-# smtp_mail_from = airflow@univ-lorraine.fr
+# smtp_mail_from = airflow@votre-universite.fr
 
 [sentry]
 # `Sentry <https://docs.sentry.io>`__ integration. Here you can supply

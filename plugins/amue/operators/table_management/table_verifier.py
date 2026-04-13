@@ -87,7 +87,7 @@ _META_COLUMNS = {'_SOURCE', '_IMPORTED_AT'}
 
 
 def _error_result(table_name: str, error: str, columns: List,
-                  fingerprint_API: str, fingerprint_UL: str,
+                  fingerprint_API: str, fingerprint_local: str,
                   primary_keys: str, exists: bool,
                   structure_changed: bool) -> Dict:
     """Construit un résultat d'erreur"""
@@ -98,7 +98,7 @@ def _error_result(table_name: str, error: str, columns: List,
         'error': error,
         'columns': columns,
         'fingerprint_API': fingerprint_API,
-        'fingerprint_UL': fingerprint_UL,
+        'fingerprint_local': fingerprint_local,
         'primary_keys': primary_keys,
         'exists': exists,
         'structure_changed': structure_changed
@@ -106,22 +106,22 @@ def _error_result(table_name: str, error: str, columns: List,
 
 
 def _check_fingerprint_changes(table_name: str, new_fp_api: str, old_fp_api: str,
-                               new_fp_ul: str, old_fp_ul: str, exists: bool) -> Dict:
+                               new_fp_local: str, old_fp_local: str, exists: bool) -> Dict:
     """Vérifie quels fingerprints ont changé."""
     if not exists:
         return {'api_changed': False, 'ul_changed': False}
 
     api_changed = bool(old_fp_api and new_fp_api and old_fp_api != new_fp_api)
-    ul_changed = bool(old_fp_ul and new_fp_ul and old_fp_ul != new_fp_ul)
+    ul_changed = bool(old_fp_local and new_fp_local and old_fp_local != new_fp_local)
 
     if api_changed:
         logger.info(f"[STRUCTURE_CHECK] {table_name}: fingerprint_API changé")
         logger.info(f"  Ancien: {old_fp_api[:16]}...")
         logger.info(f"  Nouveau: {new_fp_api[:16]}...")
     if ul_changed:
-        logger.info(f"[STRUCTURE_CHECK] {table_name}: fingerprint_UL changé")
-        logger.info(f"  Ancien: {old_fp_ul[:16]}...")
-        logger.info(f"  Nouveau: {new_fp_ul[:16]}...")
+        logger.info(f"[STRUCTURE_CHECK] {table_name}: fingerprint_local changé")
+        logger.info(f"  Ancien: {old_fp_local[:16]}...")
+        logger.info(f"  Nouveau: {new_fp_local[:16]}...")
 
     return {'api_changed': api_changed, 'ul_changed': ul_changed}
 
@@ -197,7 +197,7 @@ class AMUETableVerifier:
 
         Calcule deux fingerprints :
         - fingerprint_API : structure originale API + PKs API (toujours fetchées)
-        - fingerprint_UL : structure transformée PG + PKs variable Airflow (fallback API)
+        - fingerprint_local : structure transformée PG + PKs variable Airflow (fallback API)
         """
         table_name = table_info.get('table_name', 'unknown')
         logger.info(f"[STRUCTURE_CHECK] Vérification structure: {table_name}")
@@ -227,7 +227,7 @@ class AMUETableVerifier:
 
             # Calcul des deux fingerprints
             fingerprint_API = compute_structure_hash_with_pk(columns, api_pks, type_key='type_original')
-            fingerprint_UL = compute_structure_hash_with_pk(columns, config_pks or api_pks, type_key='type_postgres')
+            fingerprint_local = compute_structure_hash_with_pk(columns, config_pks or api_pks, type_key='type_postgres')
 
             # PKs effectives pour l'import (config prioritaire sur API)
             primary_keys = config_pks or api_pks
@@ -239,7 +239,7 @@ class AMUETableVerifier:
             fp_changes = _check_fingerprint_changes(
                 table_name,
                 fingerprint_API, table_info.get('fingerprint_API', ''),
-                fingerprint_UL, table_info.get('fingerprint_UL', ''),
+                fingerprint_local, table_info.get('fingerprint_local', ''),
                 exists
             )
             structure_changed = fp_changes['api_changed'] or fp_changes['ul_changed']
@@ -255,7 +255,7 @@ class AMUETableVerifier:
                 'error': None,
                 'columns': columns,
                 'fingerprint_API': fingerprint_API,
-                'fingerprint_UL': fingerprint_UL,
+                'fingerprint_local': fingerprint_local,
                 'primary_keys': primary_keys,
                 'exists': exists,
                 'structure_changed': structure_changed,
@@ -547,8 +547,8 @@ class AMUETableVerifier:
         # 3. Vérification des fingerprints
         old_fp_api = table_info.get('fingerprint_API', '')
         new_fp_api = structure_result.get('fingerprint_API', '')
-        old_fp_ul = table_info.get('fingerprint_UL', '')
-        new_fp_ul = structure_result.get('fingerprint_UL', '')
+        old_fp_local = table_info.get('fingerprint_local', '')
+        new_fp_local = structure_result.get('fingerprint_local', '')
 
         changes = []
         if old_fp_api and new_fp_api and old_fp_api != new_fp_api:
@@ -556,12 +556,12 @@ class AMUETableVerifier:
                 f"fingerprint_API: {old_fp_api[:16]}... -> {new_fp_api[:16]}...\n"
                 f"  Cause: L'AMUE a modifie la structure source de la table."
             )
-        if old_fp_ul and new_fp_ul and old_fp_ul != new_fp_ul:
+        if old_fp_local and new_fp_local and old_fp_local != new_fp_local:
             diff_detail = self._compute_structure_diff(
                 table_name, structure_result.get('columns', [])
             )
             changes.append(
-                f"fingerprint_UL: {old_fp_ul[:16]}... -> {new_fp_ul[:16]}...\n"
+                f"fingerprint_local: {old_fp_local[:16]}... -> {new_fp_local[:16]}...\n"
                 f"  {diff_detail}"
             )
 
@@ -588,9 +588,9 @@ class AMUETableVerifier:
         if not old_fp_api and new_fp_api:
             updated_info['fingerprint_API'] = new_fp_api
             logger.info(f"[VERIFY] fingerprint_API initialisé: {new_fp_api[:16]}...")
-        if not old_fp_ul and new_fp_ul:
-            updated_info['fingerprint_UL'] = new_fp_ul
-            logger.info(f"[VERIFY] fingerprint_UL initialisé: {new_fp_ul[:16]}...")
+        if not old_fp_local and new_fp_local:
+            updated_info['fingerprint_local'] = new_fp_local
+            logger.info(f"[VERIFY] fingerprint_local initialisé: {new_fp_local[:16]}...")
 
         return {
             'table_name': table_name,
@@ -600,7 +600,7 @@ class AMUETableVerifier:
             'columns': structure_result.get('columns', []),
             'primary_keys': structure_result.get('primary_keys', ''),
             'fingerprint_API': new_fp_api,
-            'fingerprint_UL': new_fp_ul,
+            'fingerprint_local': new_fp_local,
             'exists': structure_result.get('exists', False),
             'original_info': updated_info
         }

@@ -129,7 +129,7 @@ splus_admin       Administration
 | `primary_key`    | Clés primaires pour UPSERT (prioritaires sur l'API)       |
 | `delta`          | Colonne de date pour import différentiel                  |
 | `fingerprint_api`| Empreinte structure côté API (auto-générée)              |
-| `fingerprint_ul` | Empreinte structure côté PostgreSQL (auto-générée, nom interne) |
+| `fingerprint_local` | Empreinte structure côté PostgreSQL (auto-générée, nom interne) |
 | `setup_status`   | `pending` / `ready` / `blocked`                           |
 | `ecc_query`      | `NULL` = table SIFAC+ ; non-`NULL` = requête Oracle ECC  |
 

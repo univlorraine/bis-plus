@@ -77,7 +77,7 @@ class ImportResult(TypedDict, total=False):
         status: Statut de l'import ('success' ou 'error')
         correlation_id: ID de corrélation pour le tracing
         fingerprint_API: Empreinte de structure originale API
-        fingerprint_UL: Empreinte de structure transformée PG
+        fingerprint_local: Empreinte de structure transformée PG
         table_finish: Date finish de la table côté API AMUE
         batch_count: Nombre de batches traités
         total_duration_seconds: Durée totale d'insertion en secondes
@@ -91,7 +91,7 @@ class ImportResult(TypedDict, total=False):
     status: str
     correlation_id: str
     fingerprint_API: str
-    fingerprint_UL: str
+    fingerprint_local: str
     table_finish: str
     batch_count: int
     total_duration_seconds: float
@@ -107,7 +107,7 @@ class ImportResultPartial(TypedDict, total=False):
     status: str
     correlation_id: str
     fingerprint_API: str
-    fingerprint_UL: str
+    fingerprint_local: str
     batch_count: int
     total_duration_seconds: float
     avg_batch_duration: float
@@ -178,14 +178,14 @@ class ImportConfig(TypedDict, total=False):
         delta: Nom de la colonne de date pour le différentiel
         last_import: Date ISO de référence pour le filtrage différentiel (depuis amue_state.last_report_start)
         fingerprint_API: Empreinte de structure originale API
-        fingerprint_UL: Empreinte de structure transformée PG
+        fingerprint_local: Empreinte de structure transformée PG
         table_finish: Date finish de la table côté API AMUE
     """
     import_type: Literal['full', 'delta']
     delta: Optional[str]
     last_import: Optional[str]
     fingerprint_API: Optional[str]
-    fingerprint_UL: Optional[str]
+    fingerprint_local: Optional[str]
     table_finish: Optional[str]
 
 

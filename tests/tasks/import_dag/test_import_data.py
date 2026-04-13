@@ -21,7 +21,7 @@ class TestImportData:
             'rows_fetched': 1550,
             'import_type': 'delta',
             'fingerprint_API': 'abc123',
-            'fingerprint_UL': 'def456',
+            'fingerprint_local': 'def456',
             'status': 'success',
             'correlation_id': 'import-test01',
             'batch_count': 1,

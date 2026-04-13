@@ -82,7 +82,7 @@ class TableSetupOrchestrator:
         table_name = table_info.get('table_name', 'unknown')
         target_schema = table_info.get('target_schema')
         stored_fp_api = table_info.get('fingerprint_API', '')
-        stored_fp_ul = table_info.get('fingerprint_UL', '')
+        stored_fp_local = table_info.get('fingerprint_local', '')
 
         logger.info(f"[SETUP] Début setup pour {table_name} (schéma: {target_schema})")
 
@@ -92,19 +92,19 @@ class TableSetupOrchestrator:
                 return self._error_result(table_name, structure.get('error'))
 
             new_fp_api = structure['fingerprint_API']
-            new_fp_ul = structure['fingerprint_UL']
+            new_fp_local = structure['fingerprint_local']
             primary_keys = structure['primary_keys']
             columns = structure['columns']
 
-            if self._structure_changed(stored_fp_api, stored_fp_ul, new_fp_api, new_fp_ul):
+            if self._structure_changed(stored_fp_api, stored_fp_local, new_fp_api, new_fp_local):
                 return self._handle_structure_change(
-                    table_name, stored_fp_api, stored_fp_ul, new_fp_api, new_fp_ul, columns,
+                    table_name, stored_fp_api, stored_fp_local, new_fp_api, new_fp_local, columns,
                     target_schema=target_schema,
                     table_exists=structure.get('exists', False),
                 )
 
             created = self._create_table_if_needed(structure, target_schema)
-            self._save_result(table_name, new_fp_api, new_fp_ul, primary_keys)
+            self._save_result(table_name, new_fp_api, new_fp_local, primary_keys)
 
             action = 'créée' if created else 'existante'
             logger.info(f"[SETUP] {table_name}: OK — table {action}, fingerprints sauvegardés")
@@ -133,30 +133,30 @@ class TableSetupOrchestrator:
 
     @staticmethod
     def _structure_changed(
-        stored_fp_api: str, stored_fp_ul: str,
-        new_fp_api: str, new_fp_ul: str,
+        stored_fp_api: str, stored_fp_local: str,
+        new_fp_api: str, new_fp_local: str,
     ) -> bool:
-        is_new = not stored_fp_api and not stored_fp_ul
+        is_new = not stored_fp_api and not stored_fp_local
         return (
             not is_new
-            and (stored_fp_api != new_fp_api or stored_fp_ul != new_fp_ul)
+            and (stored_fp_api != new_fp_api or stored_fp_local != new_fp_local)
         )
 
     def _handle_structure_change(
         self,
         table_name: str,
-        stored_fp_api: str, stored_fp_ul: str,
-        new_fp_api: str, new_fp_ul: str,
+        stored_fp_api: str, stored_fp_local: str,
+        new_fp_api: str, new_fp_local: str,
         columns,
         target_schema: str = None,
         table_exists: bool = False,
     ) -> Dict:
         fp_api_changed = stored_fp_api != new_fp_api
-        fp_ul_changed = stored_fp_ul != new_fp_ul
+        fp_local_changed = stored_fp_local != new_fp_local
 
-        # Calcul du diff de colonnes si le fingerprint_UL a changé et que la table existe en PG
+        # Calcul du diff de colonnes si le fingerprint_local a changé et que la table existe en PG
         ul_diff = None
-        if fp_ul_changed and table_exists and target_schema:
+        if fp_local_changed and table_exists and target_schema:
             try:
                 verifier = AMUETableVerifier(self._api_hook, target_schema=target_schema)
                 ul_diff = verifier._compute_structure_diff(table_name, columns)
@@ -166,7 +166,7 @@ class TableSetupOrchestrator:
         error_msg = (
             f"[SETUP] Changement de structure détecté pour {table_name} :\n"
             f"  fingerprint_API : {stored_fp_api[:16]}... → {new_fp_api[:16]}...\n"
-            f"  fingerprint_UL  : {stored_fp_ul[:16]}... → {new_fp_ul[:16]}..."
+            f"  fingerprint_local  : {stored_fp_local[:16]}... → {new_fp_local[:16]}..."
         )
         logger.error(error_msg)
         self._config_manager.set_setup_status(table_name, 'blocked')
@@ -179,7 +179,7 @@ class TableSetupOrchestrator:
             'columns_count': len(columns),
             'error': error_msg,
             'fp_api_changed': fp_api_changed,
-            'fp_ul_changed': fp_ul_changed,
+            'fp_local_changed': fp_local_changed,
             'ul_diff': ul_diff,
         }
 
@@ -190,12 +190,12 @@ class TableSetupOrchestrator:
         return result.get('created', False)
 
     def _save_result(
-        self, table_name: str, fp_api: str, fp_ul: str, primary_keys: str
+        self, table_name: str, fp_api: str, fp_local: str, primary_keys: str
     ) -> None:
         self._config_manager.save_setup_result(
             table_name=table_name,
             fingerprint_api=fp_api,
-            fingerprint_ul=fp_ul,
+            fingerprint_local=fp_local,
             primary_keys=primary_keys,
         )
 

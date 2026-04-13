@@ -133,7 +133,7 @@ class AMUEReportGenerator:
                 'import_type': r.get('import_type', 'full'),
                 'status': r.get('status', 'success'),
                 'fingerprint_API': r.get('fingerprint_API', '')[:16] + '...' if r.get('fingerprint_API') else '',
-                'fingerprint_UL': r.get('fingerprint_UL', '')[:16] + '...' if r.get('fingerprint_UL') else ''
+                'fingerprint_local': r.get('fingerprint_local', '')[:16] + '...' if r.get('fingerprint_local') else ''
             })
 
         report = {

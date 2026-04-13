@@ -41,7 +41,7 @@ x-airflow-common:
     AIRFLOW__SMTP__SMTP_STARTTLS: 'False'
     AIRFLOW__SMTP__SMTP_SSL: 'False'
     AIRFLOW__SMTP__SMTP_PORT: 1025
-    AIRFLOW__SMTP__SMTP_MAIL_FROM: airflow@univ-lorraine.fr
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: airflow@votre-universite.fr
     AIRFLOW__EMAIL__EMAIL_BACKEND: airflow.providers.smtp.notifications.smtp.SmtpNotifier
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- requests oauthlib requests-oauthlib oracledb}
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'

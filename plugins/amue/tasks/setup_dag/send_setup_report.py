@@ -34,25 +34,25 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
     for t in tables_blocked:
         name = t['table_name']
         fp_api_changed = t.get('fp_api_changed')
-        fp_ul_changed = t.get('fp_ul_changed')
+        fp_local_changed = t.get('fp_local_changed')
         cols = t.get('columns_count')
         sep = '═' * (40 - len(name))
         logger.error(f"[SETUP_REPORT] ══ BLOQUÉE : {name} {sep}")
         if cols is not None:
             logger.error(f"[SETUP_REPORT]   Colonnes détectées : {cols}")
-        if fp_api_changed is not None and fp_ul_changed is not None:
+        if fp_api_changed is not None and fp_local_changed is not None:
             api_label = 'MODIFIÉ  → structure côté serveur AMUE' if fp_api_changed else 'inchangé'
-            ul_label = 'MODIFIÉ  → config locale (PKs / types PG)' if fp_ul_changed else 'inchangé'
+            ul_label = 'MODIFIÉ  → config locale (PKs / types PG)' if fp_local_changed else 'inchangé'
             logger.error(f"[SETUP_REPORT]   fingerprint_API    : {api_label}")
-            logger.error(f"[SETUP_REPORT]   fingerprint_UL     : {ul_label}")
-            if fp_api_changed and fp_ul_changed:
+            logger.error(f"[SETUP_REPORT]   fingerprint_local     : {ul_label}")
+            if fp_api_changed and fp_local_changed:
                 cause = "colonnes ajoutées/supprimées (API + UL affectés)"
             elif fp_api_changed:
                 cause = "types ou colonnes côté API uniquement"
             else:
                 cause = "clés primaires UL ou types PG modifiés (config locale)"
             logger.error(f"[SETUP_REPORT]   → Cause probable   : {cause}")
-            if fp_ul_changed:
+            if fp_local_changed:
                 ul_diff = t.get('ul_diff')
                 if ul_diff:
                     logger.error(f"[SETUP_REPORT]   Diff colonnes (PG existant → API) :")
@@ -80,7 +80,7 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
                     {
                         'table_name': t['table_name'],
                         'fp_api_changed': t.get('fp_api_changed'),
-                        'fp_ul_changed': t.get('fp_ul_changed'),
+                        'fp_local_changed': t.get('fp_local_changed'),
                         'columns_count': t.get('columns_count'),
                         'ul_diff': t.get('ul_diff', ''),
                         'error': t.get('error', ''),

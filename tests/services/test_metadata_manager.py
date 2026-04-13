@@ -37,7 +37,7 @@ class TestMetadataManagerUpdateMetadata:
                 'table_name': 'csks',
                 'status': 'success',
                 'fingerprint_API': 'new_api_fp_123',
-                'fingerprint_UL': 'new_ul_fp_456',
+                'fingerprint_local': 'new_ul_fp_456',
                 'primary_keys': 'id'
             }
         ]
@@ -173,7 +173,7 @@ class TestMetadataManagerGetTableMetadata:
         mock_tcm.get_table_metadata.return_value = {
             'table_name': 'CSKS',
             'fingerprint_API': 'fp_api_123',
-            'fingerprint_UL': 'fp_ul_456',
+            'fingerprint_local': 'fp_ul_456',
             'primary_key': 'id',
             'delta': 'date_modif'
         }
@@ -186,7 +186,7 @@ class TestMetadataManagerGetTableMetadata:
         assert result is not None
         assert result.name == 'CSKS'
         assert result.fingerprint_API == 'fp_api_123'
-        assert result.fingerprint_UL == 'fp_ul_456'
+        assert result.fingerprint_local == 'fp_ul_456'
         assert result.primary_key == 'id'
         assert result.delta == 'date_modif'
 
@@ -281,14 +281,14 @@ class TestTableMetadata:
         metadata = TableMetadata(
             name='CSKS',
             fingerprint_API='fp_api_123',
-            fingerprint_UL='fp_ul_456',
+            fingerprint_local='fp_ul_456',
             primary_key='id',
             delta='date_modif'
         )
 
         assert metadata.name == 'CSKS'
         assert metadata.fingerprint_API == 'fp_api_123'
-        assert metadata.fingerprint_UL == 'fp_ul_456'
+        assert metadata.fingerprint_local == 'fp_ul_456'
         assert metadata.primary_key == 'id'
         assert metadata.delta == 'date_modif'
 
@@ -299,7 +299,7 @@ class TestTableMetadata:
         metadata = TableMetadata(
             name='CSKS',
             fingerprint_API='fp_api_123',
-            fingerprint_UL='fp_ul_456'
+            fingerprint_local='fp_ul_456'
         )
 
         assert metadata.primary_key == ''

@@ -14,7 +14,7 @@ Colonnes gérées :
     - primary_key     : Clés primaires pour UPSERT (CSV)
     - delta           : Colonne de date pour import différentiel
     - fingerprint_api : Hash structure originale API + PKs API
-    - fingerprint_ul  : Hash structure transformée PG + PKs config
+    - fingerprint_local  : Hash structure transformée PG + PKs config
     - setup_status    : État du setup (pending / ready / blocked)
     - updated_at      : Timestamp de dernière modification
 
@@ -43,7 +43,7 @@ class TableConfigManager:
             'primary_key':     str,   # primary_key
             'delta':           str,   # delta
             'fingerprint_API': str,   # fingerprint_api
-            'fingerprint_UL':  str,   # fingerprint_ul
+            'fingerprint_local':  str,   # fingerprint_local
             'setup_status':    str,   # setup_status (pending/ready/blocked)
         }
 
@@ -66,7 +66,7 @@ class TableConfigManager:
 
         Returns:
             Liste de dicts avec les clés : name, enable, primary_key, delta,
-            fingerprint_API, fingerprint_UL
+            fingerprint_API, fingerprint_local
 
         Raises:
             Exception: Si la requête SQL échoue (pour déclencher le retry du caller)
@@ -74,7 +74,7 @@ class TableConfigManager:
         try:
             rows = self._hook.get_records(
                 f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_ul, setup_status "
+                f"fingerprint_api, fingerprint_local, setup_status "
                 f"FROM {_TABLE} ORDER BY table_name"
             )
             result = [self._row_to_dict(row) for row in (rows or [])]
@@ -97,7 +97,7 @@ class TableConfigManager:
         try:
             row = self._hook.get_first(
                 f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_ul, setup_status "
+                f"fingerprint_api, fingerprint_local, setup_status "
                 f"FROM {_TABLE} WHERE table_name = %s",
                 parameters=(table_name.upper(),)
             )
@@ -126,7 +126,7 @@ class TableConfigManager:
         rows = [
             (
                 table.get('fingerprint_API', ''),
-                table.get('fingerprint_UL', ''),
+                table.get('fingerprint_local', ''),
                 table.get('primary_key', ''),
                 table.get('table_name', '').upper(),
             )
@@ -144,10 +144,10 @@ class TableConfigManager:
                     cursor,
                     f"""UPDATE {_TABLE} AS t
                         SET fingerprint_api = v.fp_api,
-                            fingerprint_ul  = v.fp_ul,
+                            fingerprint_local  = v.fp_local,
                             primary_key     = v.pk,
                             updated_at      = NOW()
-                        FROM (VALUES %s) AS v(fp_api, fp_ul, pk, tname)
+                        FROM (VALUES %s) AS v(fp_api, fp_local, pk, tname)
                         WHERE t.table_name = v.tname""",
                     rows,
                     template="(%s, %s, %s, %s)",
@@ -180,7 +180,7 @@ class TableConfigManager:
 
     def reset_table_metadata(self, table_name: str) -> bool:
         """
-        Vide fingerprint_api et fingerprint_ul pour une table.
+        Vide fingerprint_api et fingerprint_local pour une table.
 
         Utile en cas de changement de structure ou de réimport complet.
 
@@ -194,7 +194,7 @@ class TableConfigManager:
             self._hook.run(
                 f"""UPDATE {_TABLE}
                     SET fingerprint_api = '',
-                        fingerprint_ul  = '',
+                        fingerprint_local  = '',
                         updated_at      = NOW()
                     WHERE table_name = %s""",
                 parameters=(table_name.upper(),)
@@ -214,7 +214,7 @@ class TableConfigManager:
     # =========================================================================
 
     def save_setup_result(self, table_name: str, fingerprint_api: str,
-                          fingerprint_ul: str, primary_keys: str) -> None:
+                          fingerprint_local: str, primary_keys: str) -> None:
         """
         Sauvegarde atomique du résultat du setup pour une table.
 
@@ -223,21 +223,21 @@ class TableConfigManager:
         Args:
             table_name: Nom de la table
             fingerprint_api: Hash structure API
-            fingerprint_ul: Hash structure PG
+            fingerprint_local: Hash structure PG
             primary_keys: Clés primaires CSV
         """
         try:
             self._hook.run(
                 f"""UPDATE {_TABLE}
                     SET fingerprint_api = %s,
-                        fingerprint_ul  = %s,
+                        fingerprint_local  = %s,
                         primary_key     = %s,
                         setup_status    = 'ready',
                         updated_at      = NOW()
                     WHERE table_name = %s""",
                 parameters=(
                     fingerprint_api,
-                    fingerprint_ul,
+                    fingerprint_local,
                     primary_keys,
                     table_name.upper(),
                 )
@@ -274,6 +274,6 @@ class TableConfigManager:
             'primary_key':     row[2] or '',
             'delta':           row[3] or '',
             'fingerprint_API': row[4] or '',
-            'fingerprint_UL':  row[5] or '',
+            'fingerprint_local':  row[5] or '',
             'setup_status':    row[6] if len(row) > 6 else 'pending',
         }

@@ -41,7 +41,7 @@ Le script `quick_setup.sh` pose une série de questions et prend en charge l'int
 | Question | Exemple de réponse |
 |----------|--------------------|
 | Environnement | `1` (dev/sandbox) ou `2` (production) |
-| Code université | `ul` |
+| Code université | `univ` |
 | Destinataires rapports | `admin@univ.fr` |
 | Client ID OAuth AMUE | `<votre_client_id>` |
 | Client Secret OAuth AMUE | `<votre_client_secret>` |
@@ -170,7 +170,7 @@ Créer chaque variable (champs `Key` et `Val`) :
 
 | Key | Valeur |
 |-----|--------|
-| `universite` | `ul` |
+| `universite` | `univ` |
 | `api_endpoint_admin` | `finances/cdv/v1/preprod/${univ}/admin` |
 | `api_endpoint_table` | `finances/cdv/v1/preprod/${univ}/table` |
 | `amue_import_schedule` | `0 2 * * *` |
@@ -212,7 +212,7 @@ docker compose exec airflow-apiserver airflow variables import \
 curl -s -X POST http://localhost:8080/api/v1/variables \
   -u airflow:airflow \
   -H "Content-Type: application/json" \
-  -d '{"key": "universite", "value": "ul"}'
+  -d '{"key": "universite", "value": "univ"}'
 ```
 
 Répéter pour chaque variable du tableau ci-dessus.
@@ -256,15 +256,15 @@ Aller sur http://localhost:8080 → **Admin** → **Connections** → bouton **+
 
 **Connexion `oracle_data`** — Oracle ECC *(optionnel)*
 
-| Champ | Valeur |
-|-------|--------|
-| Connection Id | `oracle_data` |
-| Connection Type | `ODBC` |
-| Host | `sifac-db-test.univ-lorraine.fr` |
-| Port | `1521` |
-| Schema | `T91` |
-| Login | `<user>` |
-| Password | `<password>` |
+| Champ           | Valeur                   |
+|-----------------|--------------------------|
+| Connection Id   | `oracle_data`            |
+| Connection Type | `ODBC`                   |
+| Host            | `base-oracle.domaine.fr` |
+| Port            | `1521`                   |
+| Schema          | `Txx`                    |
+| Login           | `<user>`                 |
+| Password        | `<password>`             |
 
 ---
 
@@ -291,9 +291,9 @@ docker compose exec airflow-apiserver airflow connections add postgres_data \
 # Connexion Oracle ECC (optionnel)
 docker compose exec airflow-apiserver airflow connections add oracle_data \
   --conn-type odbc \
-  --conn-host sifac-db-test.univ-lorraine.fr \
+  --conn-host base-oracle.domaine.fr \
   --conn-port 1521 \
-  --conn-schema T91 \
+  --conn-schema Txx \
   --conn-login <user> \
   --conn-password <password>
 ```

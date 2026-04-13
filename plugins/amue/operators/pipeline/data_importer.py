@@ -197,7 +197,7 @@ class AMUEDataImporter:
                     'rows_fetched': rows_fetched,
                     'import_type': import_type,
                     'fingerprint_API': import_config.get('fingerprint_API', ''),
-                    'fingerprint_UL': import_config.get('fingerprint_UL', ''),
+                    'fingerprint_local': import_config.get('fingerprint_local', ''),
                     'table_finish': import_config.get('table_finish', ''),
                     'status': 'success',
                     'correlation_id': correlation_id,

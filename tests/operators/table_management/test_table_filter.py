@@ -33,7 +33,7 @@ class TestTableFilterInit:
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_tables_config.return_value = [
             {'table_name': 'CSKS', 'primary_key': 'id', 'enable': True,
-             'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
+             'delta': '', 'fingerprint_API': '', 'fingerprint_local': ''}
         ]
 
         mock_admin = MagicMock()
@@ -226,7 +226,7 @@ class TestTableFilterEnrichConfig:
         assert enriched['primary_key'] == ''
         assert enriched['delta'] == ''
         assert enriched['fingerprint_API'] == ''
-        assert enriched['fingerprint_UL'] == ''
+        assert enriched['fingerprint_local'] == ''
         assert enriched['current_status'] == current_status
         # last_import n'est pas injecté à l'enrichissement — seulement dans _should_process_table
         assert 'last_import' not in enriched
@@ -394,7 +394,7 @@ class TestTableFilterLoadConfig:
         mock_tcm_cls.return_value = mock_tcm
         mock_tcm.get_tables_config.return_value = [
             {'table_name': 'CSKS', 'primary_key': 'id', 'enable': True,
-             'delta': '', 'fingerprint_API': '', 'fingerprint_UL': ''}
+             'delta': '', 'fingerprint_API': '', 'fingerprint_local': ''}
         ]
 
         mock_admin = MagicMock()

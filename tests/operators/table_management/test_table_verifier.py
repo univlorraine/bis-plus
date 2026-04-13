@@ -127,7 +127,7 @@ class TestTableVerifierVerifyStructure:
             'table_name': 'CSKS',
             'primary_key': '',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -137,7 +137,7 @@ class TestTableVerifierVerifyStructure:
         assert len(result['columns']) == 2
         assert result['primary_keys'] == 'ID'
         assert 'fingerprint_API' in result
-        assert 'fingerprint_UL' in result
+        assert 'fingerprint_local' in result
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
@@ -168,7 +168,7 @@ class TestTableVerifierVerifyStructure:
             'table_name': 'CSKS',
             'primary_key': 'BUKRS,KOSTL',  # PK déjà définie en config
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -206,7 +206,7 @@ class TestTableVerifierVerifyStructure:
             'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -247,7 +247,7 @@ class TestTableVerifierVerifyTable:
             'current_status': {'status': 'OK'},
             'primary_key': '',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_table(table_info)
@@ -256,7 +256,7 @@ class TestTableVerifierVerifyTable:
         assert result['phase'] == 'complete'
         assert 'columns' in result
         assert 'fingerprint_API' in result
-        assert 'fingerprint_UL' in result
+        assert 'fingerprint_local' in result
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
@@ -312,7 +312,7 @@ class TestTableVerifierVerifyTable:
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',
-            'fingerprint_UL': 'old_ul_fingerprint_12345'
+            'fingerprint_local': 'old_ul_fingerprint_12345'
         }
 
         result = verifier.verify_table(table_info)
@@ -321,7 +321,7 @@ class TestTableVerifierVerifyTable:
         assert result['phase'] == 'fingerprint'
         assert 'CHANGEMENT DE STRUCTURE' in result['error']
         assert 'fingerprint_API' in result['error']
-        assert 'fingerprint_UL' in result['error']
+        assert 'fingerprint_local' in result['error']
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
@@ -348,19 +348,19 @@ class TestTableVerifierVerifyTable:
 
         verifier = AMUETableVerifier(mock_api_hook)
 
-        # Calcule le bon fingerprint_UL pour qu'il ne change pas
+        # Calcule le bon fingerprint_local pour qu'il ne change pas
         columns = [
             {'name': 'ID', 'type_original': 'INTEGER(10)', 'type_postgres': 'BIGINT'},
             {'name': 'NAME', 'type_original': 'VARCHAR(50)', 'type_postgres': 'VARCHAR(50)'}
         ]
-        correct_fp_ul = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
+        correct_fp_local = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
 
         table_info = {
             'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',  # Différent -> changé
-            'fingerprint_UL': correct_fp_ul  # Identique -> pas changé
+            'fingerprint_local': correct_fp_local  # Identique -> pas changé
         }
 
         result = verifier.verify_table(table_info)
@@ -368,12 +368,12 @@ class TestTableVerifierVerifyTable:
         assert result['status'] == 'error'
         assert result['phase'] == 'fingerprint'
         assert 'fingerprint_API' in result['error']
-        assert 'fingerprint_UL' not in result['error']
+        assert 'fingerprint_local' not in result['error']
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_only_ul_fingerprint_changed(self, mock_varmgr, mock_create_hook):
-        """Seul fingerprint_UL change"""
+        """Seul fingerprint_local change"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
@@ -407,14 +407,14 @@ class TestTableVerifierVerifyTable:
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': correct_fp_api,  # Identique -> pas changé
-            'fingerprint_UL': 'old_ul_fingerprint_12345'  # Différent -> changé
+            'fingerprint_local': 'old_ul_fingerprint_12345'  # Différent -> changé
         }
 
         result = verifier.verify_table(table_info)
 
         assert result['status'] == 'error'
         assert result['phase'] == 'fingerprint'
-        assert 'fingerprint_UL' in result['error']
+        assert 'fingerprint_local' in result['error']
         assert 'fingerprint_API' not in result['error']
 
 
@@ -681,7 +681,7 @@ class TestTableVerifierSavePrimaryKeys:
             'table_name': 'CSKS',
             'primary_key': '',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -718,7 +718,7 @@ class TestTableVerifierSavePrimaryKeys:
             'table_name': 'CSKS',
             'primary_key': 'BUKRS,KOSTL',  # Config PKs déjà définies
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         verifier.verify_structure(table_info)
@@ -759,7 +759,7 @@ class TestCheckFingerprintChanges:
         assert result['ul_changed'] is False
 
     def test_ul_change_detected(self):
-        """Changement fingerprint_UL détecté"""
+        """Changement fingerprint_local détecté"""
         from amue.operators.table_management.table_verifier import _check_fingerprint_changes
 
         result = _check_fingerprint_changes(
@@ -1057,14 +1057,14 @@ class TestFingerprintErrorIncludesDiff:
             {'name': 'ID', 'type_original': 'INTEGER(10)', 'type_postgres': 'BIGINT'},
             {'name': 'NAME', 'type_original': 'VARCHAR(50)', 'type_postgres': 'VARCHAR(50)'}
         ]
-        correct_fp_ul = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
+        correct_fp_local = compute_structure_hash_with_pk(columns, 'ID', type_key='type_postgres')
 
         table_info = {
             'table_name': 'CSKS',
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': 'old_api_fingerprint_12345',
-            'fingerprint_UL': correct_fp_ul
+            'fingerprint_local': correct_fp_local
         }
 
         result = verifier.verify_table(table_info)
@@ -1074,8 +1074,8 @@ class TestFingerprintErrorIncludesDiff:
 
     @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
-    def test_fingerprint_ul_error_includes_diff(self, mock_varmgr, mock_create_hook):
-        """Erreur fingerprint_UL inclut le diff structurel"""
+    def test_fingerprint_local_error_includes_diff(self, mock_varmgr, mock_create_hook):
+        """Erreur fingerprint_local inclut le diff structurel"""
         mock_varmgr.get.side_effect = lambda key, default=None: {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
@@ -1113,7 +1113,7 @@ class TestFingerprintErrorIncludesDiff:
             'current_status': {'status': 'OK'},
             'primary_key': 'ID',
             'fingerprint_API': correct_fp_api,
-            'fingerprint_UL': 'old_ul_fingerprint_12345'
+            'fingerprint_local': 'old_ul_fingerprint_12345'
         }
 
         result = verifier.verify_table(table_info)
@@ -1184,7 +1184,7 @@ class TestVerifyStructureErrorMessages:
             'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -1213,7 +1213,7 @@ class TestVerifyStructureErrorMessages:
             'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         result = verifier.verify_structure(table_info)
@@ -1244,7 +1244,7 @@ class TestTableVerifierVerifyStructureException:
             'table_name': 'CSKS',
             'primary_key': 'ID',
             'fingerprint_API': '',
-            'fingerprint_UL': ''
+            'fingerprint_local': ''
         }
 
         with patch.object(verifier, '_fetch_structure', side_effect=RuntimeError("test error")):

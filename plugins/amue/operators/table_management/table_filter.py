@@ -52,7 +52,7 @@ CONFIGURATION
 
 Table PostgreSQL : splus_admin.amue_tables
 Colonnes : table_name, enabled, primary_key, delta,
-           fingerprint_api, fingerprint_ul
+           fingerprint_api, fingerprint_local
 
 ================================================================================
 """
@@ -380,7 +380,7 @@ class AMUETableFilter:
         enriched.setdefault('primary_key', '')
         enriched.setdefault('delta', '')
         enriched.setdefault('fingerprint_API', '')
-        enriched.setdefault('fingerprint_UL', '')
+        enriched.setdefault('fingerprint_local', '')
 
         # Récupération automatique des clés primaires si absentes
         pk_value = enriched.get('primary_key', '')

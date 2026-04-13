@@ -20,7 +20,7 @@ class TestTableConfigManagerGetTablesConfig:
         """Retourne la liste des tables depuis la BDD"""
         manager, hook = make_manager()
         hook.get_records.return_value = [
-            ('CSKS', True, 'BUKRS,KOSTL', '', 'fp_api', 'fp_ul'),
+            ('CSKS', True, 'BUKRS,KOSTL', '', 'fp_api', 'fp_local'),
             ('COBK', True, '', '', '', ''),
         ]
 
@@ -31,7 +31,7 @@ class TestTableConfigManagerGetTablesConfig:
         assert result[0]['enable'] is True
         assert result[0]['primary_key'] == 'BUKRS,KOSTL'
         assert result[0]['fingerprint_API'] == 'fp_api'
-        assert result[0]['fingerprint_UL'] == 'fp_ul'
+        assert result[0]['fingerprint_local'] == 'fp_local'
         assert 'last_import' not in result[0]
 
     def test_get_tables_config_empty(self):
@@ -58,7 +58,7 @@ class TestTableConfigManagerGetTableMetadata:
     def test_get_table_metadata_found(self):
         """Retourne le dict d'une table existante"""
         manager, hook = make_manager()
-        hook.get_first.return_value = ('CSKS', True, 'BUKRS,KOSTL', 'AEDAT', 'fp_api', 'fp_ul')
+        hook.get_first.return_value = ('CSKS', True, 'BUKRS,KOSTL', 'AEDAT', 'fp_api', 'fp_local')
 
         result = manager.get_table_metadata('CSKS')
 
@@ -106,8 +106,8 @@ class TestTableConfigManagerSaveTablesConfig:
         """UPDATE batch de plusieurs tables via execute_values"""
         manager, hook = make_manager()
         tables = [
-            {'table_name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_UL': 'fp2', 'primary_key': 'BUKRS,KOSTL'},
-            {'table_name': 'COBK', 'fingerprint_API': 'fp3', 'fingerprint_UL': 'fp4', 'primary_key': ''},
+            {'table_name': 'CSKS', 'fingerprint_API': 'fp1', 'fingerprint_local': 'fp2', 'primary_key': 'BUKRS,KOSTL'},
+            {'table_name': 'COBK', 'fingerprint_API': 'fp3', 'fingerprint_local': 'fp4', 'primary_key': ''},
         ]
 
         manager.save_tables_config(tables)
@@ -134,7 +134,7 @@ class TestTableConfigManagerSaveTablesConfig:
         mock_execute_values.side_effect = Exception("DB error")
 
         tables = [
-            {'table_name': 'CSKS', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
+            {'table_name': 'CSKS', 'fingerprint_API': '', 'fingerprint_local': '', 'primary_key': ''},
         ]
 
         with pytest.raises(Exception, match="DB error"):
@@ -144,7 +144,7 @@ class TestTableConfigManagerSaveTablesConfig:
         """Tables sans nom ignorées"""
         manager, hook = make_manager()
         tables = [
-            {'table_name': '', 'fingerprint_API': '', 'fingerprint_UL': '', 'primary_key': ''},
+            {'table_name': '', 'fingerprint_API': '', 'fingerprint_local': '', 'primary_key': ''},
         ]
 
         manager.save_tables_config(tables)
@@ -206,7 +206,7 @@ class TestTableConfigManagerRowToDict:
         """Conversion de base sans champs null"""
         from amue.services.table_config_manager import TableConfigManager
 
-        row = ('CSKS', True, 'BUKRS', 'AEDAT', 'fp_api', 'fp_ul')
+        row = ('CSKS', True, 'BUKRS', 'AEDAT', 'fp_api', 'fp_local')
         result = TableConfigManager._row_to_dict(row)
 
         assert result['table_name'] == 'CSKS'
@@ -214,7 +214,7 @@ class TestTableConfigManagerRowToDict:
         assert result['primary_key'] == 'BUKRS'
         assert result['delta'] == 'AEDAT'
         assert result['fingerprint_API'] == 'fp_api'
-        assert result['fingerprint_UL'] == 'fp_ul'
+        assert result['fingerprint_local'] == 'fp_local'
         assert 'last_import' not in result
 
     def test_row_to_dict_none_fields_become_empty(self):
@@ -227,4 +227,4 @@ class TestTableConfigManagerRowToDict:
         assert result['primary_key'] == ''
         assert result['delta'] == ''
         assert result['fingerprint_API'] == ''
-        assert result['fingerprint_UL'] == ''
+        assert result['fingerprint_local'] == ''

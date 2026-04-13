@@ -191,7 +191,7 @@ log_info "Étape 4/9: Configuration des paramètres"
 
 echo ""
 log_info "=== Configuration générale ==="
-UNIVERSITE=$(ask "Code université (ex: ul pour Lorraine)" "ul")
+UNIVERSITE=$(ask "Code université (ex: univ)" "univ")
 AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par des virgules)" "admin@example.com")
 SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue.local")
 

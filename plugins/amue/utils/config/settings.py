@@ -8,7 +8,7 @@ VARIABLES AIRFLOW UTILISÉES
 
 OBLIGATOIRES :
 --------------
-  universite                    Code université (ex: "ul", "unistra")
+  universite                    Code université (ex: "univ", "unistra")
                                 Format: 2-50 caractères alphanumériques ou tirets
 
   api_endpoint_admin            Endpoint API admin avec placeholder $univ

@@ -18,8 +18,8 @@
   },
   "oracle_data": {
     "conn_type": "odbc",
-    "host": "sifac-db-test.univ-lorraine.fr",
-    "schema": "T91",
+    "host": "base-oracle.domaine.fr",
+    "schema": "Txx",
     "port": 1521,
     "extra": {}
   }

@@ -50,7 +50,7 @@ _sync_schedule = VarMgr.get('amue_sync_schedule', default=None)
     dag_id='amue_sync_schemas',
     description='Synchronisation blue/green AMUE (copie schéma actif → inactif)',
 
-    schedule=_sync_schedule,
+    schedule=None,
     start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
     catchup=False,
     max_active_runs=1,
