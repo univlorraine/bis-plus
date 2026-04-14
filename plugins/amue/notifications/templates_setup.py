@@ -205,7 +205,7 @@ class SetupTemplates(BaseTemplates):
         return f"""
         <div style="margin-top: 25px;">
             <h3 style="color: #c62828; font-size: 16px; margin-bottom: 12px;">
-                ⚠ Tables en Erreur
+                Tables en Erreur
             </h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>

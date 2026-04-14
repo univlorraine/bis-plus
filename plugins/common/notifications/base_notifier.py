@@ -1,6 +1,7 @@
 # common/notifications/base_notifier.py
 """Classe de base commune pour les services de notification AMUE et ECC."""
 import logging
+import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -88,19 +89,24 @@ class BaseNotificationService:
         if exception:
             error_message = str(exception)
             error_type = type(exception).__name__
+            error_traceback = ''.join(
+                traceback.format_exception(type(exception), exception, exception.__traceback__)
+            )
         else:
             error_message = data.get('error_message', 'Erreur inconnue')
             error_type = data.get('error_type', 'UnknownError')
+            error_traceback = None
 
         execution_date = self._format_date(data.get('execution_date'))
 
         return {
             'title': f"Erreur Import {self.SYSTEM_NAME}",
-            'subtitle': execution_date,
+            'subtitle': f"{dag_id} · {execution_date}",
             'dag_id': dag_id,
             'task_id': task_id,
             'error_message': error_message,
             'error_type': error_type,
+            'error_traceback': error_traceback,
             'execution_date': execution_date,
             'status': 'failed',
             'failed_tasks': data.get('failed_tasks', []),

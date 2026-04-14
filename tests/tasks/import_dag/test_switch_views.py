@@ -1,4 +1,5 @@
 """Tests pour la task switch_views."""
+import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -74,3 +75,29 @@ class TestSwitchViews:
 
         mgr.mark_import_completed.assert_called_once_with(target_schema='splus_green')
         assert result['switched'] is True
+
+    @patch('amue.tasks.import_dag.switch_views.ViewSwitcher')
+    @patch('amue.tasks.import_dag.switch_views.BlueGreenManager')
+    def test_switch_failure_raises_view_switch_error(self, mock_bgm_cls, mock_vs_cls):
+        """switch_views_to_schema() retourne False → ViewSwitchError levée (tâche marquée failed)."""
+        from amue.exceptions.bluegreen import ViewSwitchError
+        from amue.tasks.import_dag.switch_views import switch_views
+
+        mock_bgm_cls.return_value = self._make_manager()
+        mock_vs_cls.return_value = self._make_switcher(switch_ok=False)
+
+        with pytest.raises(ViewSwitchError):
+            switch_views.function({'target_schema': 'splus_green'})
+
+    @patch('amue.tasks.import_dag.switch_views.ViewSwitcher')
+    @patch('amue.tasks.import_dag.switch_views.BlueGreenManager')
+    def test_verification_failure_raises_view_switch_error(self, mock_bgm_cls, mock_vs_cls):
+        """verify_views_point_to() retourne False → ViewSwitchError levée."""
+        from amue.exceptions.bluegreen import ViewSwitchError
+        from amue.tasks.import_dag.switch_views import switch_views
+
+        mock_bgm_cls.return_value = self._make_manager()
+        mock_vs_cls.return_value = self._make_switcher(switch_ok=True, verify_ok=False)
+
+        with pytest.raises(ViewSwitchError):
+            switch_views.function({'target_schema': 'splus_green'})

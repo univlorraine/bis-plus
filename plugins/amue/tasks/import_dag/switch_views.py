@@ -4,6 +4,7 @@ from typing import Dict
 
 from airflow.sdk import task
 
+from amue.exceptions.bluegreen import ViewSwitchError
 from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 from common.services.bluegreen.view_switcher import ViewSwitcher
 
@@ -42,12 +43,10 @@ def switch_views(metadata_result: Dict) -> Dict:
         verified = switcher.verify_views_point_to(target_schema)
         if not verified:
             logger.error(f"[SWITCH] Vérification post-switch échouée pour {target_schema}")
-            return {
-                "switched": False,
-                "verified": False,
-                "target_schema": target_schema,
-                "error": "Post-switch verification failed"
-            }
+            raise ViewSwitchError(
+                f"Vérification post-switch échouée : les vues ne pointent pas vers {target_schema}",
+                target_schema=target_schema,
+            )
 
         manager.mark_import_completed(target_schema=target_schema)
         manager.mark_switch_completed()
@@ -61,8 +60,7 @@ def switch_views(metadata_result: Dict) -> Dict:
         }
     else:
         logger.error(f"[SWITCH] Échec du switch vers {target_schema}")
-        return {
-            "switched": False,
-            "target_schema": target_schema,
-            "error": "Switch failed"
-        }
+        raise ViewSwitchError(
+            f"Échec du switch des vues vers {target_schema}",
+            target_schema=target_schema,
+        )

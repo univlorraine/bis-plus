@@ -67,7 +67,7 @@ class RefreshViewsTemplates(BaseTemplates):
             ko_block = f"""
             <div style="background: #fff3e0; border: 1px solid #ffe082; padding: 12px 16px;
                         border-radius: 4px; margin-top: 16px; font-size: 14px; color: #555;">
-                <strong>⚠ Attention :</strong> {ko} vue(s) ont échoué.
+                <strong>Attention :</strong> {ko} vue(s) ont échoué.
                 Consultez les logs Airflow pour le détail des erreurs.
             </div>
             """

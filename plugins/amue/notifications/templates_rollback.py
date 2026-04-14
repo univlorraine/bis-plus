@@ -79,7 +79,7 @@ class RollbackTemplates(BaseTemplates):
 
         <div style="background: #fff8e1; border: 1px solid #ffe082; padding: 15px;
                     border-radius: 4px; margin-top: 20px; font-size: 14px; color: #555;">
-            <strong>ⓘ Information :</strong> Un nouveau rollback n'est plus possible
+            <strong>Information :</strong> Un nouveau rollback n'est plus possible
             jusqu'au prochain import. Vérifiez que les vues <code>splus</code> exposent
             bien les données attendues.
         </div>

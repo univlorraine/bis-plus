@@ -66,6 +66,28 @@ _DATABASE_ERRORS = frozenset({
     'AMUEImportError',
 })
 
+_ERROR_TITLES = {
+    'DAGFailure':                'Échec DAG — Import AMUE',
+    'AMUENetworkError':          'Erreur Réseau — Import AMUE',
+    'AMUEAPIError':              'Erreur API — Import AMUE',
+    'ConnectionError':           'Erreur Réseau — Import AMUE',
+    'ConnectionResetError':      'Erreur Réseau — Import AMUE',
+    'TimeoutError':              'Timeout Réseau — Import AMUE',
+    'OSError':                   'Erreur Réseau — Import AMUE',
+    'AMUEAuthError':             'Erreur Authentification — Import AMUE',
+    'ConcurrentImportError':     'Import Concurrent Détecté',
+    'StructureChangeDetected':   'Structure Modifiée — Import AMUE',
+    'AMUEStructureChangedError': 'Structure Modifiée — Import AMUE',
+    'AMUESchemaError':           'Erreur Schéma — Import AMUE',
+    'TableNotFoundError':        'Table Introuvable — Import AMUE',
+    'AMUETableNotFoundError':    'Table Introuvable — Import AMUE',
+    'SyncError':                 'Erreur Sync Blue/Green — AMUE',
+    'ViewSwitchError':           'CRITIQUE — Switch Vues AMUE',
+    'AMUEBlueGreenError':        'CRITIQUE — Blue/Green AMUE',
+    'AMUEDatabaseError':         'Erreur Base de Données — Import AMUE',
+    'AMUEBatchError':            'Erreur Batch Insert — Import AMUE',
+    'AMUEImportError':           'Erreur Import — Import AMUE',
+}
 
 
 class ErrorTemplates(BaseTemplates):
@@ -94,6 +116,7 @@ class ErrorTemplates(BaseTemplates):
             failed_tasks  : liste de dicts {task_id, map_index, duration}
         """
         error_type = context.get('error_type', 'UnknownError')
+        context['title'] = _ERROR_TITLES.get(error_type, f'Erreur {error_type} — Import AMUE')
 
         if error_type == 'DAGFailure':
             return cls._render_error_dag_failure(context)
@@ -141,6 +164,7 @@ class ErrorTemplates(BaseTemplates):
                 {cls.escape_html(error_message)}
             </div>"""
 
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
         tasks_html = cls._render_failed_tasks(failed_tasks) if failed_tasks else ''
 
         content = f"""
@@ -170,6 +194,7 @@ class ErrorTemplates(BaseTemplates):
             </div>
             {summary_html}
         </div>
+        {traceback_html}
         {tasks_html}
         """
 
@@ -190,6 +215,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -222,6 +248,7 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
@@ -248,6 +275,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -281,6 +309,7 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
@@ -303,6 +332,8 @@ class ErrorTemplates(BaseTemplates):
         title = context.get('title', 'Import Concurrent Détecté')
         subtitle = context.get('subtitle', '')
         dag_id = context.get('dag_id', 'unknown')
+
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #fff3e0; border-left: 4px solid #FF9800;
@@ -328,10 +359,11 @@ class ErrorTemplates(BaseTemplates):
                 </div>
             </div>
         </div>
+        {traceback_html}
 
         <div style="background: #e3f2fd; border: 1px solid #bbdefb; padding: 15px;
                     border-radius: 4px; margin-top: 20px; font-size: 14px; color: #555;">
-            <strong>ⓘ Comportement attendu :</strong> Ce message est normal si un import
+            <strong>Comportement attendu :</strong> Ce message est normal si un import
             manuel a été déclenché pendant un import automatique. Aucune action requise
             si l'import en cours se termine normalement.
         </div>
@@ -365,6 +397,7 @@ class ErrorTemplates(BaseTemplates):
         failed_tasks_html = cls._render_failed_tasks(failed_tasks) if failed_tasks else ''
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -394,6 +427,7 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
         {failed_tasks_html}
         """
 
@@ -418,6 +452,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #fff3e0; border-left: 4px solid #FF9800;
@@ -452,10 +487,11 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
 
         <div style="background: #e8f5e9; border: 1px solid #c8e6c9; padding: 15px;
                     border-radius: 4px; margin-top: 20px; font-size: 14px; color: #555;">
-            <strong>ⓘ Rappel :</strong> Un changement de fingerprint n'est pas
+            <strong>Rappel :</strong> Un changement de fingerprint n'est pas
             forcément critique. Il peut s'agir d'une évolution intentionnelle côté API
             ou d'une mise à jour de la configuration locale. Vérifiez avant de relancer.
         </div>
@@ -488,6 +524,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -521,6 +558,7 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
@@ -550,6 +588,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -580,10 +619,11 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
 
         <div style="background: #fff8e1; border: 1px solid #ffe082; padding: 15px;
                     border-radius: 4px; margin-top: 20px; font-size: 14px; color: #555;">
-            <strong>⚠ Impact :</strong> Le prochain import utilisera le schéma inactif
+            <strong>Impact :</strong> Le prochain import utilisera le schéma inactif
             tel quel. Si la synchronisation échoue régulièrement, relancez
             <code>amue_sync_schemas</code> manuellement avant le prochain import.
         </div>
@@ -615,12 +655,13 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #b71c1c;
                     padding: 20px; border-radius: 4px; border: 2px solid #f44336;">
             <h2 style="color: #b71c1c; margin-top: 0; font-size: 18px;">
-                ⚠ Erreur Critique — Switch des Vues Échoué
+                Erreur Critique — Switch des Vues Échoué
             </h2>
             <p style="color: #555; margin: 8px 0 0;">
                 Le switch atomique des vues <code>splus</code> a échoué.
@@ -648,13 +689,16 @@ class ErrorTemplates(BaseTemplates):
                 <strong>Détail de l'erreur :</strong>
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
+            <div style="margin-top: 16px;">
+                {traceback_html}
+            </div>
         </div>
+        
 
         <div style="background: #ffebee; border: 2px solid #f44336; padding: 15px;
                     border-radius: 4px; margin-top: 20px; font-size: 14px; color: #c62828;">
-            <strong>🚨 Action immédiate :</strong> Vérifiez l'état des vues
-            <code>splus</code> en base. Si elles sont inconsistantes,
-            déclenchez <code>amue_rollback</code> pour restaurer le schéma précédent.
+            <strong>Action immédiate :</strong> Vérifiez l'état des vues
+            <code>splus</code> en base.
         </div>
         """
 
@@ -686,6 +730,7 @@ class ErrorTemplates(BaseTemplates):
         error_message = context.get('error_message', '')
 
         excerpt = cls._excerpt(error_message)
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
 
         content = f"""
         <div style="background: #ffebee; border-left: 4px solid #f44336;
@@ -719,6 +764,7 @@ class ErrorTemplates(BaseTemplates):
                 <div class="message-box">{cls.escape_html(excerpt)}</div>
             </div>
         </div>
+        {traceback_html}
         """
 
         header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
