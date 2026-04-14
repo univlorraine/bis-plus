@@ -215,6 +215,7 @@ class ViewSwitcher:
 
         ok = ko = 0
         files_processed: List[str] = []
+        files_failed: List[Dict] = []
 
         with PostgresConnectionManager(self.postgres_hook) as conn_mgr:
             conn = conn_mgr.get_connection()
@@ -236,6 +237,7 @@ class ViewSwitcher:
                             f"[REFRESH_VIEWS] Vue custom ÉCHEC ({sql_file.name}) : {e}"
                         )
                         ko += 1
+                        files_failed.append({"filename": sql_file.name, "error": str(e)})
             finally:
                 cursor.close()
 
@@ -245,6 +247,7 @@ class ViewSwitcher:
             "ko": ko,
             "target_schema": target_schema,
             "files_processed": files_processed,
+            "files_failed": files_failed,
         }
 
     def verify_views_point_to(self, expected_schema: str) -> bool:

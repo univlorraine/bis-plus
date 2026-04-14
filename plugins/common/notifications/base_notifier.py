@@ -234,14 +234,16 @@ class BaseNotificationService:
         target_schema = data.get('target_schema', '?')
         date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
 
+        ko_label = f" — {ko} erreur(s)" if ko > 0 else ''
         context = {
-            'title': data.get('title', f"Rafraîchissement Vues {self.SYSTEM_NAME} Réussi"),
+            'title': data.get('title', f"Rafraîchissement Vues {self.SYSTEM_NAME}{ko_label}"),
             'subtitle': self._format_date(data.get('execution_date')),
             'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
             'target_schema': target_schema,
             'ok': ok,
             'ko': ko,
             'files_processed': data.get('files_processed', []),
+            'files_failed': data.get('files_failed', []),
         }
         suffix = ' (partiel)' if ko > 0 else ''
         subject = (

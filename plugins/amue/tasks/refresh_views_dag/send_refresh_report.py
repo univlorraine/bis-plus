@@ -35,6 +35,7 @@ def send_refresh_report(refresh_result: Dict) -> Dict:
             'ok': ok,
             'ko': ko,
             'files_processed': files,
+            'files_failed': refresh_result.get('files_failed', []),
         })
         return {"sent": True, "ok": ok, "ko": ko}
     except Exception as e:
