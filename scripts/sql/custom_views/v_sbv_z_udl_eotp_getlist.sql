@@ -4,7 +4,6 @@ CREATE VIEW splus.v_sbv_z_udl_eotp_getlist AS
         post1,
         prctr
     FROM {target_schema}.prps
-    WHERE (post1 ~~ '%PROTECTION%'::text)
     ORDER BY posid;
 
 COMMENT ON COLUMN splus.v_sbv_z_udl_eotp_getlist.posid IS 'Elément d''organigramme technique de projet (élt OTP)';
