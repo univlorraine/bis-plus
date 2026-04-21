@@ -4,10 +4,11 @@
 
 CREATE OR REPLACE VIEW splus.v_bs_z_udl_fm_hivarnt_read_hie
  AS
- SELECT t1.fikrs,
+  SELECT t1.fikrs,
     t1.hivarnt,
     t1.fistl,
     t2.erfdat,
+	t2.datab,
     t2.datbis,
     t2.beschr,
     t1.hiroot_st,
@@ -16,8 +17,7 @@ CREATE OR REPLACE VIEW splus.v_bs_z_udl_fm_hivarnt_read_hie
     t1.child_st,
     t1.hilevel
    FROM {target_schema}.fmhisv t1
-     LEFT JOIN {target_schema}.fmfctr t2 ON t1.fistl = t2.fictr AND t1.fikrs = t2.fikrs AND t2.datab <= '20250314'::bpchar AND t2.datbis >= '20250314'::bpchar
-  WHERE t1.hivarnt = '025'::bpchar;
+     LEFT JOIN splus_green.fmfctr t2 ON t1.fistl = t2.fictr AND t1.fikrs = t2.fikrs;
 
 ALTER TABLE splus.v_bs_z_udl_fm_hivarnt_read_hie
     OWNER TO sifacplus;
