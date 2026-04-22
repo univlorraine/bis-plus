@@ -1,5 +1,5 @@
-DROP VIEW IF EXISTS splus.v_bs_z_udlc_check_auth_bs;
-CREATE VIEW splus.v_bs_z_udlc_check_auth_bs
+DROP VIEW IF EXISTS splus.v_bs_udl_check_auth_bs;
+CREATE VIEW splus.v_bs_udl_check_auth_bs
 AS
     SELECT uname,
         CASE agr_name
