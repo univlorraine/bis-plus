@@ -26,8 +26,9 @@ Le switch est atomique grâce à :
 ================================================================================
 """
 import logging
+import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import sql
@@ -167,6 +168,9 @@ class ViewSwitcher:
                 return False
 
             # Vues custom : une par une, best-effort (échec non bloquant)
+            self._failed_custom_views: Set[str] = set()
+            self._failed_custom_views_detail: List[Dict] = []
+            self._ok_custom_views_files: List[str] = []
             if self.custom_views_dir.exists():
                 ok = ko = 0
                 for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
@@ -175,10 +179,15 @@ class ViewSwitcher:
                         cursor.execute(content)
                         conn_mgr.commit()
                         logger.info(f"[VIEW_SWITCH] Vue custom OK: {sql_file.name}")
+                        self._ok_custom_views_files.append(sql_file.name)
                         ok += 1
                     except Exception as e:
                         conn_mgr.rollback()
                         logger.warning(f"[VIEW_SWITCH] Vue custom ÉCHEC ({sql_file.name}): {e}")
+                        view_name = self._extract_view_name(content)
+                        if view_name:
+                            self._failed_custom_views.add(view_name)
+                        self._failed_custom_views_detail.append({"filename": sql_file.name, "error": str(e)})
                         ko += 1
                 if ok or ko:
                     logger.info(f"[VIEW_SWITCH] Vues custom: {ok} OK, {ko} en échec")
@@ -252,17 +261,25 @@ class ViewSwitcher:
 
     def verify_views_point_to(self, expected_schema: str) -> bool:
         """
-        Vérifie que toutes les vues pointent vers le schéma attendu.
+        Vérifie que les vues gérées par le switch pointent vers le schéma attendu.
+
+        Seules les vues dans le périmètre du switch sont contrôlées :
+        - vues standard : une par table dans expected_schema
+        - vues custom : noms issus des fichiers .sql dans custom_views_dir
+
+        Les vues créées manuellement hors de ce périmètre sont ignorées.
 
         Args:
             expected_schema: Schéma attendu (ex: 'splus_blue')
 
         Returns:
-            True si toutes les vues pointent vers le bon schéma
+            True si toutes les vues gérées pointent vers le bon schéma
         """
         logger.info(f"[VIEW_SWITCH] Vérification des vues vers {expected_schema}")
 
-        # Récupère la définition des vues
+        managed = self._get_managed_view_names(expected_schema)
+        exclude = getattr(self, '_failed_custom_views', set())
+
         query = """
             SELECT table_name, view_definition
             FROM information_schema.views
@@ -272,11 +289,17 @@ class ViewSwitcher:
 
         if not views:
             logger.warning(f"[VIEW_SWITCH] Aucune vue dans {self.VIEW_SCHEMA}")
-            return True  # Pas de vues = OK (peut être le premier run)
+            return True
 
         all_correct = True
         for view_name, view_def in views:
-            # Vérifie que la définition contient le bon schéma
+            name_lower = view_name.lower()
+            if name_lower not in managed:
+                logger.debug(f"[VIEW_SWITCH] Vue {view_name} hors périmètre switch — ignorée")
+                continue
+            if name_lower in exclude:
+                logger.debug(f"[VIEW_SWITCH] Vue {view_name} ignorée (custom en échec attendu)")
+                continue
             if expected_schema.lower() not in view_def.lower():
                 logger.error(f"[VIEW_SWITCH] Vue {view_name} ne pointe pas vers {expected_schema}")
                 all_correct = False
@@ -284,8 +307,26 @@ class ViewSwitcher:
                 logger.debug(f"[VIEW_SWITCH] Vue {view_name} OK -> {expected_schema}")
 
         if all_correct:
-            logger.info(f"[VIEW_SWITCH] Toutes les vues pointent vers {expected_schema}")
+            logger.info(f"[VIEW_SWITCH] Toutes les vues gérées pointent vers {expected_schema}")
         return all_correct
+
+    def _get_managed_view_names(self, schema_name: str) -> Set[str]:
+        """
+        Retourne les noms des vues dont le switch est responsable.
+
+        Inclut les tables de schema_name (vues standard) et les noms
+        parsés depuis les fichiers .sql de custom_views_dir (vues custom).
+        Les vues créées manuellement en base ne sont pas incluses.
+        """
+        managed: Set[str] = set(t.lower() for t in list_tables(self.postgres_hook, schema_name))
+        if self.custom_views_dir.exists():
+            for sql_file in self.custom_views_dir.glob("*.sql"):
+                content = sql_file.read_text(encoding="utf-8")
+                name = self._extract_view_name(content)
+                if name:
+                    managed.add(name.lower())
+        logger.debug(f"[VIEW_SWITCH] Périmètre vérification : {len(managed)} vues gérées")
+        return managed
 
     def create_view_for_table(
         self,
@@ -458,6 +499,16 @@ class ViewSwitcher:
             columns=col_sql,
             target_schema=sql.Identifier(target_schema)
         )
+
+    @staticmethod
+    def _extract_view_name(sql_content: str) -> Optional[str]:
+        """Extrait le nom de la vue depuis un CREATE VIEW (ignore le schéma préfixe)."""
+        match = re.search(
+            r'CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:\w+\.)?(\w+)',
+            sql_content,
+            re.IGNORECASE,
+        )
+        return match.group(1).lower() if match else None
 
     def _load_custom_view_sqls(self, target_schema: str) -> List[str]:
         """

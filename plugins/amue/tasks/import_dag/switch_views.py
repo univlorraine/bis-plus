@@ -39,6 +39,21 @@ def switch_views(metadata_result: Dict) -> Dict:
     success = switcher.switch_views_to_schema(target_schema)
 
     if success:
+        # Notification des vues custom en échec (best-effort, non bloquant)
+        failed_custom = getattr(switcher, '_failed_custom_views_detail', [])
+        ok_custom_files = getattr(switcher, '_ok_custom_views_files', [])
+        if failed_custom:
+            try:
+                from amue.notifications.notifier import NotificationService
+                NotificationService().notify_switch_custom_views_ko({
+                    'dag_id': 'amue_multi_table_import',
+                    'target_schema': target_schema,
+                    'ko': len(failed_custom),
+                    'files_failed': failed_custom,
+                })
+            except Exception as _e:
+                logger.warning(f"[SWITCH] Échec envoi email vues custom KO: {_e}")
+
         # Vérification post-switch
         verified = switcher.verify_views_point_to(target_schema)
         if not verified:

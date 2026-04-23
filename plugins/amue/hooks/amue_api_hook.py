@@ -76,7 +76,9 @@ USAGE
 """
 import json
 import logging
+import os
 import sys
+import tempfile
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -90,53 +92,47 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# CACHE DE TOKEN GLOBAL (Thread-Safe)
+# CACHE DE TOKEN (Thread-Safe + Cross-Process via fichier)
 # =============================================================================
-# Le cache est partagé entre toutes les instances de AMUEAPIHook pour éviter
-# de demander plusieurs tokens en parallèle.
+# En mode reschedule Airflow, chaque itération du sensor s'exécute dans un
+# nouveau processus — un cache en mémoire serait réinitialisé à chaque fois.
+# Le token est donc persisté dans un fichier temporaire partagé entre processus.
 # =============================================================================
+
+_CACHE_FILE = os.path.join(tempfile.gettempdir(), "amue_token_cache.json")
+_file_lock = threading.Lock()
+
 
 class _TokenCache:
-    """Cache thread-safe pour le token OAuth."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._token: Optional[str] = None
-        self._expires_at: Optional[datetime] = None
+    """Cache thread-safe et cross-process pour le token OAuth (via fichier)."""
 
     def get_token(self) -> tuple[Optional[str], bool]:
-        """
-        Récupère le token du cache.
-
-        Returns:
-            Tuple (token, is_valid): token et si il est encore valide
-        """
-        with self._lock:
-            if not self._token or not self._expires_at:
+        with _file_lock:
+            try:
+                with open(_CACHE_FILE, "r") as f:
+                    data = json.load(f)
+                token = data.get("token")
+                expires_at = data.get("expires_at")
+                if not token or not expires_at:
+                    return None, False
+                is_valid = datetime.now() < datetime.fromisoformat(expires_at)
+                return token, is_valid
+            except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
                 return None, False
 
-            is_valid = datetime.now() < self._expires_at
-            return self._token, is_valid
-
     def set_token(self, token: str, expires_in_seconds: int) -> None:
-        """
-        Stocke le token dans le cache.
-
-        Args:
-            token: Token d'accès
-            expires_in_seconds: Durée de validité en secondes
-        """
-        with self._lock:
-            self._token = token
-            # Marge de sécurité de 10%
+        with _file_lock:
             safe_duration = int(expires_in_seconds * 0.9)
-            self._expires_at = datetime.now() + timedelta(seconds=safe_duration)
+            expires_at = datetime.now() + timedelta(seconds=safe_duration)
+            with open(_CACHE_FILE, "w") as f:
+                json.dump({"token": token, "expires_at": expires_at.isoformat()}, f)
 
     def invalidate(self) -> None:
-        """Invalide le token en cache."""
-        with self._lock:
-            self._token = None
-            self._expires_at = None
+        with _file_lock:
+            try:
+                os.remove(_CACHE_FILE)
+            except FileNotFoundError:
+                pass
 
 
 # Instance globale du cache

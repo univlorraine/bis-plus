@@ -254,6 +254,30 @@ class BaseNotificationService:
         email = Email(to=self.recipients, subject=subject, html_content=html_content)
         return self.email_service.send(email)
 
+    def notify_switch_custom_views_ko(self, data: Dict[str, Any]) -> bool:
+        """Alerte les destinataires sur les vues custom en échec lors du switch d'un import."""
+        logger.info(f"[{self.SYSTEM_NAME}] Envoi alerte vues custom KO (switch)")
+
+        ko = data.get('ko', 0)
+        target_schema = data.get('target_schema', '?')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
+
+        context = {
+            'title': data.get('title', f"Import {self.SYSTEM_NAME} — {ko} vue(s) custom en échec"),
+            'subtitle': self._format_date(data.get('execution_date')),
+            'dag_id': data.get('dag_id', self.DEFAULT_DAG_ID),
+            'target_schema': target_schema,
+            'ko': ko,
+            'files_failed': data.get('files_failed', []),
+        }
+        subject = (
+            f"[ALERTE] Import {self.SYSTEM_NAME}"
+            f" — {ko} vue(s) custom KO → {target_schema} — {date_str}"
+        )
+        html_content = self.TEMPLATES_CLASS.render_switch_custom_views_ko(context)
+        email = Email(to=self.recipients, subject=subject, html_content=html_content)
+        return self.email_service.send(email)
+
     def notify_setup_error(self, data: Dict[str, Any]) -> bool:
         """Envoie une alerte d'anomalie de setup (tables bloquées ou en erreur)."""
         logger.info(f"[{self.SYSTEM_NAME}] Envoi notification de setup")

@@ -67,15 +67,12 @@ Max runs : 1 seul DAG run actif à la fois
 ================================================================================
 """
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pendulum
-from airflow.sdk import dag
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
-
+from airflow.sdk import dag
 from amue import send_failure_notification, dag_failure_rollback
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from amue.utils.config.settings import Defaults
 from amue.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (
     init_bluegreen,
@@ -86,9 +83,10 @@ from amue.tasks.import_dag import (
     switch_views,
     send_report,
 )
+from amue.utils.config.settings import Defaults
 from common.config import PROTECTED_SOURCE
 from common.tasks.restore_inactive import restore_inactive
-
+from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 # ==============================================================================
 # DÉFINITION DU DAG
