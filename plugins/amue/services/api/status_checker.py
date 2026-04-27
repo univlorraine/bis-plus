@@ -76,15 +76,14 @@ class AMUEStatusChecker:
         """
         self.api_hook = api_hook
 
-        try:
-            univ = VarMgr.get('universite')
-        except KeyError:
-            raise AirflowException("La variable 'univ' doit être définie pour initialiser AMUEStatusChecker")
-        try:
-            endpointadm = VarMgr.get('api_endpoint_admin')
-        except KeyError:
-            raise AirflowException(
-                "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUEStatusChecker")
+        univ = VarMgr.get_required(
+            'universite',
+            "La variable 'univ' doit être définie pour initialiser AMUEStatusChecker",
+        )
+        endpointadm = VarMgr.get_required(
+            'api_endpoint_admin',
+            "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUEStatusChecker",
+        )
         try:
             self.endpoint = Template(endpointadm).substitute(univ=univ)
         except KeyError as e:

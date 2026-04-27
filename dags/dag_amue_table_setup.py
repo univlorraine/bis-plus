@@ -41,13 +41,11 @@ STATUTS
 
 ================================================================================
 """
-from datetime import timedelta
-
-import pendulum
 from airflow.sdk import dag
 
 from amue import send_failure_notification
 from amue.tasks.setup_dag import select_setup_tables, setup_table, send_setup_report
+from common.dags import DEFAULT_START_DATE, standard_default_args
 
 
 # ==============================================================================
@@ -60,7 +58,7 @@ from amue.tasks.setup_dag import select_setup_tables, setup_table, send_setup_re
 
     # Pas de schedule : déclenché manuellement ou par la DAG principale
     schedule=None,
-    start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     max_active_runs=1,
 
@@ -68,11 +66,7 @@ from amue.tasks.setup_dag import select_setup_tables, setup_table, send_setup_re
 
     on_failure_callback=send_failure_notification,
 
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,
-        'retry_delay': timedelta(minutes=5),
-    }
+    default_args=standard_default_args(),
 )
 def amue_table_setup():
     """

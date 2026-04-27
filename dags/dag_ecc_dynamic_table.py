@@ -39,11 +39,9 @@ Tables configurées dans : splus_admin.ecc_tables
 
 ================================================================================
 """
-from datetime import timedelta
-
-import pendulum
 from airflow.sdk import dag
 
+from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from ecc.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, sync_ecc_to_active, save_ecc_metadata, send_ecc_report
@@ -59,7 +57,7 @@ _import_schedule = VarMgr.get('ecc_import_schedule', default=None)
 
     # --- Planification (configurable via Variable Airflow 'ecc_import_schedule') ---
     schedule=None,
-    start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     max_active_runs=1,
 
@@ -70,11 +68,7 @@ _import_schedule = VarMgr.get('ecc_import_schedule', default=None)
     on_failure_callback=send_ecc_failure_notification,
 
     # --- Configuration par défaut des tasks ---
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,
-        'retry_delay': timedelta(minutes=5),
-    }
+    default_args=standard_default_args(),
 )
 def ecc_multi_table_import():
     """

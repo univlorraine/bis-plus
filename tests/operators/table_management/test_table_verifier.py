@@ -8,15 +8,17 @@ from unittest.mock import MagicMock, patch
 class TestTableVerifierInit:
     """Tests pour l'initialisation de AMUETableVerifier"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_init_success(self, mock_varmgr, mock_create_hook):
         """Initialisation réussie"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_create_hook.return_value = mock_postgres_hook
@@ -29,7 +31,7 @@ class TestTableVerifierInit:
         assert verifier.api_hook == mock_api_hook
         assert verifier.endpoint == 'https://api.amue.fr/ul/admin'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_init_no_api_hook(self, mock_varmgr, mock_create_hook):
         """Échec sans api_hook"""
@@ -42,15 +44,17 @@ class TestTableVerifierInit:
 class TestTableVerifierVerifyStatus:
     """Tests pour verify_status"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_status_ok(self, mock_varmgr, mock_create_hook):
         """Statut OK"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -68,15 +72,17 @@ class TestTableVerifierVerifyStatus:
         assert result['status_ok'] is True
         assert result['error'] is None
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_status_ko(self, mock_varmgr, mock_create_hook):
         """Statut KO"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -98,15 +104,17 @@ class TestTableVerifierVerifyStatus:
 class TestTableVerifierVerifyStructure:
     """Tests pour verify_structure"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_structure_success_fetch_pk_from_api(self, mock_varmgr, mock_create_hook):
         """Vérification structure réussie - PK absente, récupérée depuis l'API"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)  # Table existe
@@ -139,15 +147,17 @@ class TestTableVerifierVerifyStructure:
         assert 'fingerprint_API' in result
         assert 'fingerprint_local' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_structure_keeps_existing_pk(self, mock_varmgr, mock_create_hook):
         """PK existante dans la variable Airflow est conservée, mais API PKs toujours fetchées"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -178,15 +188,17 @@ class TestTableVerifierVerifyStructure:
         # Deux appels API : structure + PKs (toujours fetchées)
         assert mock_api_hook.call_api.call_count == 2
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_structure_table_missing_returns_success(self, mock_varmgr, mock_create_hook):
         """Table manquante retourne success avec exists=False (sera creee par table_manager)"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'production'
-        }.get(key, default)
+            'environment': 'production',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (False,)  # Table n'existe pas
@@ -218,15 +230,17 @@ class TestTableVerifierVerifyStructure:
 class TestTableVerifierVerifyTable:
     """Tests pour verify_table (méthode combinée)"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_complete_success(self, mock_varmgr, mock_create_hook):
         """Vérification complète réussie"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -258,15 +272,17 @@ class TestTableVerifierVerifyTable:
         assert 'fingerprint_API' in result
         assert 'fingerprint_local' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_status_error(self, mock_varmgr, mock_create_hook):
         """Erreur à l'étape statut"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -283,15 +299,17 @@ class TestTableVerifierVerifyTable:
         assert result['status'] == 'error'
         assert result['phase'] == 'status'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_fingerprint_change(self, mock_varmgr, mock_create_hook):
         """Changement de fingerprint détecté (les deux changent)"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -323,15 +341,17 @@ class TestTableVerifierVerifyTable:
         assert 'fingerprint_API' in result['error']
         assert 'fingerprint_local' in result['error']
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_only_api_fingerprint_changed(self, mock_varmgr, mock_create_hook):
         """Seul fingerprint_API change"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -370,15 +390,17 @@ class TestTableVerifierVerifyTable:
         assert 'fingerprint_API' in result['error']
         assert 'fingerprint_local' not in result['error']
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_table_only_ul_fingerprint_changed(self, mock_varmgr, mock_create_hook):
         """Seul fingerprint_local change"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -421,15 +443,17 @@ class TestTableVerifierVerifyTable:
 class TestTableVerifierFetchStructure:
     """Tests pour _fetch_structure"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_structure_string_response(self, mock_varmgr, mock_create_hook):
         """Parse une réponse string"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -448,15 +472,17 @@ class TestTableVerifierFetchStructure:
         assert result[2]['name'] == 'DATE'
         assert result[2]['type_postgres'] == 'TIMESTAMP'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_structure_empty_raises_error(self, mock_varmgr, mock_create_hook):
         """Structure vide lève une erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -472,15 +498,17 @@ class TestTableVerifierFetchStructure:
 class TestTableVerifierFetchPrimaryKeys:
     """Tests pour _fetch_primary_keys"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_primary_keys_string(self, mock_varmgr, mock_create_hook):
         """Réponse string"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -493,15 +521,17 @@ class TestTableVerifierFetchPrimaryKeys:
 
         assert result == 'ID,NAME'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_primary_keys_list(self, mock_varmgr, mock_create_hook):
         """Réponse liste"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -514,15 +544,17 @@ class TestTableVerifierFetchPrimaryKeys:
 
         assert result == 'ID,NAME'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_primary_keys_dict(self, mock_varmgr, mock_create_hook):
         """Réponse dict"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -535,15 +567,17 @@ class TestTableVerifierFetchPrimaryKeys:
 
         assert result == 'ID,NAME'
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fetch_primary_keys_error(self, mock_varmgr, mock_create_hook):
         """Erreur retourne chaîne vide"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -560,15 +594,17 @@ class TestTableVerifierFetchPrimaryKeys:
 class TestTableVerifierTableExists:
     """Tests pour _table_exists"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_table_exists_true(self, mock_varmgr, mock_create_hook):
         """Table existe"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -583,15 +619,17 @@ class TestTableVerifierTableExists:
 
         assert result is True
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_table_exists_false(self, mock_varmgr, mock_create_hook):
         """Table n'existe pas"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (False,)
@@ -610,15 +648,17 @@ class TestTableVerifierTableExists:
 class TestTableVerifierSavePrimaryKeys:
     """Tests pour _save_primary_keys (persistance immédiate en BDD)"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_save_primary_keys_success(self, mock_tcm_cls, mock_varmgr, mock_create_hook):
         """Sauvegarde des PKs via TableConfigManager"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
@@ -632,14 +672,16 @@ class TestTableVerifierSavePrimaryKeys:
 
         mock_tcm.save_primary_keys.assert_called_once_with('CSKS', 'ID,NAME')
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_save_primary_keys_empty_aborts(self, mock_varmgr, mock_create_hook):
         """Abandon si PKs vides — pas d'appel à TableConfigManager"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -650,15 +692,17 @@ class TestTableVerifierSavePrimaryKeys:
             verifier._save_primary_keys('CSKS', '')
             mock_tcm_cls.assert_not_called()
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     @patch('amue.services.table_config_manager.TableConfigManager')
     def test_verify_structure_calls_save_pks(self, mock_tcm_cls, mock_varmgr, mock_create_hook):
         """verify_structure appelle _save_primary_keys après récupération API"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_tcm = MagicMock()
         mock_tcm_cls.return_value = mock_tcm
@@ -690,15 +734,17 @@ class TestTableVerifierSavePrimaryKeys:
         assert result['primary_keys'] == 'ID'
         mock_tcm.save_primary_keys.assert_called_once_with('CSKS', 'ID')
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_structure_always_fetches_api_pks(self, mock_varmgr, mock_create_hook):
         """verify_structure appelle toujours l'API pour les PKs même si config_pks existe"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -878,15 +924,17 @@ class TestFormatPgType:
 class TestComputeStructureDiff:
     """Tests pour _compute_structure_diff"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_added_column(self, mock_varmgr, mock_create_hook):
         """Colonne ajoutée détectée"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         # Existing columns in DB: only ID
@@ -909,15 +957,17 @@ class TestComputeStructureDiff:
 
         assert '+ NAME (VARCHAR(50))' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_removed_column(self, mock_varmgr, mock_create_hook):
         """Colonne supprimée détectée"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         # Existing columns: ID and OLD_COL
@@ -940,15 +990,17 @@ class TestComputeStructureDiff:
 
         assert '- OLD_COL (TEXT)' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_type_changed(self, mock_varmgr, mock_create_hook):
         """Changement de type détecté"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = [
@@ -969,15 +1021,17 @@ class TestComputeStructureDiff:
 
         assert '~ ID: INTEGER -> BIGINT' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_pk_only_change(self, mock_varmgr, mock_create_hook):
         """Aucune différence de colonnes -> changement de PKs probable"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.return_value = [
@@ -1000,15 +1054,17 @@ class TestComputeStructureDiff:
 
         assert 'cles primaires' in result
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_diff_fetch_error(self, mock_varmgr, mock_create_hook):
         """Erreur lors du fetch des colonnes existantes"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_records.side_effect = Exception("Connection lost")
@@ -1027,15 +1083,17 @@ class TestComputeStructureDiff:
 class TestFingerprintErrorIncludesDiff:
     """Tests pour le diff dans les erreurs de fingerprint"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fingerprint_api_error_includes_cause(self, mock_varmgr, mock_create_hook):
         """Erreur fingerprint_API inclut la cause AMUE"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -1072,15 +1130,17 @@ class TestFingerprintErrorIncludesDiff:
         assert result['status'] == 'error'
         assert 'AMUE a modifie la structure source' in result['error']
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_fingerprint_local_error_includes_diff(self, mock_varmgr, mock_create_hook):
         """Erreur fingerprint_local inclut le diff structurel"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (True,)
@@ -1125,15 +1185,17 @@ class TestFingerprintErrorIncludesDiff:
 class TestVerifyStatusErrorDetails:
     """Tests pour les détails dans verify_status"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_status_error_includes_details(self, mock_varmgr, mock_create_hook):
         """Le message d'erreur inclut les détails du statut"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -1156,15 +1218,17 @@ class TestVerifyStatusErrorDetails:
 class TestVerifyStructureErrorMessages:
     """Tests pour les messages d'erreur enrichis de verify_structure"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_table_missing_returns_success_with_exists_false(self, mock_varmgr, mock_create_hook):
         """Table manquante retourne success avec exists=False"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'production'
-        }.get(key, default)
+            'environment': 'production',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         mock_postgres_hook = MagicMock()
         mock_postgres_hook.get_first.return_value = (False,)
@@ -1192,15 +1256,17 @@ class TestVerifyStructureErrorMessages:
         assert result['status'] == 'success'
         assert result['exists'] is False
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_generic_error_includes_exception_type(self, mock_varmgr, mock_create_hook):
         """Le catch générique inclut le type d'exception"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 
@@ -1225,15 +1291,17 @@ class TestVerifyStructureErrorMessages:
 class TestTableVerifierVerifyStructureException:
     """Tests pour la gestion d'exceptions dans verify_structure"""
 
-    @patch('amue.operators.table_management.table_verifier.create_postgres_hook')
+    @patch('amue.operators.table_management.table_verifier.resolve_postgres_hook')
     @patch('amue.operators.table_management.table_verifier.VarMgr')
     def test_verify_structure_exception_returns_error_dict(self, mock_varmgr, mock_create_hook):
         """Exception dans _fetch_structure → retourne dict {status: 'error'} sans lever AttributeError"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
-            'environment': 'dev'
-        }.get(key, default)
+            'environment': 'dev',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
 

@@ -59,7 +59,7 @@ class TestWorkflowIntegration:
             'target_schema': 'splus_green',
         }
 
-        with patch('amue.tasks.import_dag.import_data.create_postgres_hook', return_value=mock_hook), \
+        with patch('amue.tasks.import_dag.import_data.resolve_postgres_hook', return_value=mock_hook), \
              patch('amue.tasks.import_dag.import_data.AMUEAPIHook'), \
              patch('amue.tasks.import_dag.import_data.AMUEDataImporter') as MockImporter:
             MockImporter.return_value.import_table.return_value = import_result

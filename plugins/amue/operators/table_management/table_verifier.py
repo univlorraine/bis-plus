@@ -78,7 +78,7 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 import json
 from amue.exceptions import AMUESchemaError
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from common.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import resolve_postgres_hook
 from amue.utils.transformers import compute_structure_hash_with_pk, parse_column_definition
 
 logger = logging.getLogger(__name__)
@@ -137,23 +137,16 @@ class AMUETableVerifier:
         self.api_hook = api_hook
         self.target_schema = target_schema
 
-        # Crée le hook avec le schéma cible si spécifié
-        if postgres_hook:
-            self.postgres_hook = postgres_hook
-        elif target_schema:
-            self.postgres_hook = create_postgres_hook(bluegreen_schema=target_schema)
-        else:
-            self.postgres_hook = create_postgres_hook()
+        self.postgres_hook = resolve_postgres_hook(postgres_hook, target_schema)
 
-        try:
-            univ = VarMgr.get('universite')
-        except KeyError:
-            raise AirflowException("La variable 'univ' doit être définie pour initialiser AMUETableVerifier")
-        try:
-            endpointadm = VarMgr.get('api_endpoint_admin')
-        except KeyError:
-            raise AirflowException(
-                "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUETableVerifier")
+        univ = VarMgr.get_required(
+            'universite',
+            "La variable 'univ' doit être définie pour initialiser AMUETableVerifier",
+        )
+        endpointadm = VarMgr.get_required(
+            'api_endpoint_admin',
+            "La variable 'api_endpoint_admin' doit être définie pour initialiser AMUETableVerifier",
+        )
         try:
             self.endpoint = Template(endpointadm).substitute(univ=univ)
         except KeyError as e:

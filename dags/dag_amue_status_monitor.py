@@ -24,6 +24,7 @@ from datetime import timedelta
 import pendulum
 from airflow.sdk import dag, task
 
+from common.dags import standard_default_args
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 _MONITOR_DURATION_HOURS = 4
@@ -40,10 +41,7 @@ _schedule = VarMgr.get('amue_monitor_schedule', default='0 22 * * *')
     catchup=False,
     max_active_runs=1,
     tags=['amue', 'monitoring'],
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,
-    },
+    default_args=standard_default_args(),
 )
 def amue_status_monitor():
     @task(

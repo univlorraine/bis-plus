@@ -58,7 +58,7 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
 
 from amue.exceptions import AMUESchemaError, AMUEDatabaseError
-from common.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import resolve_postgres_hook
 from common.utils.database.schema_utils import SchemaQualifier
 from common.config import PROTECTED_SOURCE
 
@@ -97,7 +97,7 @@ class AMUETableManager:
                           Si None, utilise le schéma par défaut 'splus'
         """
         self._schema_qualifier = SchemaQualifier(target_schema)
-        self.postgres_hook = postgres_hook or self._create_default_hook()
+        self.postgres_hook = resolve_postgres_hook(postgres_hook, target_schema)
         self.default_source = PROTECTED_SOURCE
 
     @property
@@ -109,12 +109,6 @@ class AMUETableManager:
     def target_schema(self, value: Optional[str]) -> None:
         """Définit le schéma cible."""
         self._schema_qualifier.target_schema = value
-
-    def _create_default_hook(self) -> PostgresHook:
-        """Crée le hook PostgreSQL par défaut via factory."""
-        if self._schema_qualifier.target_schema:
-            return create_postgres_hook(bluegreen_schema=self._schema_qualifier.target_schema)
-        return create_postgres_hook()
 
     def _get_qualified_table_name(self, table_name: str) -> str:
         """

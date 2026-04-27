@@ -115,6 +115,21 @@ def create_postgres_hook(
     )
 
 
+def resolve_postgres_hook(
+    hook: PostgresHook = None,
+    target_schema: str = None,
+) -> PostgresHook:
+    """Retourne ``hook`` s'il est fourni, sinon en fabrique un nouveau.
+
+    Args:
+        hook:          Hook déjà construit (injecté en paramètre), ou None.
+        target_schema: Schéma blue/green à utiliser si le hook doit être créé.
+    """
+    if hook is not None:
+        return hook
+    return create_postgres_hook(bluegreen_schema=target_schema)
+
+
 def create_bluegreen_hook(target_schema: str) -> PostgresHook:
     """
     Factory pour créer un hook PostgreSQL pour un schéma blue/green spécifique.

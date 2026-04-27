@@ -11,10 +11,12 @@ class TestStatusCheckerInit:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_init_success(self, mock_varmgr):
         """Initialisation réussie avec toutes les variables"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -29,7 +31,9 @@ class TestStatusCheckerInit:
         """Échec si variable universite manquante"""
         from airflow.exceptions import AirflowException
 
-        mock_varmgr.get.side_effect = KeyError('universite')
+        mock_varmgr.get_required.side_effect = AirflowException(
+            "La variable 'univ' doit être définie"
+        )
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -43,12 +47,12 @@ class TestStatusCheckerInit:
         """Échec si variable api_endpoint_admin manquante"""
         from airflow.exceptions import AirflowException
 
-        def get_side_effect(key, default=None):
+        def get_required_side_effect(key, error_msg=None):
             if key == 'universite':
                 return 'ul'
-            raise KeyError('api_endpoint_admin')
+            raise AirflowException("La variable 'api_endpoint_admin' doit être définie")
 
-        mock_varmgr.get.side_effect = get_side_effect
+        mock_varmgr.get_required.side_effect = get_required_side_effect
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -64,10 +68,12 @@ class TestStatusCheckerGetCurrentStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_get_current_status_success(self, mock_varmgr):
         """Récupération réussie du statut actuel"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -91,10 +97,12 @@ class TestStatusCheckerGetCurrentStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_get_current_status_invalid_response(self, mock_varmgr):
         """Réponse invalide lève une erreur"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -113,10 +121,12 @@ class TestStatusCheckerFetchFullStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_fetch_full_status_success(self, mock_varmgr):
         """Récupération complète réussie en un seul appel"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -144,10 +154,12 @@ class TestStatusCheckerFetchFullStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_fetch_full_status_no_finish(self, mock_varmgr):
         """Récupération sans finish (traitement en cours)"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -166,10 +178,12 @@ class TestStatusCheckerFetchFullStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_fetch_full_status_error(self, mock_varmgr):
         """Gestion des erreurs API"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -191,10 +205,12 @@ class TestStatusCheckerFetchFullStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_fetch_full_status_non_dict_response(self, mock_varmgr):
         """Réponse non-dict retourne valeurs par défaut"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -215,10 +231,12 @@ class TestStatusCheckerParseTablesStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_parse_tables_status_valid(self, mock_varmgr):
         """Parse une liste de statuts valide"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -240,10 +258,12 @@ class TestStatusCheckerParseTablesStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_parse_tables_status_empty_list(self, mock_varmgr):
         """Liste vide retourne dict vide"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -257,10 +277,12 @@ class TestStatusCheckerParseTablesStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_parse_tables_status_non_list(self, mock_varmgr):
         """Non-list retourne dict vide"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 
@@ -274,10 +296,12 @@ class TestStatusCheckerParseTablesStatus:
     @patch('amue.services.api.status_checker.VarMgr')
     def test_parse_tables_status_missing_name(self, mock_varmgr):
         """Entrées sans nom sont ignorées"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
-            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin'
-        }.get(key, default)
+            'api_endpoint_admin': 'https://api.amue.fr/${univ}/admin',
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.services.api.status_checker import AMUEStatusChecker
 

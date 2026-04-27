@@ -32,12 +32,10 @@ Le DAG peut aussi être déclenché manuellement.
 
 ================================================================================
 """
-from datetime import timedelta
-
-import pendulum
 from airflow.sdk import dag
 
 from amue import send_failure_notification
+from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.tasks.sync_dag import init_sync, run_sync, send_sync_report
 
@@ -51,7 +49,7 @@ _sync_schedule = VarMgr.get('amue_sync_schedule', default=None)
     description='Synchronisation blue/green AMUE (copie schéma actif → inactif)',
 
     schedule=None,
-    start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     max_active_runs=1,
 
@@ -59,11 +57,7 @@ _sync_schedule = VarMgr.get('amue_sync_schedule', default=None)
 
     on_failure_callback=send_failure_notification,
 
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,
-        'retry_delay': timedelta(minutes=5),
-    }
+    default_args=standard_default_args(),
 )
 def amue_sync_schemas():
     """

@@ -216,14 +216,16 @@ class TestDataImporterIntegration:
     @patch('amue.operators.pipeline.data_importer.PostgresHook')
     def test_importer_initialization(self, mock_postgres, mock_varmgr):
         """Test de l'initialisation de l'importer"""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_table': 'https://api.example.com/$univ/table',
             'amue_api_max_retries': '3',
             'amue_api_retry_delay_seconds': '30',
             'amue_import_batch_size': '5000',
             'amue_import_parallel_workers': '1',
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.pipeline.data_importer import AMUEDataImporter
 
@@ -243,7 +245,9 @@ class TestDataImporterIntegration:
         from airflow.exceptions import AirflowException
         from amue.operators.pipeline.data_importer import AMUEDataImporter
 
-        mock_varmgr.get.side_effect = KeyError('universite')
+        mock_varmgr.get_required.side_effect = AirflowException(
+            "La variable 'universite' doit être définie"
+        )
 
         mock_api_hook = MagicMock()
 
@@ -256,14 +260,16 @@ class TestParallelInsertion:
 
     def _make_importer(self, mock_varmgr, mock_postgres, parallel_workers=1):
         """Crée un importer configuré pour les tests."""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_table': 'https://api.example.com/$univ/table',
             'amue_api_max_retries': '3',
             'amue_api_retry_delay_seconds': '30',
             'amue_import_batch_size': '5000',
             'amue_import_parallel_workers': str(parallel_workers),
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.pipeline.data_importer import AMUEDataImporter
         mock_api_hook = MagicMock()
@@ -287,13 +293,15 @@ class TestParallelInsertion:
     @patch('amue.operators.pipeline.data_importer.PostgresHook')
     def test_parallel_workers_default_is_one(self, mock_postgres, mock_varmgr):
         """Par défaut, parallel_workers=1 (séquentiel)."""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_table': 'https://api.example.com/$univ/table',
             'amue_api_max_retries': '3',
             'amue_api_retry_delay_seconds': '30',
             'amue_import_batch_size': '5000',
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.pipeline.data_importer import AMUEDataImporter
         mock_api_hook = MagicMock()
@@ -306,14 +314,16 @@ class TestQueueBasedInsertion:
 
     def _make_importer(self, mock_varmgr, mock_postgres, parallel_workers=1, batch_size=5):
         """Cree un importer configure pour les tests."""
-        mock_varmgr.get.side_effect = lambda key, default=None: {
+        _vars = {
             'universite': 'ul',
             'api_endpoint_table': 'https://api.example.com/$univ/table',
             'amue_api_max_retries': '3',
             'amue_api_retry_delay_seconds': '30',
             'amue_import_batch_size': str(batch_size),
             'amue_import_parallel_workers': str(parallel_workers),
-        }.get(key, default)
+        }
+        mock_varmgr.get.side_effect = lambda key, default=None: _vars.get(key, default)
+        mock_varmgr.get_required.side_effect = lambda key, error_msg=None: _vars[key]
 
         from amue.operators.pipeline.data_importer import AMUEDataImporter
         mock_api_hook = MagicMock()

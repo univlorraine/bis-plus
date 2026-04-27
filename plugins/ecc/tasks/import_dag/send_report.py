@@ -1,7 +1,7 @@
 # ecc/tasks/import_dag/send_report.py
 """Task d'envoi du rapport d'import ECC."""
 import logging
-    from datetime import datetime
+from datetime import datetime
 from typing import Dict, List
 
 from airflow.sdk import task, get_current_context

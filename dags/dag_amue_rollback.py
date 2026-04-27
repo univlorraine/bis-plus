@@ -26,13 +26,11 @@ Déclencher via l'interface Airflow ou :
 
 ================================================================================
 """
-from datetime import timedelta
-
-import pendulum
 from airflow.sdk import dag
 
 from amue import send_failure_notification
 from amue.tasks.rollback_dag import check_rollback, perform_rollback, send_rollback_report
+from common.dags import DEFAULT_START_DATE, standard_default_args
 
 
 @dag(
@@ -41,7 +39,7 @@ from amue.tasks.rollback_dag import check_rollback, perform_rollback, send_rollb
 
     # Déclenchement manuel uniquement
     schedule=None,
-    start_date=pendulum.datetime(2024, 1, 1, tz="Europe/Paris"),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     max_active_runs=1,
 
@@ -49,11 +47,7 @@ from amue.tasks.rollback_dag import check_rollback, perform_rollback, send_rollb
 
     on_failure_callback=send_failure_notification,
 
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,
-        'retry_delay': timedelta(minutes=5),
-    }
+    default_args=standard_default_args(),
 )
 def amue_rollback():
     """

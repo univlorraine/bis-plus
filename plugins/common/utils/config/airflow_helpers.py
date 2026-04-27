@@ -129,3 +129,18 @@ class AirflowVariableManager:
                 return Variable.get(key, default_var=default)
             except (ImportError, AttributeError, KeyError):
                 return default
+
+    @staticmethod
+    def get_required(key: str, error_msg: Optional[str] = None) -> str:
+        """Récupère une variable Airflow requise. Lève AirflowException si absente."""
+        from airflow.exceptions import AirflowException
+
+        try:
+            value = AirflowVariableManager.get(key)
+        except KeyError:
+            value = None
+        if value is None:
+            raise AirflowException(
+                error_msg or f"La variable '{key}' doit être définie"
+            )
+        return value

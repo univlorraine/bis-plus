@@ -33,7 +33,7 @@ class TestImportData:
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_import_success_returns_expected_keys(self, mock_hook_fn, MockImporter, MockAPI):
         """La task retourne les clés attendues avec target_schema."""
         from amue.tasks.import_dag.import_data import import_data
@@ -50,7 +50,7 @@ class TestImportData:
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_target_schema_injected_in_result(self, mock_hook_fn, MockImporter, MockAPI):
         """target_schema est ajouté au résultat même si absent du retour importer."""
         from amue.tasks.import_dag.import_data import import_data
@@ -64,7 +64,7 @@ class TestImportData:
         assert result['target_schema'] == 'splus_blue'
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_raises_when_no_columns_found(self, mock_hook_fn, MockAPI):
         """Lève une exception si aucune colonne trouvée dans information_schema."""
         from amue.tasks.import_dag.import_data import import_data
@@ -79,7 +79,7 @@ class TestImportData:
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_primary_keys_parsed_from_csv(self, mock_hook_fn, MockImporter, MockAPI):
         """Les clés primaires CSV sont parsées en liste."""
         from amue.tasks.import_dag.import_data import import_data
@@ -96,7 +96,7 @@ class TestImportData:
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_importer_called_with_table_config(self, mock_hook_fn, MockImporter, MockAPI):
         """AMUEDataImporter.import_table est appelé avec les bons paramètres."""
         from amue.tasks.import_dag.import_data import import_data
@@ -115,9 +115,9 @@ class TestImportData:
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_uses_bluegreen_hook_when_target_schema_provided(self, mock_hook_fn, MockImporter, MockAPI):
-        """create_postgres_hook est appelé avec bluegreen_schema quand target_schema fourni."""
+        """resolve_postgres_hook est appelé avec target_schema quand fourni."""
         from amue.tasks.import_dag.import_data import import_data
 
         mock_hook_fn.return_value = self._make_hook()
@@ -126,11 +126,11 @@ class TestImportData:
         table_info = {'table_name': 'csks', 'target_schema': 'splus_green', 'primary_key': 'bukrs'}
         import_data.function(table_info)
 
-        mock_hook_fn.assert_called_once_with(bluegreen_schema='splus_green')
+        mock_hook_fn.assert_called_once_with(target_schema='splus_green')
 
     @patch('amue.tasks.import_dag.import_data.AMUEAPIHook')
     @patch('amue.tasks.import_dag.import_data.AMUEDataImporter')
-    @patch('amue.tasks.import_dag.import_data.create_postgres_hook')
+    @patch('amue.tasks.import_dag.import_data.resolve_postgres_hook')
     def test_none_target_schema_handled(self, mock_hook_fn, MockImporter, MockAPI):
         """target_schema=None est géré (appel sans bluegreen_schema)."""
         from amue.tasks.import_dag.import_data import import_data

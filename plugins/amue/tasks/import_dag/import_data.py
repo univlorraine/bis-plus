@@ -9,7 +9,7 @@ from airflow.sdk import task
 from amue.exceptions import AMUEDataError
 from amue.hooks.amue_api_hook import AMUEAPIHook
 from amue.operators.pipeline.data_importer import AMUEDataImporter
-from common.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import resolve_postgres_hook
 from common.logging_context import set_correlation_id
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def import_data(table_info: Dict) -> Dict:
     # Propage le correlation_id par table pour le tracing granulaire
     set_correlation_id(f"import-{table_name[:12]}")
 
-    hook = create_postgres_hook(bluegreen_schema=target_schema) if target_schema else create_postgres_hook()
+    hook = resolve_postgres_hook(target_schema=target_schema)
     schema = target_schema or 'splus'
     rows = hook.get_records(_COLUMNS_SQL, parameters=(schema, table_name))
     if not rows:

@@ -67,9 +67,7 @@ Max runs : 1 seul DAG run actif à la fois
 ================================================================================
 """
 import json
-from datetime import timedelta
 
-import pendulum
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import dag
 from amue import send_failure_notification, dag_failure_rollback
@@ -85,6 +83,7 @@ from amue.tasks.import_dag import (
 )
 from amue.utils.config.settings import Defaults
 from common.config import PROTECTED_SOURCE
+from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.tasks.restore_inactive import restore_inactive
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
@@ -118,7 +117,7 @@ _post_import_dags = json.loads(
 
     # --- Planification ---
     schedule=_import_schedule,      # Configurable via amue_import_schedule
-    start_date=pendulum.datetime(2024, 1, 1,tz="Europe/Paris"),
+    start_date=DEFAULT_START_DATE,
     catchup=False,                  # Pas de rattrapage des runs manqués
     max_active_runs=1,              # Un seul run actif à la fois
 
@@ -129,12 +128,9 @@ _post_import_dags = json.loads(
     on_failure_callback=dag_failure_rollback,   # Rollback blue/green uniquement (pas d'email)
 
     # --- Configuration par défaut des tasks ---
-    default_args={
-        'owner': 'airflow',
-        'retries': 0,               # Pas de retry automatique (géré dans le code)
-        'retry_delay': timedelta(minutes=5),
-        'on_failure_callback': send_failure_notification,  # Email avec vraie exception au niveau task
-    }
+    default_args=standard_default_args(
+        on_failure_callback=send_failure_notification,  # Email avec vraie exception au niveau task
+    ),
 )
 def amue_multi_table_import():
     """

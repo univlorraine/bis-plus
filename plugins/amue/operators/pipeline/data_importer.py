@@ -42,7 +42,7 @@ from common.operators.batch_inserter import AMUEBatchInserter
 from amue.operators.pipeline.import_config_validator import ImportConfigValidator
 from amue.operators.pipeline.data_import_pipeline import DataImportPipeline
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from common.utils.database.hooks import create_postgres_hook
+from common.utils.database.hooks import create_postgres_hook, resolve_postgres_hook
 from amue.utils.tracing import generate_correlation_id, TracingContext
 from amue.types_amue import ImportResult, ImportConfig
 
@@ -84,20 +84,10 @@ class AMUEDataImporter:
         self.api_hook = api_hook
         self.target_schema = target_schema
 
-        if postgres_hook:
-            self.postgres_hook = postgres_hook
-        else:
-            self.postgres_hook = create_postgres_hook(bluegreen_schema=target_schema)
+        self.postgres_hook = resolve_postgres_hook(postgres_hook, target_schema)
 
-        try:
-            univ = VarMgr.get('universite')
-        except KeyError:
-            raise AirflowException("La variable 'universite' doit être définie")
-
-        try:
-            endpointtbl = VarMgr.get('api_endpoint_table')
-        except KeyError:
-            raise AirflowException("La variable 'api_endpoint_table' doit être définie")
+        univ = VarMgr.get_required('universite')
+        endpointtbl = VarMgr.get_required('api_endpoint_table')
 
         try:
             self.endpoint = Template(endpointtbl).substitute(univ=univ)
