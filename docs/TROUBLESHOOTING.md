@@ -5,11 +5,12 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
 ## Table des matières
 
 1. [Erreurs d'import](#erreurs-dimport)
-2. [Erreurs de connexion API](#erreurs-de-connexion-api)
-3. [Erreurs de base de données](#erreurs-de-base-de-données)
-4. [Erreurs Blue/Green](#erreurs-bluegreen)
-5. [Erreurs Airflow](#erreurs-airflow)
-6. [Logs à consulter](#logs-à-consulter)
+2. [Erreurs de structure et fingerprints](#erreurs-de-structure-et-fingerprints)
+3. [Erreurs de connexion API](#erreurs-de-connexion-api)
+4. [Erreurs de base de données](#erreurs-de-base-de-données)
+5. [Erreurs Blue/Green](#erreurs-bluegreen)
+6. [Erreurs Airflow](#erreurs-airflow)
+7. [Logs à consulter](#logs-à-consulter)
 
 ---
 
@@ -36,14 +37,11 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
 **Cause** : La table n'a pas de `primary_key` configurée dans les variables.
 
 **Solution** :
-1. Éditer `amue_tables_to_import` dans les variables Airflow
-2. Ajouter le champ `primary_key` :
-   ```json
-   {
-     "name": "TABLE_NAME",
-     "primary_key": "col1,col2",
-     "enabled": true
-   }
+1. Éditer la table `splus_admin.amue_tables` dans PostgreSQL :
+   ```sql
+   UPDATE splus_admin.amue_tables
+   SET primary_key = 'col1,col2'
+   WHERE table_name = 'TABLE_NAME';
    ```
 
 ### Import très lent (> 2 heures)
@@ -68,6 +66,95 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
    ```sql
    SELECT count(*) FROM pg_stat_activity;
    ```
+
+---
+
+---
+
+## Erreurs de structure et fingerprints
+
+### Table en statut `blocked` — Changement de structure détecté
+
+> 📷 **Capture d'écran suggérée** : *Email d'alerte reçu dans MailHog signalant une table bloquée, avec le nom de la table et les fingerprints en désaccord.*
+
+**Symptôme** : Le DAG `amue_table_setup` (ou `amue_multi_table_import`) échoue avec un message de fingerprint mismatch. La table est passée en statut `blocked`.
+
+**Cause** : L'API AMUE a modifié la structure de la table (nouvelle colonne, type changé, colonne supprimée). Le système refuse d'importer pour éviter une corruption silencieuse.
+
+**Diagnostic** :
+```sql
+-- Voir les tables bloquées
+SELECT table_name, setup_status, updated_at
+FROM splus_admin.amue_tables
+WHERE setup_status = 'blocked';
+
+-- Voir toutes les tables et leur statut
+SELECT table_name, enabled, setup_status, primary_key
+FROM splus_admin.amue_tables
+ORDER BY setup_status, table_name;
+```
+
+**Solutions** :
+
+Option 1 — Accepter le nouveau schéma (cas le plus courant) :
+```sql
+-- Réinitialiser les fingerprints pour forcer le recalcul
+UPDATE splus_admin.amue_tables
+SET setup_status     = 'pending',
+    fingerprint_api  = '',
+    fingerprint_local = '',
+    updated_at       = NOW()
+WHERE table_name = 'NOM_TABLE';
+```
+Puis relancer `amue_table_setup` pour recalculer les fingerprints sur la nouvelle structure.
+
+Option 2 — Désactiver temporairement la table (si la modification n'est pas encore validée) :
+```sql
+UPDATE splus_admin.amue_tables
+SET enabled = false
+WHERE table_name = 'NOM_TABLE';
+```
+L'import continuera sans cette table.
+
+---
+
+### Table en statut `pending` après setup
+
+**Symptôme** : Le DAG `amue_table_setup` s'est exécuté mais certaines tables restent en `pending`.
+
+**Causes** :
+- La table n'existe pas encore sur l'API AMUE
+- Erreur de connexion API lors du setup (voir logs du DAG)
+- Table désactivée côté API mais activée localement
+
+**Solutions** :
+1. Vérifier que la table est accessible sur l'API :
+   ```bash
+   # Via le monitoring ou manuellement
+   curl -H "Authorization: Bearer $TOKEN" "$API_BASE/table/NOM_TABLE?limit=1"
+   ```
+2. Consulter les logs du DAG `amue_table_setup` pour la task correspondante
+3. Si la table n'existe pas côté API, la désactiver :
+   ```sql
+   UPDATE splus_admin.amue_tables SET enabled = false WHERE table_name = 'NOM_TABLE';
+   ```
+
+---
+
+### Import bloqué : `check_setup_status` échoue
+
+**Symptôme** : La task `check_setup_status` de `amue_multi_table_import` échoue avec une liste de tables non prêtes.
+
+**Cause** : Une ou plusieurs tables enabled ne sont pas en statut `ready` (elles sont `pending` ou `blocked`).
+
+**Solution** : Consulter les statuts et traiter chaque table non prête (voir ci-dessus), puis relancer l'import.
+
+```sql
+-- Vue rapide du problème
+SELECT table_name, setup_status
+FROM splus_admin.amue_tables
+WHERE enabled = true AND setup_status != 'ready';
+```
 
 ---
 
@@ -198,7 +285,7 @@ Si l'erreur persiste, vérifier :
 **Solution** :
 1. Exécuter le script d'initialisation :
    ```bash
-   psql -U airflow -d sifac_import -f scripts/sql/init_db.sql
+   psql -U airflow -d business_data -f scripts/sql/init_db.sql
    ```
 2. Vérifier les schémas :
    ```sql
@@ -212,24 +299,44 @@ Si l'erreur persiste, vérifier :
 
 ### ConcurrentImportError: Un import est déjà en cours
 
+> 📷 **Capture d'écran suggérée** : *Logs de la tâche `init_bluegreen` dans l'UI Airflow (onglet Logs d'un run échoué), affichant le message `ConcurrentImportError` avec le timestamp du verrou.*
+
 **Symptôme** : Nouvel import impossible car un import est détecté en cours.
 
 **Causes** :
 - Un import est réellement en cours
 - Un verrou abandonné (import précédent crashé)
 
+**Diagnostic** :
+```sql
+SELECT
+    import_in_progress,
+    import_started_at,
+    AGE(NOW(), import_started_at) AS duree,
+    last_successful_run
+FROM splus_admin.amue_state
+WHERE id = 1;
+```
+
+- Si `duree` < 2h → attendre (import probablement en cours)
+- Si `duree` > 2h ou `import_started_at` est NULL → verrou abandonné
+
 **Solutions** :
-1. Vérifier l'état :
-   ```bash
-   airflow variables get amue_bluegreen_state
-   ```
-2. Si le verrou est stale (> 4h), il sera libéré automatiquement
-3. Forcer la libération manuellement :
-   ```python
-   from amue.services.bluegreen_manager import BlueGreenManager
-   manager = BlueGreenManager()
-   manager._force_release_lock()
-   ```
+
+Option 1 — Libération programmatique (recommandée) :
+```python
+from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+manager = BlueGreenManager()
+manager._force_release_lock()
+print("Verrou libéré")
+```
+
+Option 2 — SQL direct (urgence uniquement, après avoir vérifié qu'aucun import ne tourne) :
+```sql
+UPDATE splus_admin.amue_state
+SET import_in_progress = false, updated_at = NOW()
+WHERE id = 1;
+```
 
 ### RollbackNotAvailableError: Rollback non disponible
 
@@ -244,6 +351,8 @@ Si l'erreur persiste, vérifier :
 - Restaurer depuis une sauvegarde si nécessaire
 
 ### ViewSwitchError: Erreur lors du switch des vues
+
+> 📷 **Capture d'écran suggérée** : *Logs de la tâche `switch_views` en erreur dans l'UI Airflow, affichant la trace de l'exception `ViewSwitchError` et le nom de la vue ayant échoué.*
 
 **Symptôme** : Les vues n'ont pas basculé correctement.
 
@@ -283,6 +392,8 @@ Si l'erreur persiste, vérifier :
 
 ### DAG non visible dans l'interface
 
+> 📷 **Capture d'écran suggérée** : *Page "Import Errors" dans l'UI Airflow (menu Browse → Import Errors ou `airflow dags list-import-errors`), montrant le fichier DAG en erreur, le message d'exception Python et le numéro de ligne.*
+
 **Causes** :
 - Erreur de syntaxe dans le fichier DAG
 - DAG non dans le bon répertoire
@@ -294,11 +405,13 @@ Si l'erreur persiste, vérifier :
    ```
 2. Valider le DAG :
    ```bash
-   python dags/dag_amue_dynamic_table.py
+   python dags/dag_amue_dynamic_table.py  # vérifie la syntaxe Python du fichier
    ```
 3. Vérifier le chemin `dags_folder` dans `airflow.cfg`
 
 ### Tâche bloquée en "running"
+
+> 📷 **Capture d'écran suggérée** : *Vue Grid d'un DAG dans l'UI Airflow avec une tâche bloquée en jaune/spinning depuis plusieurs heures (colonne horodatée visible), contrastant avec les runs précédents en vert.*
 
 **Symptôme** : Une tâche reste en running sans progresser.
 
@@ -307,7 +420,7 @@ Si l'erreur persiste, vérifier :
 2. Vérifier si le worker est actif
 3. Forcer l'échec et réexécuter :
    ```bash
-   airflow tasks failed dag_id task_id execution_date
+   airflow tasks clear <dag_id> -t <task_id>
    ```
 
 ### Erreur: Variable not found
@@ -344,10 +457,10 @@ Si l'erreur persiste, vérifier :
 grep -r "ERROR" $AIRFLOW_HOME/logs --include="*.log" | tail -50
 
 # Erreurs pour un DAG spécifique
-grep -r "ERROR" $AIRFLOW_HOME/logs/dag_id=dag_amue_dynamic_table/
+grep -r "ERROR" $AIRFLOW_HOME/logs/dag_id=amue_multi_table_import/
 
 # Avec contexte
-grep -B5 -A5 "AMUEError" $AIRFLOW_HOME/logs/dag_id=dag_amue_dynamic_table/
+grep -B5 -A5 "AMUEError" $AIRFLOW_HOME/logs/dag_id=amue_multi_table_import/
 ```
 
 ### Niveaux de log
@@ -387,7 +500,7 @@ export AIRFLOW__LOGGING__LOGGING_LEVEL=DEBUG
 4. **Vérifier les variables** :
    - [ ] `universite` définie
    - [ ] `api_endpoint_table` définie
-   - [ ] `amue_tables_to_import` valide
+   - [ ] Tables activées dans `splus_admin.amue_tables`
 
 ### Commande de diagnostic global
 
@@ -404,7 +517,7 @@ echo "=== Variables ==="
 airflow variables list | wc -l
 
 echo "=== Derniers runs ==="
-airflow dags list-runs -d dag_amue_dynamic_table --limit 5
+airflow dags list-runs -d amue_multi_table_import --limit 5
 ```
 
 ---

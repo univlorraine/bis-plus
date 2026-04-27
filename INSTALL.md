@@ -25,8 +25,8 @@ Pipeline Airflow d'import de données AMUE/ECC vers PostgreSQL avec architecture
 ### Étape 1 — Cloner le projet
 
 ```bash
-git clone <repo-url> DemoDAGS
-cd DemoDAGS
+git clone <repo-url> BISPlus
+cd BISPlus
 ```
 
 ### Étape 2 — Lancer le setup interactif
@@ -68,6 +68,10 @@ Accès aux interfaces :
 - Airflow UI : http://localhost:8080 (airflow / airflow par défaut)
 - MailHog UI : http://localhost:8025
 
+> 📷 **Capture d'écran suggérée** : *Page d'accueil de l'UI Airflow (`http://localhost:8080`) montrant la liste des DAGs (`amue_multi_table_import`, `amue_table_setup`, etc.) avec leurs statuts (actif/pause) et le dernier run.*
+
+> 📷 **Capture d'écran suggérée** : *Interface MailHog (`http://localhost:8025`) affichant un email de test ou de rapport capturé, confirmant que le SMTP fonctionne.*
+
 ---
 
 ## Méthode 2 — Installation 100% manuelle
@@ -75,8 +79,8 @@ Accès aux interfaces :
 ### Étape 1 — Cloner le projet
 
 ```bash
-git clone <repo-url> DemoDAGS
-cd DemoDAGS
+git clone <repo-url> BISPlus
+cd BISPlus
 ```
 
 ### Étape 2 — Créer et configurer `.env`
@@ -94,23 +98,40 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 Éditer `.env` et renseigner :
 
 ```bash
-# UID de votre utilisateur Unix
+# UID de votre utilisateur Unix (évite les problèmes de permissions sur les volumes)
 AIRFLOW_UID=1001                        # résultat de : id -u
 
-# Clé générée à l'étape précédente
+# Clé Fernet (chiffrement des credentials en base Airflow) — générée à l'étape précédente
 AIRFLOW__CORE__FERNET_KEY=<clé_fernet>
 
-# Credentials interface web Airflow (changer en prod)
+# Credentials interface web Airflow (CHANGER en production)
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
 
-# SMTP (mailhog en dev, serveur réel en prod)
+# SMTP — mailhog en dev (emails capturés localement), serveur réel en prod
 SMTP_HOST=mailhog
 SMTP_PORT=1025
+
+# Credentials OAuth AMUE (injectés chiffrés dans Airflow, jamais en clair sur disque)
+AMUE_CLIENT_ID=<votre_client_id>
+AMUE_CLIENT_SECRET=<votre_client_secret>
+
+# Mot de passe de l'utilisateur datauser PostgreSQL (base métier)
+PG_DATA_PASSWORD=datapass
 ```
 
-> Les variables PostgreSQL (`POSTGRES_*`, `PG_DATA_*`) ont des valeurs par défaut dans
-> `docker-compose.yml` — inutile de les définir sauf pour les surcharger.
+Variables PostgreSQL (avec valeurs par défaut dans `docker-compose.yml`) :
+
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `POSTGRES_USER` | `airflow` | Utilisateur base de métadonnées Airflow |
+| `POSTGRES_PASSWORD` | `airflow` | Mot de passe base Airflow |
+| `POSTGRES_DB` | `airflow` | Nom de la base Airflow |
+| `PG_DATA_USER` | `datauser` | Utilisateur base métier |
+| `PG_DATA_PASSWORD` | `datapass` | Mot de passe base métier |
+| `PG_DATA_DB` | `business_data` | Nom de la base métier |
+
+> Ces variables n'ont pas besoin d'être définies dans `.env` sauf pour surcharger les défauts.
 
 ### Étape 3 — Démarrer les services Docker
 
@@ -130,6 +151,13 @@ docker compose ps
 
 Services attendus : `postgres`, `postgres-data`, `airflow-apiserver`, `airflow-scheduler`,
 `airflow-dag-processor`, `airflow-triggerer`, `mailhog`.
+
+> 📷 **Capture d'écran suggérée** : *Sortie de `docker compose ps` avec tous les services en statut `healthy` (colonne STATUS).*
+
+> Si un service reste en `starting` plus de 2 minutes, consulter ses logs :
+> ```bash
+> docker compose logs <nom-du-service> --tail 50
+> ```
 
 ### Étape 4 — Initialiser la base de données métier
 
@@ -163,6 +191,8 @@ psql -h localhost -p 5433 -U datauser -d business_data \
 ### Étape 5 — Configurer les variables Airflow
 
 #### Option A — Via l'UI Airflow
+
+> 📷 **Capture d'écran suggérée** : *Page Admin → Variables de l'UI Airflow, montrant la liste complète des variables importées (clés et valeurs tronquées).*
 
 Aller sur http://localhost:8080 → **Admin** → **Variables** → bouton **+**
 
@@ -221,20 +251,22 @@ Répéter pour chaque variable du tableau ci-dessus.
 
 #### Option A — Via l'UI Airflow
 
+> 📷 **Capture d'écran suggérée** : *Page Admin → Connections avec les 3 connexions créées (`oauth_api`, `postgres_data`, `oracle_data`) et leurs types respectifs.*
+
 Aller sur http://localhost:8080 → **Admin** → **Connections** → bouton **+**
 
 ---
 
 **Connexion `oauth_api`** — API AMUE (OAuth2 client_credentials)
 
-| Champ | Valeur |
-|-------|--------|
-| Connection Id | `oauth_api` |
-| Connection Type | `HTTP` |
-| Host | `https://sandbox.api.amue.fr` |
-| Login | `<client_id>` |
-| Password | `<client_secret>` |
-| Extra | `{"token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token", "api_base_url": "https://sandbox.api.amue.fr"}` |
+| Champ           | Valeur                                                                                                              |
+|-----------------|---------------------------------------------------------------------------------------------------------------------|
+| Connection Id   | `oauth_api`                                                                                                         |
+| Connection Type | `HTTP`                                                                                                              |
+| Host            | `https://sandbox.api.amue.fr`                                                                                       |
+| Login           | `<client_id>`                                                                                                       |
+| Password        | `<client_secret>`                                                                                                   |
+| Extra           | `{"token_url": "https://sandbox.auth.amue.fr/auth/fer/oauth/token", "api_base_url": "https://sandbox.api.amue.fr"}` |
 
 > Le champ **Extra** est obligatoire — il contient l'URL du serveur OAuth et l'URL de base de l'API.
 
@@ -242,15 +274,15 @@ Aller sur http://localhost:8080 → **Admin** → **Connections** → bouton **+
 
 **Connexion `postgres_data`** — Base de données métier
 
-| Champ | Valeur |
-|-------|--------|
-| Connection Id | `postgres_data` |
-| Connection Type | `Postgres` |
-| Host | `postgres-data` |
-| Port | `5433` |
-| Schema | `business_data` |
-| Login | `datauser` |
-| Password | `datapass` *(ou valeur personnalisée)* |
+| Champ           | Valeur                                 |
+|-----------------|----------------------------------------|
+| Connection Id   | `postgres_data`                        |
+| Connection Type | `Postgres`                             |
+| Host            | `postgres-data`                        |
+| Port            | `5433`                                 |
+| Schema          | `business_data`                        |
+| Login           | `datauser`                             |
+| Password        | `datapass` *(ou valeur personnalisée)* |
 
 ---
 
@@ -286,7 +318,8 @@ docker compose exec airflow-apiserver airflow connections add postgres_data \
   --conn-port 5433 \
   --conn-schema business_data \
   --conn-login datauser \
-  --conn-password datapass
+  --conn-password datapass \
+  --conn-extra '{"options": "-c search_path=splus"}'
 
 # Connexion Oracle ECC (optionnel)
 docker compose exec airflow-apiserver airflow connections add oracle_data \
@@ -355,15 +388,34 @@ Accès aux interfaces :
 - **Airflow UI** : http://localhost:8080 (login: `airflow` / `airflow`)
 - **MailHog** : http://localhost:8025 (capture des emails de rapport)
 
+> 📷 **Capture d'écran suggérée** : *Sortie de la commande de vérification de l'état Blue/Green (requête sur `splus_admin.amue_state`) montrant `active_schema`, `import_in_progress = false` et `updated_at`.*
+
 ### Étape 9 — Premier import
 
-**Via CLI :**
+> 📷 **Capture d'écran suggérée** : *DAG `amue_table_setup` dans l'UI Airflow après exécution réussie — vue Graph montrant toutes les tasks `setup_table.*` en vert.*
+
+Avant le premier import de données, initialiser les tables (fingerprints + création des tables PostgreSQL) :
 
 ```bash
-docker compose exec airflow-apiserver airflow dags trigger amue_dynamic_table
+# Initialisation des tables (obligatoire avant le 1er import)
+docker compose exec airflow-apiserver airflow dags trigger amue_table_setup
 ```
 
-**Via l'UI :** http://localhost:8080 → DAG `amue_dynamic_table` → bouton ▶
+Attendre que ce DAG se termine (statut `success` dans l'UI), puis déclencher l'import :
+
+```bash
+# Import principal
+docker compose exec airflow-apiserver airflow dags trigger amue_multi_table_import
+```
+
+**Via l'UI :** http://localhost:8080 → DAG `amue_table_setup` → ▶, puis DAG `amue_multi_table_import` → ▶
+
+> Pour tester sans attendre que l'API publie un nouveau rapport, activer temporairement le bypass du sensor :
+> ```bash
+> docker compose exec airflow-apiserver airflow variables set amue_force_import true
+> # Remettre à false après le test
+> docker compose exec airflow-apiserver airflow variables set amue_force_import false
+> ```
 
 ---
 
@@ -397,14 +449,99 @@ docker compose exec airflow-apiserver airflow dags trigger amue_dynamic_table
 
 ---
 
+---
+
+## Dépannage post-installation
+
+### Service unhealthy ou qui ne démarre pas
+
+```bash
+# Voir les logs du service en échec
+docker compose logs airflow-scheduler --tail 100
+docker compose logs postgres-data --tail 50
+
+# Redémarrer un service spécifique
+docker compose restart airflow-scheduler
+```
+
+Causes fréquentes :
+- **`airflow-init` pas terminé** : attendre que le conteneur `airflow-init` sorte avec code 0 avant `docker compose up -d`
+- **Port déjà occupé** : `lsof -i :8080` ou `lsof -i :5433` pour identifier le processus concurrent
+- **Clé Fernet manquante** : vérifier que `AIRFLOW__CORE__FERNET_KEY` est bien dans `.env`
+
+---
+
+### Erreur "DAG not found" après démarrage
+
+Le scheduler met 30 à 60 secondes à charger les DAGs. Vérifier d'abord :
+
+```bash
+# Erreurs de parsing des DAGs
+docker compose exec airflow-apiserver airflow dags list-import-errors
+```
+
+Causes fréquentes :
+- Dépendance Python manquante : vérifier `requirements.txt` et relancer `docker compose build`
+- Erreur de syntaxe dans un fichier DAG : le message d'erreur indique le fichier et la ligne
+
+---
+
+### Impossible de se connecter à la base métier
+
+```bash
+# Tester la connexion depuis l'intérieur du réseau Docker
+docker compose exec airflow-apiserver python -c "
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+hook = PostgresHook('postgres_data')
+print(hook.get_first('SELECT 1'))
+"
+```
+
+Si erreur `connection refused` : vérifier que `postgres-data` est `healthy` :
+```bash
+docker compose ps postgres-data
+```
+
+Si erreur `password authentication failed` : vérifier `PG_DATA_PASSWORD` dans `.env` et la connexion `postgres_data` dans Airflow.
+
+---
+
+### L'API AMUE renvoie 401
+
+La connexion `oauth_api` ne contient pas les bons credentials.
+
+```bash
+# Tester l'authentification OAuth directement
+curl -s -X POST "https://sandbox.auth.amue.fr/auth/fer/oauth/token" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=<votre_id>" \
+  -d "client_secret=<votre_secret>"
+```
+
+Mettre à jour la connexion si les credentials ont changé :
+```bash
+docker compose exec airflow-apiserver airflow connections delete oauth_api
+# Puis recréer avec les bons credentials (voir Étape 6)
+```
+
+---
+
+### Emails non reçus en développement
+
+Les emails sont capturés par MailHog (pas envoyés réellement). Les consulter sur http://localhost:8025.
+
+Si MailHog n'est pas accessible : vérifier que le service tourne (`docker compose ps mailhog`) et que le port 8025 n'est pas bloqué par un firewall.
+
+---
+
 ## Fichiers clés
 
-| Fichier | Rôle |
-|---------|------|
-| `.env` | Variables Docker (générées depuis `.env.example`) |
-| `docker-compose.yml` | Définition des 8 services |
-| `scripts/sql/init_db.sql` | Création des schémas et tables admin |
-| `config/airflow_variables.json` | Variables Airflow (import en masse) |
-| `config/airflow_connections.json` | Structure des connexions (sans credentials) |
-| `scripts/install/quick_setup.sh` | Script d'installation interactif |
-| `manage.sh` | CLI principal de gestion |
+| Fichier                           | Rôle                                              |
+|-----------------------------------|---------------------------------------------------|
+| `.env`                            | Variables Docker (générées depuis `.env.example`) |
+| `docker-compose.yml`              | Définition des 8 services                         |
+| `scripts/sql/init_db.sql`         | Création des schémas et tables admin              |
+| `config/airflow_variables.json`   | Variables Airflow (import en masse)               |
+| `config/airflow_connections.json` | Structure des connexions (sans credentials)       |
+| `scripts/install/quick_setup.sh`  | Script d'installation interactif                  |
+| `manage.sh`                       | CLI principal de gestion                          |
