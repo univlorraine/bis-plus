@@ -15,7 +15,8 @@ CREATE VIEW splus.v_bs_z_udl_read_pfis AS
         t1.modified_on,
         t1.zfleche
         FROM {target_schema}.fmmeasure t1
-            LEFT JOIN ( SELECT t3_1.rldnr,
+            LEFT JOIN (
+            SELECT t3_1.rldnr,
                 t3_1.rrcty,
                 t3_1.rvers,
                 t3_1.ryear,
@@ -94,9 +95,8 @@ CREATE VIEW splus.v_bs_z_udl_read_pfis AS
                 t3_1.cspred,
                 t3_1.ctem_category_9,
                 row_number() OVER (PARTITION BY t3_1.rmeasure ORDER BY t3_1.rmeasure) AS rn
-               FROM {target_schema}.fmbdt t3_1
-              WHERE t3_1.ryear = '2025'::bpchar AND t3_1.rldnr = '9F'::bpchar AND t3_1.rvers = '000'::bpchar) t3 ON t1.measure = t3.rmeasure
-      WHERE t1.fmarea = '1010'::bpchar AND (t3.rn = 1 OR t3.rn IS NULL) AND (t1.modified_on = '00000000'::bpchar AND t1.created_on >= '20250303'::bpchar OR t1.modified_on >= '20250303'::bpchar);
+            FROM {target_schema}.fmbdt t3_1) t3 ON t1.measure = t3.rmeasure
+  WHERE (t3.rn = 1 OR t3.rn IS NULL) AND (t1.modified_on = '00000000'::bpchar);
 
 COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.measure IS 'Programme de financement';
 COMMENT ON COLUMN splus.v_bs_z_udl_read_pfis.valid_from IS 'FM : date début de validité';
