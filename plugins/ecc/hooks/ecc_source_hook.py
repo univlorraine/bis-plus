@@ -1,10 +1,18 @@
 # ecc/hooks/ecc_source_hook.py
-"""Hook Oracle pour la lecture des données SAP ECC.
+"""Hook source ECC : lecture Oracle ou SQL Server.
 
-N'utilise pas airflow.providers.oracle (non installé) mais se connecte
-directement via oracledb (ou cx_Oracle en fallback) en lisant les
-métadonnées de la connexion Airflow 'ecc_data'.
+Ne dépend ni de airflow.providers.oracle ni de airflow.providers.microsoft.mssql
+(non installés). Se connecte directement via le driver Python natif :
+- Oracle : oracledb (ou cx_Oracle en fallback)
+- SQL Server : pyodbc (ODBC Driver 17/18 for SQL Server requis)
+
+Le backend est déduit du champ `conn_type` de la connexion Airflow :
+- 'oracle' → backend Oracle
+- 'mssql' / 'mssqlplus' → backend SQL Server
+- 'odbc' → lit `extra.backend` ('oracle' ou 'mssql', défaut 'oracle' pour
+  rétro-compat avec l'ancienne connexion `oracle_data`)
 """
+import json
 import logging
 import time
 from typing import Iterator, List, Tuple
@@ -13,133 +21,206 @@ from common.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 
+ORACLE = 'oracle'
+MSSQL = 'mssql'
 
-def _get_oracle_driver():
-    """Retourne le module Oracle disponible (oracledb ou cx_Oracle)."""
+_DEFAULT_MSSQL_DRIVER = 'ODBC Driver 17 for SQL Server'
+_DEFAULT_MSSQL_PORT = 1433
+_DEFAULT_ORACLE_PORT = 1521
+
+
+def _get_driver(backend: str):
+    """Importe et retourne le module driver pour le backend demandé."""
+    if backend == ORACLE:
+        try:
+            import oracledb
+            return oracledb
+        except ImportError:
+            pass
+        try:
+            import cx_Oracle
+            return cx_Oracle
+        except ImportError:
+            raise ImportError(
+                "Aucun driver Oracle trouvé. Installez 'oracledb' ou 'cx_Oracle'."
+            )
+    if backend == MSSQL:
+        try:
+            import pyodbc
+            return pyodbc
+        except ImportError:
+            raise ImportError(
+                "Driver pyodbc non installé pour SQL Server. "
+                "Installez 'pyodbc' et le pilote 'ODBC Driver 17/18 for SQL Server'."
+            )
+    raise ValueError(
+        f"Backend non supporté: {backend!r} (attendu: 'oracle' ou 'mssql')"
+    )
+
+
+def _parse_extra(conn) -> dict:
+    """Parse le champ extra Airflow (str JSON ou dict) en dict, sans planter."""
+    extra = getattr(conn, 'extra', None)
+    if not extra:
+        return {}
+    if isinstance(extra, dict):
+        return extra
     try:
-        import oracledb
-        return oracledb
-    except ImportError:
-        pass
-    try:
-        import cx_Oracle
-        return cx_Oracle
-    except ImportError:
-        raise ImportError(
-            "Aucun driver Oracle trouvé. Installez 'oracledb' ou 'cx_Oracle'."
-        )
+        return json.loads(extra)
+    except (TypeError, ValueError):
+        return {}
 
 
 class ECCSourceHook:
     """
-    Hook de lecture Oracle pour les données SAP ECC.
+    Hook de lecture des données SAP ECC depuis Oracle ou SQL Server.
 
-    Se connecte via oracledb/cx_Oracle en utilisant les paramètres de la
-    connexion Airflow (conn_id). N'utilise pas airflow.providers.oracle.
+    Le backend est résolu automatiquement à partir du `conn_type` Airflow.
+    Le champ `schema` porte le SID Oracle ou le nom de base SQL Server.
 
     Example:
-        >>> hook = ECCSourceHook()
+        >>> hook = ECCSourceHook()  # conn_id='ecc_data' par défaut
         >>> columns, rows = hook.execute_sql_file('/path/to/SELECT_LFA1.sql')
         >>> for row in rows:
         ...     print(row)
     """
 
-    def __init__(self, conn_id: str = 'oracle_data'):
+    def __init__(self, conn_id: str = 'ecc_data'):
         """
-        Initialise le hook Oracle.
-
         Args:
-            conn_id: ID de connexion Airflow (défaut: 'oracle_data')
+            conn_id: ID de connexion Airflow (défaut: 'ecc_data')
         """
         self.conn_id = conn_id
 
-    def _build_dsn(self, oracle, conn) -> str:
-        """Construit le DSN Oracle (format SID) depuis les métadonnées Airflow.
+    def _resolve_backend(self, conn) -> str:
+        """Déduit le backend ('oracle' ou 'mssql') depuis la connexion Airflow."""
+        conn_type = (getattr(conn, 'conn_type', None) or '').lower()
+        if conn_type == ORACLE:
+            return ORACLE
+        if conn_type in ('mssql', 'mssqlplus'):
+            return MSSQL
+        if conn_type == 'odbc':
+            extra = _parse_extra(conn)
+            backend = (extra.get('backend') or ORACLE).lower()
+            if backend not in (ORACLE, MSSQL):
+                raise ValueError(
+                    f"[ECC] extra.backend={backend!r} invalide (attendu 'oracle' ou 'mssql')"
+                )
+            return backend
+        raise ValueError(
+            f"[ECC] conn_type Airflow non supporté: {conn_type!r} "
+            f"(attendu 'oracle', 'mssql', 'mssqlplus' ou 'odbc')"
+        )
 
-        Le champ 'schema' de la connexion Airflow contient le SID Oracle.
-        """
+    def _build_connect_kwargs(self, backend: str, driver, conn) -> dict:
+        """Construit les kwargs de connexion natifs selon le backend."""
         host = conn.host or 'localhost'
-        port = conn.port or 1521
-        sid = conn.schema or ''
-        # Format TNS descriptor avec SID (≠ service_name)
-        return oracle.makedsn(host, port, sid=sid)
+        login = conn.login or ''
+        password = conn.password or ''
+        schema = conn.schema or ''
+
+        if backend == ORACLE:
+            port = conn.port or _DEFAULT_ORACLE_PORT
+            dsn = driver.makedsn(host, port, sid=schema)
+            return {
+                'user': login,
+                'password': password,
+                'dsn': dsn,
+                'expire_time': 2,
+            }
+
+        # MSSQL — chaîne de connexion ODBC complète
+        port = conn.port or _DEFAULT_MSSQL_PORT
+        extra = _parse_extra(conn)
+        odbc_driver = extra.get('driver') or _DEFAULT_MSSQL_DRIVER
+        dsn = (
+            f"Driver={{{odbc_driver}}};"
+            f"Server={host},{port};"
+            f"Database={schema};"
+            f"UID={login};"
+            f"PWD={password};"
+            f"Encrypt=yes;"
+            f"TrustServerCertificate=yes"
+        )
+        return {'dsn': dsn}
+
+    @staticmethod
+    def _connect(driver, backend: str, kwargs: dict):
+        """Appelle driver.connect() avec la signature attendue par chaque backend."""
+        if backend == ORACLE:
+            return driver.connect(**kwargs)
+        # pyodbc.connect prend une chaîne unique
+        return driver.connect(kwargs['dsn'])
 
     def get_conn(self, max_retries: int = 3, retry_delay_seconds: float = 5.0):
         """
-        Retourne une connexion Oracle native avec retry automatique.
+        Retourne une connexion native au backend ECC, avec retry automatique.
 
         Args:
             max_retries: Nombre maximum de tentatives (défaut: 3)
             retry_delay_seconds: Délai entre tentatives en secondes (défaut: 5)
 
         Returns:
-            Connexion Oracle active
+            Connexion native (oracledb / cx_Oracle / pyodbc) active
 
         Raises:
-            Exception: Dernière exception Oracle si toutes les tentatives échouent
+            Exception: Dernière exception du driver si toutes les tentatives échouent
         """
-        oracle = _get_oracle_driver()
         airflow_conn = get_airflow_connection(self.conn_id)
-
-        dsn = self._build_dsn(oracle, airflow_conn)
-        login = airflow_conn.login or ''
-        password = airflow_conn.password or ''
+        backend = self._resolve_backend(airflow_conn)
+        driver = _get_driver(backend)
+        connect_kwargs = self._build_connect_kwargs(backend, driver, airflow_conn)
 
         last_error = None
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(
-                    f"[ECC] Connexion Oracle: {login}@{airflow_conn.host} "
-                    f"(SID={airflow_conn.schema}, tentative {attempt}/{max_retries})"
+                    f"[ECC] Connexion {backend.upper()}: "
+                    f"{airflow_conn.login}@{airflow_conn.host} "
+                    f"(db={airflow_conn.schema}, tentative {attempt}/{max_retries})"
                 )
-                return oracle.connect(user=login, password=password, dsn=dsn, expire_time=2)
+                return self._connect(driver, backend, connect_kwargs)
             except Exception as e:
                 last_error = e
                 if attempt < max_retries:
                     logger.warning(
-                        f"[ECC] Échec connexion Oracle (tentative {attempt}/{max_retries}): {e}"
+                        f"[ECC] Échec connexion {backend.upper()} "
+                        f"(tentative {attempt}/{max_retries}): {e}"
                     )
                     time.sleep(retry_delay_seconds)
                 else:
-                    logger.error(f"[ECC] Toutes les tentatives de connexion Oracle ont échoué: {e}")
+                    logger.error(
+                        f"[ECC] Toutes les tentatives de connexion {backend.upper()} "
+                        f"ont échoué: {e}"
+                    )
 
         raise last_error
 
+    def _current_backend(self) -> str:
+        """Helper utilisé par _stream_query pour adapter la détection d'erreur."""
+        return self._resolve_backend(get_airflow_connection(self.conn_id))
+
     @staticmethod
-    def _is_connection_error(e: Exception) -> bool:
-        """Détecte les erreurs de connexion Oracle récupérables (DPY-4011, etc.)."""
+    def _is_connection_error(e: Exception, backend: str) -> bool:
+        """Détecte les erreurs de transport récupérables selon le backend."""
         msg = str(e)
-        return 'DPY-4011' in msg or 'connection was closed' in msg.lower()
+        if backend == ORACLE:
+            return 'DPY-4011' in msg or 'connection was closed' in msg.lower()
+        # MSSQL / pyodbc — SQLSTATE de transport
+        for sqlstate in ('08S01', '08001', '08003', '08004', 'HYT00', 'HYT01'):
+            if sqlstate in msg:
+                return True
+        return 'connection' in msg.lower() and 'closed' in msg.lower()
 
-    def execute_sql_file(
+    def _stream_query(
         self,
-        sql_file_path: str,
-        batch_size: int = 5000
+        sql_query: str,
+        batch_size: int,
     ) -> Tuple[List[str], Iterator[tuple]]:
-        """
-        Exécute un fichier SQL Oracle et retourne un générateur de lignes.
-
-        Args:
-            sql_file_path: Chemin absolu vers le fichier SQL
-            batch_size: Nombre de lignes par fetch (défaut: 5000)
-
-        Returns:
-            Tuple (column_names_lowercase, row_generator) :
-            - column_names_lowercase : noms de colonnes en minuscules
-            - row_generator : générateur de tuples (une ligne par itération)
-
-        Raises:
-            FileNotFoundError: Si le fichier SQL n'existe pas
-        """
-        logger.info(f"[ECC] Lecture fichier SQL: {sql_file_path}")
-
-        with open(sql_file_path, 'r', encoding='utf-8') as f:
-            sql_query = f.read().strip().rstrip(';').strip()
-
+        """Logique partagée : exécute la requête, renvoie (colonnes, générateur)."""
+        backend = self._current_backend()
         conn = self.get_conn()
         cursor = conn.cursor()
-
-        logger.info("[ECC] Exécution requête Oracle")
         cursor.execute(sql_query)
 
         column_names = [desc[0].lower() for desc in cursor.description]
@@ -155,10 +236,10 @@ class ECCSourceHook:
                     try:
                         rows = cursor.fetchmany(batch_size)
                     except Exception as e:
-                        if reconnects < max_reconnects and self._is_connection_error(e):
+                        if reconnects < max_reconnects and self._is_connection_error(e, backend):
                             logger.warning(
-                                f"[ECC] Connexion Oracle perdue à {fetched} lignes "
-                                f"(DPY-4011), reconnexion {reconnects + 1}/{max_reconnects}..."
+                                f"[ECC] Connexion {backend.upper()} perdue à {fetched} lignes, "
+                                f"reconnexion {reconnects + 1}/{max_reconnects}..."
                             )
                             try: cursor.close()
                             except Exception: pass
@@ -177,7 +258,7 @@ class ECCSourceHook:
                     for row in rows:
                         yield row
             finally:
-                logger.info(f"[ECC] Total lignes Oracle récupérées: {fetched}")
+                logger.info(f"[ECC] Total lignes {backend.upper()} récupérées: {fetched}")
                 try: cursor.close()
                 except Exception: pass
                 try: conn.close()
@@ -185,16 +266,39 @@ class ECCSourceHook:
 
         return column_names, row_generator()
 
+    def execute_sql_file(
+        self,
+        sql_file_path: str,
+        batch_size: int = 5000,
+    ) -> Tuple[List[str], Iterator[tuple]]:
+        """
+        Exécute un fichier SQL et retourne un générateur de lignes.
+
+        Args:
+            sql_file_path: Chemin absolu vers le fichier SQL
+            batch_size: Nombre de lignes par fetch (défaut: 5000)
+
+        Returns:
+            Tuple (column_names_lowercase, row_generator)
+
+        Raises:
+            FileNotFoundError: Si le fichier SQL n'existe pas
+        """
+        logger.info(f"[ECC] Lecture fichier SQL: {sql_file_path}")
+        with open(sql_file_path, 'r', encoding='utf-8') as f:
+            sql_query = f.read().strip().rstrip(';').strip()
+        return self._stream_query(sql_query, batch_size)
+
     def execute_query(
         self,
         sql_query: str,
-        batch_size: int = 5000
+        batch_size: int = 5000,
     ) -> Tuple[List[str], Iterator[tuple]]:
         """
-        Exécute une requête Oracle passée en chaîne (depuis amue_tables.ecc_query).
+        Exécute une requête SQL passée en chaîne (depuis amue_tables.ecc_query).
 
         Args:
-            sql_query: Requête Oracle SQL (depuis splus_admin.amue_tables.ecc_query)
+            sql_query: Requête SQL (depuis splus_admin.amue_tables.ecc_query)
             batch_size: Nombre de lignes par fetch (défaut: 5000)
 
         Returns:
@@ -208,53 +312,7 @@ class ECCSourceHook:
 
         query = sql_query.strip().rstrip(';').strip()
         logger.info(
-            f"[ECC] Exécution requête Oracle (depuis base de données) — "
+            f"[ECC] Exécution requête (depuis base de données) — "
             f"aperçu: {query[:20000]!r}"
         )
-
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute(query)
-
-        column_names = [desc[0].lower() for desc in cursor.description]
-        logger.info(f"[ECC] {len(column_names)} colonnes: {column_names[:5]}...")
-
-        def row_generator():
-            nonlocal conn, cursor
-            fetched = 0
-            max_reconnects = 2
-            reconnects = 0
-            try:
-                while True:
-                    try:
-                        rows = cursor.fetchmany(batch_size)
-                    except Exception as e:
-                        if reconnects < max_reconnects and self._is_connection_error(e):
-                            logger.warning(
-                                f"[ECC] Connexion Oracle perdue à {fetched} lignes "
-                                f"(DPY-4011), reconnexion {reconnects + 1}/{max_reconnects}..."
-                            )
-                            try: cursor.close()
-                            except Exception: pass
-                            try: conn.close()
-                            except Exception: pass
-                            reconnects += 1
-                            conn = self.get_conn()
-                            cursor = conn.cursor()
-                            cursor.execute(query)
-                            fetched = 0
-                            continue
-                        raise
-                    if not rows:
-                        break
-                    fetched += len(rows)
-                    for row in rows:
-                        yield row
-            finally:
-                logger.info(f"[ECC] Total lignes Oracle récupérées: {fetched}")
-                try: cursor.close()
-                except Exception: pass
-                try: conn.close()
-                except Exception: pass
-
-        return column_names, row_generator()
+        return self._stream_query(query, batch_size)

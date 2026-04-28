@@ -43,7 +43,7 @@ x-airflow-common:
     AIRFLOW__SMTP__SMTP_PORT: 1025
     AIRFLOW__SMTP__SMTP_MAIL_FROM: airflow@votre-universite.fr
     AIRFLOW__EMAIL__EMAIL_BACKEND: airflow.providers.smtp.notifications.smtp.SmtpNotifier
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- requests oauthlib requests-oauthlib oracledb}
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- requests oauthlib requests-oauthlib oracledb pyodbc}
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
@@ -88,7 +88,7 @@ services:
       - postgres-data-volume:/var/lib/postgresql/data
       - ${AIRFLOW_PROJ_DIR:-.}/scripts/sql/init_db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "datauser"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       retries: 5
       start_period: 5s
