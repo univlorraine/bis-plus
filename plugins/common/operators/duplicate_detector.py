@@ -1,9 +1,9 @@
-# amue/operators/pipeline/duplicate_detector.py
 """
 Detection et logging des doublons de cle primaire.
 
-Ce module detecte les doublons de cle primaire dans les donnees AVANT insertion,
-permettant de diagnostiquer les problemes de qualite de donnees de l'API.
+Module générique (AMUE / ECC) : détecte les doublons de clé primaire dans
+un batch avant insertion, permettant de diagnostiquer les problèmes de
+qualité de données.
 """
 import logging
 import re

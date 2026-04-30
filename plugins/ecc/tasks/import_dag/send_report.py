@@ -1,10 +1,12 @@
-# ecc/tasks/import_dag/send_report.py
 """Task d'envoi du rapport d'import ECC."""
 import logging
 from datetime import datetime
 from typing import Dict, List
 
 from airflow.sdk import task, get_current_context
+
+from common.log_prefixes import LogPrefixes
+from common.tasks.import_summary import summarize_import_results
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ def _format_duration(seconds: float) -> str:
 
 
 @task(task_id='send_ecc_report', multiple_outputs=False)
-def send_ecc_report(import_results: List[Dict]) -> Dict:
+def send_report(import_results: List[Dict]) -> Dict:
     """
     Génère et envoie le rapport d'import ECC.
 
@@ -28,18 +30,14 @@ def send_ecc_report(import_results: List[Dict]) -> Dict:
     Returns:
         Rapport généré avec métriques agrégées
     """
-    logger.info("[ECC] Génération rapport d'import")
+    logger.info(f"{LogPrefixes.ECC_REPORT} Génération rapport d'import")
 
-    total_fetched = sum(r.get('rows_fetched', 0) for r in import_results)
-    total_inserted = sum(r.get('rows_inserted', 0) for r in import_results)
-    total_updated = sum(r.get('rows_updated', 0) for r in import_results)
-    total_skipped = sum(r.get('rows_skipped', 0) for r in import_results)
-    tables_ok = sum(1 for r in import_results if r.get('status') == 'success')
+    summary = summarize_import_results(import_results)
 
     logger.info(
-        f"[ECC] Résumé: {len(import_results)} tables, "
-        f"{total_fetched} récupérées, {total_inserted} insérées, "
-        f"{total_updated} mises à jour, {total_skipped} protégées (sifac_plus)"
+        f"{LogPrefixes.ECC_REPORT} Résumé: {summary['tables_processed']} tables, "
+        f"{summary['total_fetched']} récupérées, {summary['total_inserted']} insérées, "
+        f"{summary['total_updated']} mises à jour, {summary['total_skipped']} protégées (sifac_plus)"
     )
 
     ctx = get_current_context()
@@ -59,13 +57,4 @@ def send_ecc_report(import_results: List[Dict]) -> Dict:
         'duration': duration,
     })
 
-    return {
-        'ecc_summary': {
-            'tables_processed': len(import_results),
-            'tables_success': tables_ok,
-            'total_fetched': total_fetched,
-            'total_inserted': total_inserted,
-            'total_updated': total_updated,
-            'total_skipped': total_skipped,
-        }
-    }
+    return {'ecc_summary': summary}

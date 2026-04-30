@@ -1,18 +1,16 @@
-# ecc/notifications/ecc_templates.py
 """Templates HTML pour les notifications ECC."""
 from typing import Any, Dict, List
 
-from amue.notifications.templates import NotificationTemplates
+from common.notifications.base_templates import BaseTemplates
 
 
-class ECCNotificationTemplates(NotificationTemplates):
+class ECCNotificationTemplates(BaseTemplates):
     """
     Templates HTML pour les notifications ECC.
 
-    Surcharge NotificationTemplates pour :
-    - Titre "Import ECC" (succes/erreur)
-    - Badge ECC orange dans le rapport de succes
-    - Colonne "Ignorees" (rows_skipped) dans le tableau des tables
+    Hérite directement de `BaseTemplates` (common) — ECC est totalement
+    découplé d'AMUE. Implémente `render_success` (rapport d'import) et
+    `render_error` (notification d'erreur générique).
     """
 
     @classmethod
@@ -80,11 +78,51 @@ class ECCNotificationTemplates(NotificationTemplates):
 
     @classmethod
     def render_error(cls, context: Dict[str, Any]) -> str:
-        """Notification d'erreur ECC."""
-        # Surcharge uniquement le titre par défaut
-        if 'title' not in context:
-            context = dict(context, title="Erreur Import ECC")
-        return super().render_error(context)
+        """Notification d'erreur ECC (template générique)."""
+        title = context.get('title', 'Erreur Import ECC')
+        subtitle = context.get('subtitle', '')
+        dag_id = context.get('dag_id', 'ecc_multi_table_import')
+        task_id = context.get('task_id', 'unknown')
+        error_type = context.get('error_type', 'UnknownError')
+        error_message = context.get('error_message', 'Erreur inconnue')
+
+        traceback_html = cls._render_stacktrace(context.get('error_traceback'))
+
+        content = f"""
+        <div style="background: #ffebee; border-left: 4px solid #f44336;
+                    padding: 20px; border-radius: 4px;">
+            <h2 style="color: #c62828; margin-top: 0; font-size: 18px;">
+                Erreur Détectée — Import ECC
+            </h2>
+
+            <div class="info-grid">
+                <div class="info-label">DAG :</div>
+                <div class="info-value"><strong>{dag_id}</strong></div>
+
+                <div class="info-label">Tâche :</div>
+                <div class="info-value"><strong>{task_id}</strong></div>
+
+                <div class="info-label">Type d'erreur :</div>
+                <div class="info-value"><code>{error_type}</code></div>
+
+                <div class="info-label">Statut :</div>
+                <div class="info-value">
+                    <span class="badge" style="background: #fff3e0; color: #ef6c00;">ECC</span>
+                    <span class="badge badge-error" style="margin-left: 6px;">failed</span>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <strong>Message d'erreur :</strong>
+                <div class="message-box">{cls.escape_html(error_message)}</div>
+            </div>
+        </div>
+        {traceback_html}
+        """
+
+        header = cls._render_header(title, subtitle, cls.HEADER_COLOR_ERROR)
+        footer = cls._render_footer(show_actions=True)
+        return cls._wrap_html(header, content, footer)
 
     @classmethod
     def _render_tables_list(cls, tables: List[Dict[str, Any]]) -> str:

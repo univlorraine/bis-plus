@@ -151,7 +151,12 @@ def create_bluegreen_hook(target_schema: str) -> PostgresHook:
 
 def create_api_hook():
     """
-    Factory pour créer un hook API AMUE
+    Factory pour créer un hook API AMUE.
+
+    Note: Cette factory est le seul point où common importe d'amue (lazy).
+    Elle n'est appelée qu'en contexte AMUE — common reste utilisable sans
+    amue installé tant que ni cette factory ni `HookManager.api_hook` ne
+    sont sollicités.
 
     Returns:
         AMUEAPIHook configuré

@@ -55,7 +55,7 @@ from typing import Dict, Optional
 from psycopg2 import sql
 
 from common.utils.database.schema_utils import schema_exists as _schema_exists
-from amue.exceptions import ConcurrentImportError
+from common.exceptions import ConcurrentImportError
 from common.services.bluegreen.bluegreen_state_manager import BlueGreenState, BlueGreenStateManager
 from common.services.bluegreen.bluegreen_schema_resolver import BlueGreenSchemaResolver
 from common.services.bluegreen.bluegreen_lock_manager import BlueGreenLockManager

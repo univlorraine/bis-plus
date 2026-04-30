@@ -1,9 +1,9 @@
-# amue/operators/pipeline/batch_inserter.py
 """
 Execution des insertions SQL par batch.
 
 Ce module gere l'insertion des donnees en base PostgreSQL par batch,
-avec gestion des transactions et detection des conflits.
+avec gestion des transactions et detection des conflits. Utilisé par AMUE
+et ECC indifféremment.
 """
 import logging
 import time
@@ -14,18 +14,15 @@ from psycopg2 import sql, OperationalError, InterfaceError, ProgrammingError
 from psycopg2.errors import UniqueViolation
 from psycopg2.extras import execute_values
 
-from amue.exceptions import (
-    AMUEBatchError,
-    AMUEDatabaseError,
-    AMUEDataError,
-)
-from amue.utils.config.settings import Defaults
+from common.exceptions import BatchError, DatabaseError, DataError
+from common.log_prefixes import LogPrefixes
+from common.operators.duplicate_detector import DuplicateDetector
 from common.utils.database.schema_utils import SchemaQualifier
 
 logger = logging.getLogger(__name__)
 
 
-class AMUEBatchInserter:
+class BatchInserter:
     """
     Execute les insertions SQL par batch avec gestion des erreurs.
 
@@ -38,10 +35,10 @@ class AMUEBatchInserter:
         target_schema: Schéma cible pour blue/green (optionnel)
 
     Example:
-        >>> inserter = AMUEBatchInserter(postgres_hook)
+        >>> inserter = BatchInserter(postgres_hook)
         >>> inserter.execute_batch(cursor, conn, sql, batch, table_name, columns, pks)
         >>> # Avec blue/green
-        >>> inserter = AMUEBatchInserter(postgres_hook, target_schema='splus_blue')
+        >>> inserter = BatchInserter(postgres_hook, target_schema='splus_blue')
     """
 
     def __init__(self, postgres_hook: Any = None, target_schema: Optional[str] = None):
@@ -52,7 +49,6 @@ class AMUEBatchInserter:
             postgres_hook: Hook PostgreSQL (optionnel, peut etre fourni plus tard)
             target_schema: Schéma cible pour blue/green (ex: 'splus_blue')
         """
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
         self.postgres_hook = postgres_hook
         self.duplicate_detector = DuplicateDetector()
         self._schema_qualifier = SchemaQualifier(target_schema)
@@ -132,9 +128,9 @@ class AMUEBatchInserter:
             }
 
         Raises:
-            AMUEDataError: En cas de doublons dans les données source
-            AMUEBatchError: En cas de conflit de clé primaire
-            AMUEDatabaseError: En cas d'erreur de connexion DB
+            DataError: En cas de doublons dans les données source
+            BatchError: En cas de conflit de clé primaire
+            DatabaseError: En cas d'erreur de connexion DB
         """
         start_time = time.monotonic()
 
@@ -147,7 +143,7 @@ class AMUEBatchInserter:
                 self.duplicate_detector.log_batch_duplicates(
                     table_name, columns, primary_keys, duplicates_found
                 )
-                raise AMUEDataError(
+                raise DataError(
                     f"Doublons detectes dans les donnees API pour {table_name}. "
                     f"{len(duplicates_found)} groupe(s) de doublons trouve(s). "
                     f"Voir les logs pour les details.",
@@ -192,7 +188,7 @@ class AMUEBatchInserter:
                 try:
                     conn.rollback()
                 except Exception as rollback_err:
-                    logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Rollback échoué: {rollback_err}")
+                    logger.warning(f"{LogPrefixes.BATCH} Rollback échoué: {rollback_err}")
             # Diagnostic spécifique : ON CONFLICT sans contrainte UNIQUE (pgcode 42P10)
             if getattr(e, 'pgcode', None) == '42P10' or 'on conflict' in str(e).lower():
                 self._log_on_conflict_details(table_name, batch, columns, primary_keys, batch_num, conn)
@@ -204,9 +200,9 @@ class AMUEBatchInserter:
                 try:
                     conn.rollback()
                 except Exception as rollback_err:
-                    logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Rollback échoué après erreur connexion: {rollback_err}")
-            logger.error(f"{Defaults.LOG_PREFIX_BATCH} Erreur connexion DB: {e}")
-            raise AMUEDatabaseError(
+                    logger.warning(f"{LogPrefixes.BATCH} Rollback échoué après erreur connexion: {rollback_err}")
+            logger.error(f"{LogPrefixes.BATCH} Erreur connexion DB: {e}")
+            raise DatabaseError(
                 f"Erreur de connexion lors de l'insertion du batch: {e}",
                 table_name=table_name,
                 is_connection_error=True
@@ -390,7 +386,7 @@ class AMUEBatchInserter:
             Dict de la ligne existante ou None si non trouvée
 
         Raises:
-            AMUEDatabaseError: En cas d'erreur de connexion à la base de données
+            DatabaseError: En cas d'erreur de connexion à la base de données
         """
         where_parts = []
         params = []
@@ -405,7 +401,7 @@ class AMUEBatchInserter:
                 params.append(pk_values[pk])
 
         if not where_parts:
-            logger.debug(f"{Defaults.LOG_PREFIX_BATCH} Pas de clause WHERE, retour None")
+            logger.debug(f"{LogPrefixes.BATCH} Pas de clause WHERE, retour None")
             return None
 
         # Utilise le nom qualifié si blue/green actif
@@ -428,8 +424,8 @@ class AMUEBatchInserter:
 
         except (OperationalError, InterfaceError) as e:
             # Erreurs de connexion : doivent être remontées
-            logger.error(f"{Defaults.LOG_PREFIX_BATCH} Erreur connexion DB: {e}")
-            raise AMUEDatabaseError(
+            logger.error(f"{LogPrefixes.BATCH} Erreur connexion DB: {e}")
+            raise DatabaseError(
                 f"Erreur de connexion lors de la récupération de la ligne existante: {e}",
                 table_name=table_name,
                 is_connection_error=True
@@ -438,7 +434,7 @@ class AMUEBatchInserter:
         except Exception as e:
             # Autres erreurs (ex: table n'existe pas) : log et retourne None
             # Ces erreurs ne sont pas des erreurs de connexion
-            logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Erreur recuperation ligne: {e}")
+            logger.warning(f"{LogPrefixes.BATCH} Erreur recuperation ligne: {e}")
             return None
 
     def _log_on_conflict_details(
@@ -461,18 +457,18 @@ class AMUEBatchInserter:
         data_cols = [c for c in columns if c not in primary_keys and c not in ('_source', '_imported_at')]
 
         logger.error(
-            f"{Defaults.LOG_PREFIX_BATCH} [{label}] {table_name} : "
+            f"{LogPrefixes.BATCH} [{label}] {table_name} : "
             f"pas de contrainte UNIQUE/PRIMARY KEY sur {primary_keys} dans PostgreSQL"
         )
         logger.error(
-            f"{Defaults.LOG_PREFIX_BATCH}   {len(batch)} ligne(s) dans le batch — "
+            f"{LogPrefixes.BATCH}   {len(batch)} ligne(s) dans le batch — "
             f"comparatif base existante vs données API (5 premières) :"
         )
         sample = batch[:5]
         for i, row in enumerate(sample, 1):
             row_dict = dict(zip(columns, row))
             pk_vals = {pk: row_dict.get(pk, '?') for pk in primary_keys}
-            logger.error(f"{Defaults.LOG_PREFIX_BATCH}   ── [{i}/{len(batch)}] PK = {pk_vals}")
+            logger.error(f"{LogPrefixes.BATCH}   ── [{i}/{len(batch)}] PK = {pk_vals}")
 
             existing = None
             if conn is not None:
@@ -482,7 +478,7 @@ class AMUEBatchInserter:
                             cur, conn, table_name, columns, primary_keys, pk_vals
                         )
                 except Exception as fetch_err:
-                    logger.debug(f"{Defaults.LOG_PREFIX_BATCH}     (fetch existant impossible: {fetch_err})")
+                    logger.debug(f"{LogPrefixes.BATCH}     (fetch existant impossible: {fetch_err})")
 
             if existing is not None:
                 changed = [
@@ -492,21 +488,21 @@ class AMUEBatchInserter:
                 ]
                 unchanged_count = len(data_cols) - len(changed)
                 if changed:
-                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}     {len(changed)} colonne(s) MODIFIÉE(S) :")
+                    logger.error(f"{LogPrefixes.BATCH}     {len(changed)} colonne(s) MODIFIÉE(S) :")
                     for col, old_val, new_val in changed:
                         logger.error(
-                            f"{Defaults.LOG_PREFIX_BATCH}       {col:<25} : {old_val!r:>30}  →  {new_val!r}"
+                            f"{LogPrefixes.BATCH}       {col:<25} : {old_val!r:>30}  →  {new_val!r}"
                         )
                 if unchanged_count:
-                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}     {unchanged_count} colonne(s) inchangée(s)")
+                    logger.error(f"{LogPrefixes.BATCH}     {unchanged_count} colonne(s) inchangée(s)")
             else:
-                logger.error(f"{Defaults.LOG_PREFIX_BATCH}     → Absent en base — données API :")
+                logger.error(f"{LogPrefixes.BATCH}     → Absent en base — données API :")
                 for col in data_cols:
-                    logger.error(f"{Defaults.LOG_PREFIX_BATCH}       {col:<25} : {row_dict.get(col)!r}")
+                    logger.error(f"{LogPrefixes.BATCH}       {col:<25} : {row_dict.get(col)!r}")
 
         if len(batch) > 5:
             logger.error(
-                f"{Defaults.LOG_PREFIX_BATCH}   ... {len(batch) - 5} ligne(s) supplémentaire(s) non affichées"
+                f"{LogPrefixes.BATCH}   ... {len(batch) - 5} ligne(s) supplémentaire(s) non affichées"
             )
 
     def _handle_unique_violation(
@@ -536,16 +532,16 @@ class AMUEBatchInserter:
             batch_num: Numéro du batch
 
         Raises:
-            AMUEBatchError: Toujours levée après traitement
+            BatchError: Toujours levée après traitement
         """
         if commit:
             try:
                 conn.rollback()
             except Exception as rollback_err:
-                logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Rollback échoué après UniqueViolation: {rollback_err}")
+                logger.warning(f"{LogPrefixes.BATCH} Rollback échoué après UniqueViolation: {rollback_err}")
 
-        logger.error(f"{Defaults.LOG_PREFIX_BATCH} Erreur de cle primaire dupliquee sur {table_name}")
-        logger.error(f"{Defaults.LOG_PREFIX_BATCH} Message: {error.pgerror}")
+        logger.error(f"{LogPrefixes.BATCH} Erreur de cle primaire dupliquee sur {table_name}")
+        logger.error(f"{LogPrefixes.BATCH} Message: {error.pgerror}")
 
         pk_values = self.duplicate_detector.extract_pk_from_error(
             str(error.pgerror), primary_keys
@@ -571,14 +567,18 @@ class AMUEBatchInserter:
                         table_name, columns, primary_keys,
                         existing_row, conflicting_row, pk_values
                     )
-                except AMUEDatabaseError:
+                except DatabaseError:
                     # Si on ne peut pas récupérer la ligne existante, on continue
-                    logger.warning(f"{Defaults.LOG_PREFIX_BATCH} Impossible de récupérer la ligne existante")
+                    logger.warning(f"{LogPrefixes.BATCH} Impossible de récupérer la ligne existante")
 
-        raise AMUEBatchError(
+        raise BatchError(
             f"Conflit de cle primaire sur {table_name}. "
             f"Voir les logs pour les details des lignes en conflit.",
             table_name=table_name,
             batch_num=batch_num,
             batch_size=len(batch)
         )
+
+
+# Ancien nom — conservé comme alias pour les call sites AMUE existants.
+AMUEBatchInserter = BatchInserter

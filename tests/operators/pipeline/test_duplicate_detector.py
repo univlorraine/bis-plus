@@ -5,7 +5,7 @@ Tests unitaires pour DuplicateDetector.
 import pytest
 from unittest.mock import patch, MagicMock
 
-from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+from common.operators.duplicate_detector import DuplicateDetector
 
 
 class TestDetectDuplicatesInBatch:
@@ -412,7 +412,7 @@ class TestMatchesPk:
 class TestLogMethods:
     """Tests pour les méthodes de logging."""
 
-    @patch('amue.operators.pipeline.duplicate_detector.logger')
+    @patch('common.operators.duplicate_detector.logger')
     def test_log_batch_duplicates_logs_summary(self, mock_logger):
         """Test que log_batch_duplicates log un résumé."""
         detector = DuplicateDetector()
@@ -428,7 +428,7 @@ class TestLogMethods:
         # Vérifie qu'il y a eu des appels à logger.error
         assert mock_logger.error.called
 
-    @patch('amue.operators.pipeline.duplicate_detector.logger')
+    @patch('common.operators.duplicate_detector.logger')
     def test_log_api_duplicates_logs_details(self, mock_logger):
         """Test que log_api_duplicates log les détails."""
         detector = DuplicateDetector()
@@ -442,7 +442,7 @@ class TestLogMethods:
 
         assert mock_logger.error.called
 
-    @patch('amue.operators.pipeline.duplicate_detector.logger')
+    @patch('common.operators.duplicate_detector.logger')
     def test_log_conflict_details_shows_comparison(self, mock_logger):
         """Test que log_conflict_details affiche une comparaison."""
         detector = DuplicateDetector()
@@ -457,7 +457,7 @@ class TestLogMethods:
 
         assert mock_logger.error.called
 
-    @patch('amue.operators.pipeline.duplicate_detector.logger')
+    @patch('common.operators.duplicate_detector.logger')
     def test_log_conflict_details_handles_none_rows(self, mock_logger):
         """Test log_conflict_details avec lignes None."""
         detector = DuplicateDetector()

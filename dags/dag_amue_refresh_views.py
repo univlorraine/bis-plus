@@ -32,7 +32,7 @@ Déclencher via l'interface Airflow ou :
 """
 from airflow.sdk import dag
 
-from amue import send_failure_notification
+from amue.notifications import send_failure_notification
 from amue.tasks.refresh_views_dag import (
     detect_active_schema,
     refresh_custom_views,

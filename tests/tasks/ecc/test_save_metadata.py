@@ -1,4 +1,4 @@
-"""Tests unitaires pour la task save_ecc_metadata."""
+"""Tests unitaires pour la task save_metadata."""
 from unittest.mock import MagicMock, patch
 
 
@@ -17,9 +17,9 @@ class TestSaveEccMetadata:
 
     def test_returns_expected_keys(self):
         """Le résultat contient table_name, import_timestamp, rows_imported."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function(self._make_import_result())
+        result = save_metadata.function(self._make_import_result())
 
         assert 'table_name' in result
         assert 'import_timestamp' in result
@@ -27,25 +27,25 @@ class TestSaveEccMetadata:
 
     def test_table_name_preserved(self):
         """Le nom de table est préservé."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function(self._make_import_result('lfa1'))
+        result = save_metadata.function(self._make_import_result('lfa1'))
 
         assert result['table_name'] == 'lfa1'
 
     def test_rows_imported_equals_rows_fetched(self):
         """rows_imported correspond à rows_fetched de l'import."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function(self._make_import_result(rows_fetched=250))
+        result = save_metadata.function(self._make_import_result(rows_fetched=250))
 
         assert result['rows_imported'] == 250
 
     def test_import_timestamp_is_iso_string(self):
         """import_timestamp est une chaîne ISO 8601."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function(self._make_import_result())
+        result = save_metadata.function(self._make_import_result())
 
         ts = result['import_timestamp']
         assert isinstance(ts, str)
@@ -53,18 +53,18 @@ class TestSaveEccMetadata:
 
     def test_handles_error_status(self):
         """Fonctionne avec un import en erreur (ne lève pas d'exception)."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function(self._make_import_result(status='error', rows_fetched=0))
+        result = save_metadata.function(self._make_import_result(status='error', rows_fetched=0))
 
         assert result['table_name'] == 'lfa1'
         assert result['rows_imported'] == 0
 
     def test_handles_missing_table_name(self):
         """Fonctionne si table_name est absent (utilise 'unknown')."""
-        from ecc.tasks.import_dag.save_metadata import save_ecc_metadata
+        from ecc.tasks.import_dag.save_metadata import save_metadata
 
-        result = save_ecc_metadata.function({'status': 'success', 'rows_fetched': 50})
+        result = save_metadata.function({'status': 'success', 'rows_fetched': 50})
 
         assert result['table_name'] == 'unknown'
         assert result['rows_imported'] == 50

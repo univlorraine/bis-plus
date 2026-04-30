@@ -8,7 +8,7 @@
 | PostgreSQL     | 15      |
 | Python         | 3.12    |
 | Docker Compose | —       |
-| pytest         | 834 tests |
+| pytest         | 857 tests |
 
 ---
 
@@ -26,19 +26,23 @@ dags/
 
 plugins/common/                    # Socle partagé AMUE + ECC
 ├── tasks/
-│   ├── init_bluegreen.py
-│   ├── validate_tables.py
-│   ├── prepare_table.py
-│   └── switch_views.py
-├── operators/batch_inserter.py
+│   └── restore_inactive.py        # @task partagée (modèle de mutualisation)
+├── operators/
+│   └── batch_inserter.py          # BatchInserter (utilisé par AMUE et ECC)
 ├── services/
-│   ├── admin_state_manager.py
+│   ├── admin_state_manager.py     # AdminStateManager
 │   ├── retry_service.py
 │   └── bluegreen/
 │       ├── bluegreen_manager.py
+│       ├── bluegreen_lock_manager.py
+│       ├── bluegreen_schema_resolver.py
+│       ├── bluegreen_state_manager.py
 │       ├── view_switcher.py
-│       ├── schema_synchronizer.py
-│       └── rollback_manager.py
+│       └── schema_synchronizer.py
+├── notifications/
+│   ├── base_notifier.py
+│   ├── callbacks_utils.py
+│   └── email_service.py
 └── utils/
     ├── config/airflow_helpers.py
     └── database/
@@ -47,41 +51,53 @@ plugins/common/                    # Socle partagé AMUE + ECC
         └── schema_utils.py
 
 plugins/amue/
+├── hooks/amue_api_hook.py
+├── exceptions/                    # AMUEError, AMUEAPIError, etc.
 ├── operators/
 │   ├── pipeline/
-│   │   ├── data_importer.py       # Import paginé
+│   │   ├── data_importer.py       # AMUEDataImporter (orchestration)
 │   │   ├── data_streamer.py       # Streaming API
-│   │   ├── batch_inserter.py      # Shim → common
-│   │   └── duplicate_detector.py
+│   │   ├── duplicate_detector.py
+│   │   └── import_config_validator.py
 │   └── table_management/
-│       ├── table_filter.py
-│       ├── table_manager.py
-│       └── table_verifier.py      # Fingerprint
+│       ├── table_filter.py        # AMUETableFilter
+│       ├── table_manager.py       # AMUETableManager
+│       └── table_verifier.py      # AMUETableVerifier (fingerprint)
 ├── services/
 │   ├── api/
 │   │   ├── polling_service.py
-│   │   └── status_checker.py
+│   │   ├── status_checker.py
+│   │   ├── status_monitor.py
+│   │   └── ...
 │   ├── metadata_manager.py
 │   ├── table_config_manager.py    # Accès splus_admin.amue_tables
-│   └── admin_state_manager.py     # Shim → common
+│   └── table_setup_orchestrator.py
+├── sensors/amue_api_sensor.py
 ├── tasks/
-│   ├── import_dag/                # 9 fonctions @task
+│   ├── import_dag/                # @task : check_setup_status, polling, import_data, ...
+│   ├── refresh_views_dag/
 │   ├── rollback_dag/
+│   ├── setup_dag/
 │   └── sync_dag/
 ├── notifications/
-│   ├── email_service.py
 │   ├── notifier.py
-│   ├── report_generator.py
 │   ├── callbacks.py
-│   └── templates/
+│   ├── report_generator.py
+│   └── templates*.py
+├── types_amue.py                  # TableInfo, ImportResult, ...
 └── utils/
-    ├── config/settings.py
+    ├── config/settings.py         # AMUEConfig, AMUEDefaults
     ├── transformers.py            # Conversion types → PostgreSQL
     └── tracing.py
 
 plugins/ecc/
-├── hooks/ecc_source_hook.py       # Hook Oracle (stub)
-└── tasks/import_dag/
+├── hooks/ecc_source_hook.py       # Hook source ECC
+├── notifications/
+│   ├── ecc_notifier.py
+│   ├── ecc_callbacks.py
+│   └── ecc_templates.py
+├── tasks/import_dag/              # @task : select_tables, import_data, sync_to_active, ...
+└── utils/config/settings.py       # ECCConfig, ECCDefaults
 
 config/
 ├── airflow_variables.json
@@ -186,7 +202,8 @@ airflow variables import config/airflow_variables.json
 
 - **DAGs = orchestration pure** — toute la logique métier est dans `plugins/`
 - **Pas de suppression** — UPSERT uniquement (`INSERT ON CONFLICT UPDATE`)
-- **Shims de compatibilité** — les imports `amue.*` continuent de fonctionner via des shims vers `common.*`
+- **Plugins comme paires de sœurs** — `amue/` et `ecc/` sont deux plugins indépendants qui partagent `common/`. Aucun import croisé `ecc → amue`.
+- **Surface publique minimale** — `from amue import …` n'expose que types, exceptions et config ; tout le reste est importé depuis son chemin canonique (`from amue.operators.pipeline.data_importer import AMUEDataImporter`).
 - **Switch atomique** — les vues sont recréées via `DROP + CREATE` dans une seule transaction
 - **Verrou PostgreSQL** — empêche deux imports simultanés sans race condition
 - **Double fingerprint** — détecte les changements de structure avant d'importer

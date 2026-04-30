@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @task(task_id='sync_ecc_to_active', multiple_outputs=False)
-def sync_ecc_to_active(imported: List[Dict]) -> Dict:
+def sync_to_active(imported: List[Dict]) -> Dict:
     """
     Synchronise les données ECC du schéma inactif vers le schéma actif.
 

@@ -1,11 +1,11 @@
-"""Tests unitaires pour select_ecc_tables."""
+"""Tests unitaires pour select_tables."""
 from unittest.mock import MagicMock, patch
 
 
 def _run_select(rows, active_schema='splus_blue', inactive_canonical='splus_green',
                 inactive_exists=True, inactive_offline_exists=False):
-    """Helper: exécute select_ecc_tables avec mocks actifs."""
-    from ecc.tasks.import_dag.select_tables import select_ecc_tables
+    """Helper: exécute select_tables avec mocks actifs."""
+    from ecc.tasks.import_dag.select_tables import select_tables
 
     pg_hook = MagicMock()
     pg_hook.get_records.return_value = rows
@@ -25,7 +25,7 @@ def _run_select(rows, active_schema='splus_blue', inactive_canonical='splus_gree
             return False
 
         instance.schema_exists.side_effect = schema_exists
-        return select_ecc_tables.function()
+        return select_tables.function()
 
 
 class TestSelectEccTables:

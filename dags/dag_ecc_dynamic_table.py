@@ -44,7 +44,7 @@ from airflow.sdk import dag
 from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from ecc.notifications import send_ecc_failure_notification
-from ecc.tasks.import_dag import select_ecc_tables, import_ecc_data, sync_ecc_to_active, save_ecc_metadata, send_ecc_report
+from ecc.tasks.import_dag import select_tables, import_data, sync_to_active, save_metadata, send_report
 from ecc.utils.config.settings import ECCDefaults
 from common.tasks.restore_inactive import restore_inactive
 
@@ -91,23 +91,23 @@ def ecc_multi_table_import():
     """
 
     # ── Phase 1 : Sélection des tables ECC (+ détection schéma inactif) ──────
-    tables = select_ecc_tables()
+    tables = select_tables()
 
     # ── Phase 2 : Import parallèle Oracle → PostgreSQL (schéma inactif) ──────
-    imported = import_ecc_data.expand(table_config=tables)
+    imported = import_data.expand(table_config=tables)
 
     # ── Phase 2b : Restauration inactif sur échec (ALL_DONE, si ≥1 import raté) ─
     restore = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
 
     # ── Phase 3 : Synchronisation inactif → actif (transaction unique) ───────
-    synced = sync_ecc_to_active(imported)
+    synced = sync_to_active(imported)
 
     # ── Phase 4 : Sauvegarde des métadonnées (après sync réussie) ─────────────
-    saved = save_ecc_metadata.expand(import_result=imported)
+    saved = save_metadata.expand(import_result=imported)
     synced >> saved
 
     # ── Phase 5 : Rapport (après completion des métadonnées) ──────────────────
-    report = send_ecc_report(imported)
+    report = send_report(imported)
     saved >> report
 
 

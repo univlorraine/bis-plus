@@ -135,7 +135,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_empty_batch(self):
         """Detection sur batch vide"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         result = detector.detect_duplicates_in_batch([], ['col1', 'col2'], ['col1'])
@@ -144,7 +144,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_no_duplicates(self):
         """Pas de doublons"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -159,7 +159,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_with_duplicates(self):
         """Detection de doublons"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -176,7 +176,7 @@ class TestDuplicateDetector:
 
     def test_find_duplicates_for_pk(self):
         """Recherche de doublons pour une PK specifique"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -196,7 +196,7 @@ class TestDuplicateDetector:
 
     def test_extract_pk_from_error(self):
         """Extraction de PK depuis un message d'erreur PostgreSQL"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
 

@@ -8,8 +8,10 @@ from unittest.mock import Mock, MagicMock, patch
 from psycopg2 import sql, OperationalError, InterfaceError
 from psycopg2.errors import UniqueViolation
 
-from common.operators.batch_inserter import AMUEBatchInserter
-from amue.exceptions import AMUEBatchError, AMUEDatabaseError, AMUEDataError
+from common.operators.batch_inserter import BatchInserter as AMUEBatchInserter
+from common.exceptions import BatchError as AMUEBatchError
+from common.exceptions import DatabaseError as AMUEDatabaseError
+from common.exceptions import DataError as AMUEDataError
 
 
 class TestAMUEBatchInserterInit:
