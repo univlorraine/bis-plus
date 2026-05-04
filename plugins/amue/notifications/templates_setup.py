@@ -2,7 +2,7 @@
 """Template d'email pour les alertes de setup des tables."""
 from typing import Any, Dict, List
 
-from amue.notifications.templates_base import BaseTemplates
+from common.notifications.base_templates import BaseTemplates
 
 
 class SetupTemplates(BaseTemplates):

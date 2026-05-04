@@ -2,13 +2,13 @@
 
 ## Stack
 
-| Composant      | Version |
-|----------------|---------|
-| Apache Airflow | 3.1.7   |
-| PostgreSQL     | 15      |
-| Python         | 3.12    |
-| Docker Compose | —       |
-| pytest         | 857 tests |
+| Composant      | Version   |
+|----------------|-----------|
+| Apache Airflow | 3.1.7     |
+| PostgreSQL     | 15        |
+| Python         | 3.12      |
+| Docker Compose | —         |
+| pytest         | 861 tests |
 
 ---
 
@@ -25,10 +25,13 @@ dags/
 └── dag_amue_table_setup.py        # Setup des tables (dag_id: amue_table_setup)
 
 plugins/common/                    # Socle partagé AMUE + ECC
+├── exceptions.py                  # BaseError, BatchError, DataError, DatabaseError, SchemaError, BlueGreenError, ConcurrentImportError, ViewSwitchError
 ├── tasks/
-│   └── restore_inactive.py        # @task partagée (modèle de mutualisation)
+│   ├── restore_inactive.py        # @task partagée (modèle de mutualisation)
+│   └── import_summary.py          # summarize_import_results
 ├── operators/
-│   └── batch_inserter.py          # BatchInserter (utilisé par AMUE et ECC)
+│   ├── batch_inserter.py          # BatchInserter (utilisé par AMUE et ECC)
+│   └── duplicate_detector.py      # DuplicateDetector
 ├── services/
 │   ├── admin_state_manager.py     # AdminStateManager
 │   ├── retry_service.py
@@ -41,9 +44,13 @@ plugins/common/                    # Socle partagé AMUE + ECC
 │       └── schema_synchronizer.py
 ├── notifications/
 │   ├── base_notifier.py
+│   ├── base_templates.py          # BaseTemplates (CSS + helpers HTML)
 │   ├── callbacks_utils.py
 │   └── email_service.py
 └── utils/
+    ├── tracing.py                 # to_iso_str + MemoryTracker, OperationTimer, TracingContext, ...
+    ├── validators.py              # validate_table_name, validate_column_name, validate_identifier
+    ├── fingerprint.py             # compute_structure_hash_with_pk, format_primary_keys, compare_fingerprints
     ├── config/airflow_helpers.py
     └── database/
         ├── hooks.py
@@ -52,17 +59,18 @@ plugins/common/                    # Socle partagé AMUE + ECC
 
 plugins/amue/
 ├── hooks/amue_api_hook.py
-├── exceptions/                    # AMUEError, AMUEAPIError, etc.
+├── exceptions/                    # AMUEError, AMUEAPIError, etc. (héritent de common.exceptions)
 ├── operators/
 │   ├── pipeline/
 │   │   ├── data_importer.py       # AMUEDataImporter (orchestration)
 │   │   ├── data_streamer.py       # Streaming API
-│   │   ├── duplicate_detector.py
 │   │   └── import_config_validator.py
 │   └── table_management/
 │       ├── table_filter.py        # AMUETableFilter
 │       ├── table_manager.py       # AMUETableManager
-│       └── table_verifier.py      # AMUETableVerifier (fingerprint)
+│       ├── table_verifier.py      # AMUETableVerifier (orchestration)
+│       ├── structure_fetcher.py   # APIStructureFetcher
+│       └── fingerprint_comparator.py  # compute_diff, format_pg_type, ...
 ├── services/
 │   ├── api/
 │   │   ├── polling_service.py
@@ -83,12 +91,11 @@ plugins/amue/
 │   ├── notifier.py
 │   ├── callbacks.py
 │   ├── report_generator.py
-│   └── templates*.py
+│   └── templates*.py              # Héritent de common.notifications.base_templates
 ├── types_amue.py                  # TableInfo, ImportResult, ...
 └── utils/
     ├── config/settings.py         # AMUEConfig, AMUEDefaults
-    ├── transformers.py            # Conversion types → PostgreSQL
-    └── tracing.py
+    └── transformers.py            # parse_column_definition (SQLite → PostgreSQL, AMUE-spécifique)
 
 plugins/ecc/
 ├── hooks/ecc_source_hook.py       # Hook source ECC
@@ -108,7 +115,7 @@ scripts/sql/
 ├── init_db.sql                    # Crée schémas, tables splus_admin, permissions
 └── custom_views/                  # Vues métier personnalisées
 
-tests/                             # 834 tests (pytest)
+tests/                             # 861 tests (pytest)
 ```
 
 ---
@@ -171,7 +178,7 @@ Les données reçues de l'API AMUE (format SQLite/SAP) sont converties en types 
 | `DATE`, `DATETIME`, `TIMESTAMP` | `TIMESTAMP` |
 | `BLOB` | `BYTEA` |
 
-La conversion est appliquée par `plugins/amue/utils/transformers.py` lors de chaque batch d'import.
+La conversion est appliquée par `parse_column_definition()` dans `plugins/amue/utils/transformers.py` lors de chaque batch d'import. Les utilitaires génériques (validation d'identifiants, fingerprint) vivent dans `plugins/common/utils/`.
 
 ---
 

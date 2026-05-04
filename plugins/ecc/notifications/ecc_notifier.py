@@ -3,13 +3,14 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict, List
+from zoneinfo import ZoneInfo
 
 from common.notifications.base_notifier import BaseNotificationService
 from ecc.notifications.ecc_templates import ECCNotificationTemplates
 from ecc.utils.config.settings import get_ecc_recipients
 
 logger = logging.getLogger(__name__)
-
+_TZ_PARIS = ZoneInfo('Europe/Paris')
 
 class ECCNotificationService(BaseNotificationService):
     """Service de notification par email pour le DAG ECC."""
@@ -26,13 +27,13 @@ class ECCNotificationService(BaseNotificationService):
 
     def _build_error_subject(self, context: Dict[str, Any]) -> str:
         """Sujet : [ERREUR ECC] Import ECC - {dag_id} - {date}"""
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
         dag_id = context.get('dag_id', self.DEFAULT_DAG_ID)
         return f"[ERREUR ECC] Import ECC - {dag_id} - {date_str}"
 
     def _build_success_subject(self, context: Dict[str, Any]) -> str:
         """Sujet : [RAPPORT ECC] {dag_id} - {date}"""
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        date_str = datetime.now(tz=_TZ_PARIS).strftime('%Y-%m-%d %H:%M')
         dag_id = context.get('dag_id', self.DEFAULT_DAG_ID)
         return f"[RAPPORT ECC] {dag_id} - {date_str}"
 

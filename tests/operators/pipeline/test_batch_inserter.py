@@ -1,25 +1,20 @@
-# tests/operators/pipeline/test_batch_inserter.py
-"""
-Tests unitaires pour AMUEBatchInserter.
-"""
+"""Tests unitaires pour BatchInserter."""
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
 from psycopg2 import sql, OperationalError, InterfaceError
 from psycopg2.errors import UniqueViolation
 
-from common.operators.batch_inserter import BatchInserter as AMUEBatchInserter
-from common.exceptions import BatchError as AMUEBatchError
-from common.exceptions import DatabaseError as AMUEDatabaseError
-from common.exceptions import DataError as AMUEDataError
+from common.operators.batch_inserter import BatchInserter
+from common.exceptions import BatchError, DatabaseError, DataError
 
 
-class TestAMUEBatchInserterInit:
+class TestBatchInserterInit:
     """Tests d'initialisation du batch inserter."""
 
     def test_init_without_hook(self):
         """Test initialisation sans hook."""
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         assert inserter.postgres_hook is None
         assert inserter.target_schema is None
@@ -29,13 +24,13 @@ class TestAMUEBatchInserterInit:
         """Test initialisation avec hook."""
         mock_hook = Mock()
 
-        inserter = AMUEBatchInserter(mock_hook)
+        inserter = BatchInserter(mock_hook)
 
         assert inserter.postgres_hook is mock_hook
 
     def test_init_with_target_schema(self):
         """Test initialisation avec schéma cible."""
-        inserter = AMUEBatchInserter(target_schema="splus_blue")
+        inserter = BatchInserter(target_schema="splus_blue")
 
         assert inserter.target_schema == "splus_blue"
 
@@ -45,7 +40,7 @@ class TestGetQualifiedTableName:
 
     def test_without_target_schema(self):
         """Test nom de table sans schéma cible."""
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter._get_qualified_table_name("CSKS")
 
@@ -53,7 +48,7 @@ class TestGetQualifiedTableName:
 
     def test_with_target_schema(self):
         """Test nom de table avec schéma cible."""
-        inserter = AMUEBatchInserter(target_schema="splus_blue")
+        inserter = BatchInserter(target_schema="splus_blue")
 
         result = inserter._get_qualified_table_name("CSKS")
 
@@ -61,7 +56,7 @@ class TestGetQualifiedTableName:
 
     def test_table_name_lowercased(self):
         """Test que le nom de table est en minuscules."""
-        inserter = AMUEBatchInserter(target_schema="splus_green")
+        inserter = BatchInserter(target_schema="splus_green")
 
         result = inserter._get_qualified_table_name("MyTable")
 
@@ -78,7 +73,7 @@ class TestGetConnection:
         mock_conn.closed = False
         mock_hook.get_conn.return_value = mock_conn
 
-        inserter = AMUEBatchInserter(mock_hook)
+        inserter = BatchInserter(mock_hook)
         conn = inserter.get_connection()
 
         assert conn is mock_conn
@@ -91,7 +86,7 @@ class TestGetConnection:
         mock_conn.closed = False
         mock_hook.get_conn.return_value = mock_conn
 
-        inserter = AMUEBatchInserter(mock_hook)
+        inserter = BatchInserter(mock_hook)
         conn1 = inserter.get_connection()
         conn2 = inserter.get_connection()
 
@@ -107,7 +102,7 @@ class TestGetConnection:
         new_conn.closed = False  # Nouvelle connexion active
         mock_hook.get_conn.return_value = new_conn
 
-        inserter = AMUEBatchInserter(mock_hook)
+        inserter = BatchInserter(mock_hook)
         inserter._conn = mock_conn  # Connexion fermée assignée
         conn = inserter.get_connection()
 
@@ -119,7 +114,7 @@ class TestGetConnection:
         """Test erreur si pas de hook configuré."""
         from airflow.exceptions import AirflowException
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         with pytest.raises(AirflowException) as exc_info:
             inserter.get_connection()
@@ -135,7 +130,7 @@ class TestCloseConnection:
         mock_conn = Mock()
         mock_conn.closed = False
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         inserter._conn = mock_conn
 
         inserter.close_connection()
@@ -145,7 +140,7 @@ class TestCloseConnection:
 
     def test_does_nothing_if_no_connection(self):
         """Test ne fait rien si pas de connexion."""
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         # Ne devrait pas lever d'exception
         inserter.close_connection()
@@ -155,7 +150,7 @@ class TestCloseConnection:
         mock_conn = Mock()
         mock_conn.closed = True
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         inserter._conn = mock_conn
 
         inserter.close_connection()
@@ -174,7 +169,7 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A"), (2, "B")]
 
         result = inserter.execute_batch(
@@ -197,7 +192,7 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A"), (2, "B")]
 
         result = inserter.execute_batch(
@@ -221,7 +216,7 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A")]
 
         inserter.execute_batch(
@@ -238,11 +233,11 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         # Batch avec doublons sur la clé primaire
         batch = [(1, "A"), (1, "B")]  # id=1 en double
 
-        with pytest.raises(AMUEDataError) as exc_info:
+        with pytest.raises(DataError) as exc_info:
             inserter.execute_batch(
                 mock_cursor, mock_conn,
                 "INSERT INTO t VALUES (%s, %s)",
@@ -259,10 +254,10 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A")]
 
-        with pytest.raises(AMUEDatabaseError) as exc_info:
+        with pytest.raises(DatabaseError) as exc_info:
             inserter.execute_batch(
                 mock_cursor, mock_conn,
                 "INSERT INTO t VALUES %s",
@@ -279,10 +274,10 @@ class TestExecuteBatch:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A")]
 
-        with pytest.raises(AMUEDatabaseError) as exc_info:
+        with pytest.raises(DatabaseError) as exc_info:
             inserter.execute_batch(
                 mock_cursor, mock_conn,
                 "INSERT INTO t VALUES %s",
@@ -313,7 +308,7 @@ class TestBuildInsertSql:
 
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.build_insert_sql(
             "test_table", ["id", "name"], ["id"],
@@ -336,7 +331,7 @@ class TestBuildInsertSql:
 
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.build_insert_sql(
             "test_table", ["id", "name", "value"], ["id"],
@@ -361,7 +356,7 @@ class TestBuildInsertSql:
 
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter(target_schema="splus_blue")
+        inserter = BatchInserter(target_schema="splus_blue")
 
         result = inserter.build_insert_sql(
             "csks", ["id", "name"], ["id"],
@@ -384,7 +379,7 @@ class TestBuildInsertSql:
 
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.build_insert_sql(
             "test_table", ["id", "name", "_source"], ["id"],
@@ -404,7 +399,7 @@ class TestFetchExistingRow:
         mock_cursor.fetchone.return_value = (1, "Test")
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.fetch_existing_row(
             mock_cursor, mock_conn,
@@ -420,7 +415,7 @@ class TestFetchExistingRow:
         mock_cursor.fetchone.return_value = None
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.fetch_existing_row(
             mock_cursor, mock_conn,
@@ -436,7 +431,7 @@ class TestFetchExistingRow:
         mock_cursor.fetchone.return_value = (1, "Test")
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter(target_schema="splus_green")
+        inserter = BatchInserter(target_schema="splus_green")
 
         inserter.fetch_existing_row(
             mock_cursor, mock_conn,
@@ -455,9 +450,9 @@ class TestFetchExistingRow:
         mock_cursor.execute.side_effect = OperationalError("Connection lost")
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
-        with pytest.raises(AMUEDatabaseError) as exc_info:
+        with pytest.raises(DatabaseError) as exc_info:
             inserter.fetch_existing_row(
                 mock_cursor, mock_conn,
                 "test_table", ["id", "name"], ["id"],
@@ -472,7 +467,7 @@ class TestFetchExistingRow:
         mock_cursor.execute.side_effect = Exception("Table does not exist")
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.fetch_existing_row(
             mock_cursor, mock_conn,
@@ -488,7 +483,7 @@ class TestFetchExistingRow:
         mock_cursor.fetchone.return_value = (1, "Test")
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         result = inserter.fetch_existing_row(
             mock_cursor, mock_conn,
@@ -503,16 +498,16 @@ class TestHandleUniqueViolation:
     """Tests pour _handle_unique_violation."""
 
     def test_raises_batch_error(self):
-        """Test lève AMUEBatchError."""
+        """Test lève BatchError."""
         mock_error = Mock(spec=UniqueViolation)
         mock_error.pgerror = "duplicate key value violates unique constraint"
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
         batch = [(1, "A")]
 
-        with pytest.raises(AMUEBatchError) as exc_info:
+        with pytest.raises(BatchError) as exc_info:
             inserter._handle_unique_violation(
                 mock_error, mock_cursor, mock_conn,
                 batch, "test_table", ["id", "name"], ["id"],
@@ -529,9 +524,9 @@ class TestHandleUniqueViolation:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
-        with pytest.raises(AMUEBatchError):
+        with pytest.raises(BatchError):
             inserter._handle_unique_violation(
                 mock_error, mock_cursor, mock_conn,
                 [(1, "A")], "test_table", ["id", "name"], ["id"],
@@ -547,9 +542,9 @@ class TestHandleUniqueViolation:
         mock_cursor = Mock()
         mock_conn = Mock()
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
-        with pytest.raises(AMUEBatchError):
+        with pytest.raises(BatchError):
             inserter._handle_unique_violation(
                 mock_error, mock_cursor, mock_conn,
                 [(1, "A")], "test_table", ["id", "name"], ["id"],

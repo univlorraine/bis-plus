@@ -38,12 +38,12 @@ from amue.exceptions import (
     AMUEBatchError,
 )
 from amue.operators.pipeline.data_streamer import AMUEDataStreamer
-from common.operators.batch_inserter import AMUEBatchInserter
+from common.operators.batch_inserter import BatchInserter
 from amue.operators.pipeline.import_config_validator import ImportConfigValidator
 from amue.operators.pipeline.data_import_pipeline import DataImportPipeline
 from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 from common.utils.database.hooks import create_postgres_hook, resolve_postgres_hook
-from amue.utils.tracing import generate_correlation_id, TracingContext
+from common.utils.tracing import generate_correlation_id, TracingContext
 from amue.types_amue import ImportResult, ImportConfig
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ class AMUEDataImporter:
     Orchestre l'import des données depuis l'API AMUE vers PostgreSQL.
 
     Cette classe coordonne le streaming (AMUEDataStreamer) et l'insertion
-    par batch (AMUEBatchInserter) via le DataImportPipeline.
+    par batch (BatchInserter) via le DataImportPipeline.
 
     Délègue à :
         - ImportConfigValidator : récupération des clés primaires depuis la config
@@ -100,7 +100,7 @@ class AMUEDataImporter:
         self.parallel_workers = int(VarMgr.get('amue_import_parallel_workers', default='1'))
 
         self.streamer = AMUEDataStreamer(api_hook, self.endpoint)
-        self.inserter = AMUEBatchInserter(self.postgres_hook, target_schema=target_schema)
+        self.inserter = BatchInserter(self.postgres_hook, target_schema=target_schema)
 
         # Sous-composants de la refactorisation
         self._config_validator = ImportConfigValidator()
@@ -231,7 +231,7 @@ class AMUEDataImporter:
             for _ in range(self.parallel_workers):
                 hook = create_postgres_hook(bluegreen_schema=self.target_schema)
                 worker_inserters.append(
-                    AMUEBatchInserter(hook, target_schema=self.target_schema)
+                    BatchInserter(hook, target_schema=self.target_schema)
                 )
 
         return self._pipeline.run(

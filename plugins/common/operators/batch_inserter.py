@@ -578,7 +578,3 @@ class BatchInserter:
             batch_num=batch_num,
             batch_size=len(batch)
         )
-
-
-# Ancien nom — conservé comme alias pour les call sites AMUE existants.
-AMUEBatchInserter = BatchInserter

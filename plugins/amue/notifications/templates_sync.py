@@ -2,7 +2,7 @@
 """Template d'email pour les rapports de synchronisation blue/green."""
 from typing import Any, Dict, List
 
-from amue.notifications.templates_base import BaseTemplates
+from common.notifications.base_templates import BaseTemplates
 
 
 class SyncTemplates(BaseTemplates):
