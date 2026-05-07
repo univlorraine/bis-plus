@@ -70,14 +70,14 @@ class TestDataStreamer:
 
 
 class TestBatchInserter:
-    """Tests pour AMUEBatchInserter"""
+    """Tests pour BatchInserter"""
 
     @patch('common.operators.batch_inserter.sql')
     def test_build_insert_sql_simple(self, mock_sql):
         """Test construction requete INSERT simple"""
-        from common.operators.batch_inserter import AMUEBatchInserter
+        from common.operators.batch_inserter import BatchInserter
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         # Configure le mock pour retourner une chaine SQL
         mock_composed = MagicMock()
@@ -101,9 +101,9 @@ class TestBatchInserter:
     @patch('common.operators.batch_inserter.sql')
     def test_build_insert_sql_upsert(self, mock_sql):
         """Test construction requete UPSERT"""
-        from common.operators.batch_inserter import AMUEBatchInserter
+        from common.operators.batch_inserter import BatchInserter
 
-        inserter = AMUEBatchInserter()
+        inserter = BatchInserter()
 
         # Configure le mock pour retourner une chaine SQL avec UPSERT
         mock_composed = MagicMock()
@@ -135,7 +135,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_empty_batch(self):
         """Detection sur batch vide"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         result = detector.detect_duplicates_in_batch([], ['col1', 'col2'], ['col1'])
@@ -144,7 +144,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_no_duplicates(self):
         """Pas de doublons"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -159,7 +159,7 @@ class TestDuplicateDetector:
 
     def test_detect_duplicates_with_duplicates(self):
         """Detection de doublons"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -176,7 +176,7 @@ class TestDuplicateDetector:
 
     def test_find_duplicates_for_pk(self):
         """Recherche de doublons pour une PK specifique"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
         batch = [
@@ -196,7 +196,7 @@ class TestDuplicateDetector:
 
     def test_extract_pk_from_error(self):
         """Extraction de PK depuis un message d'erreur PostgreSQL"""
-        from amue.operators.pipeline.duplicate_detector import DuplicateDetector
+        from common.operators.duplicate_detector import DuplicateDetector
 
         detector = DuplicateDetector()
 
@@ -404,7 +404,7 @@ class TestQueueBasedInsertion:
                 batches_received.append(n)
             return {'duration_seconds': 0.01, 'rows_inserted': n, 'rows_updated': 0, 'rows_affected': n}
 
-        with patch('amue.operators.pipeline.data_importer.AMUEBatchInserter') as MockInserter:
+        with patch('amue.operators.pipeline.data_importer.BatchInserter') as MockInserter:
             mock_worker = MagicMock()
             mock_conn = MagicMock()
             mock_cursor = MagicMock()
@@ -554,7 +554,7 @@ class TestQueueBasedInsertion:
 
         mock_workers = []
 
-        with patch('amue.operators.pipeline.data_importer.AMUEBatchInserter') as MockInserter:
+        with patch('amue.operators.pipeline.data_importer.BatchInserter') as MockInserter:
             def create_mock_worker(*args, **kwargs):
                 mock_worker = MagicMock()
                 mock_conn = MagicMock()

@@ -23,7 +23,7 @@ une vue-sur-une-vue, ce qui rompt l'atomicité du switch.
 ## Exemple correct
 
 ```sql
--- reporting_csks.sql
+-- example.sql
 DROP VIEW IF EXISTS splus.reporting_csks;
 CREATE VIEW splus.reporting_csks AS
     SELECT c.bukrs, c.kostl, c.datbi, p.posid
@@ -37,5 +37,5 @@ CREATE VIEW splus.reporting_csks AS
 ```sql
 -- MAUVAIS : référence splus.csks qui est une vue auto-générée
 CREATE VIEW splus.bad_view AS
-    SELECT * FROM splus.csks;  -- ❌ vue-de-vue
+    SELECT * FROM splus.csks;  -- vue-de-vue
 ```

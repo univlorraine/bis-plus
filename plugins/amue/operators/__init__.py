@@ -8,7 +8,7 @@ Sous-packages :
 from amue.operators.pipeline import (
     AMUEDataImporter,
     AMUEDataStreamer,
-    AMUEBatchInserter,
+    BatchInserter,
     DuplicateDetector,
 )
 from amue.operators.table_management import (
@@ -20,7 +20,7 @@ from amue.operators.table_management import (
 __all__ = [
     'AMUEDataImporter',
     'AMUEDataStreamer',
-    'AMUEBatchInserter',
+    'BatchInserter',
     'DuplicateDetector',
     'AMUETableFilter',
     'AMUETableManager',

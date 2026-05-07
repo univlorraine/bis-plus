@@ -1,4 +1,3 @@
-# amue/notifications/templates.py
 """
 Templates HTML unifiés pour les notifications AMUE.
 
@@ -6,14 +5,14 @@ Ce module assemble tous les templates par type de DAG en une seule classe
 NotificationTemplates pour la compatibilité avec les services existants.
 
 Structure des templates :
-    templates_base.py     — styles CSS et helpers HTML partagés
-    templates_error.py    — render_error         (tous les DAGs)
-    templates_import.py   — render_success        (import AMUE / ECC)
-    templates_sync.py     — render_sync_success   (amue_sync_schemas)
-    templates_rollback.py — render_rollback_success (amue_rollback)
-    templates_setup.py    — render_setup_error    (amue_table_setup)
+    common.notifications.base_templates  — styles CSS et helpers HTML partagés
+    templates_error.py                    — render_error         (tous les DAGs)
+    templates_import.py                   — render_success        (import AMUE / ECC)
+    templates_sync.py                     — render_sync_success   (amue_sync_schemas)
+    templates_rollback.py                 — render_rollback_success (amue_rollback)
+    templates_setup.py                    — render_setup_error    (amue_table_setup)
 """
-from amue.notifications.templates_base import BaseTemplates
+from common.notifications.base_templates import BaseTemplates
 from amue.notifications.templates_error import ErrorTemplates
 from amue.notifications.templates_import import ImportTemplates
 from amue.notifications.templates_refresh_views import RefreshViewsTemplates

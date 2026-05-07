@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @task(task_id='select_ecc_tables')
-def select_ecc_tables() -> List[Dict]:
+def select_tables() -> List[Dict]:
     """
     Lit la liste des tables ECC activées depuis splus_admin.amue_tables.
 

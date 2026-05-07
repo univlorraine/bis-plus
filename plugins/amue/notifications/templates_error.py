@@ -19,7 +19,7 @@ Sous-templates disponibles :
 """
 from typing import Any, Dict, List
 
-from amue.notifications.templates_base import BaseTemplates
+from common.notifications.base_templates import BaseTemplates
 
 # --- Groupes d'error_type pour le dispatch ---
 

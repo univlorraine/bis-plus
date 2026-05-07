@@ -358,7 +358,7 @@ class TestTableVerifierVerifyTable:
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
-        from amue.utils.transformers import compute_structure_hash_with_pk
+        from common.utils.fingerprint import compute_structure_hash_with_pk
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
@@ -407,7 +407,7 @@ class TestTableVerifierVerifyTable:
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
-        from amue.utils.transformers import compute_structure_hash_with_pk
+        from common.utils.fingerprint import compute_structure_hash_with_pk
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
@@ -1100,7 +1100,7 @@ class TestFingerprintErrorIncludesDiff:
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
-        from amue.utils.transformers import compute_structure_hash_with_pk
+        from common.utils.fingerprint import compute_structure_hash_with_pk
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [
@@ -1151,7 +1151,7 @@ class TestFingerprintErrorIncludesDiff:
         mock_create_hook.return_value = mock_postgres_hook
 
         from amue.operators.table_management.table_verifier import AMUETableVerifier
-        from amue.utils.transformers import compute_structure_hash_with_pk
+        from common.utils.fingerprint import compute_structure_hash_with_pk
 
         mock_api_hook = MagicMock()
         mock_api_hook.call_api.side_effect = [

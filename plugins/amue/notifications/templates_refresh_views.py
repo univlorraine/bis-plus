@@ -3,7 +3,7 @@
 import re
 from typing import Any, Dict, List
 
-from amue.notifications.templates_base import BaseTemplates
+from common.notifications.base_templates import BaseTemplates
 
 
 class RefreshViewsTemplates(BaseTemplates):

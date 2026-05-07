@@ -59,6 +59,8 @@ class TestAMUEAPIHookTokenExpiration:
         future = datetime.now() + timedelta(hours=2)
         with patch('amue.hooks.amue_api_hook.datetime') as mock_dt:
             mock_dt.now.return_value = future
+            # `datetime.fromisoformat` doit conserver son comportement réel
+            mock_dt.fromisoformat = datetime.fromisoformat
             assert hook._is_token_expired() is True
 
         _token_cache.invalidate()

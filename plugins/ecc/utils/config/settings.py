@@ -21,7 +21,7 @@ class ECCDefaults:
     IMPORT_BATCH_SIZE: int = 5000
     SOURCE_NAME: str = 'ecc'
     PROTECTED_SOURCE: str = PROTECTED_SOURCE  # centralisé dans common.config
-    ORACLE_CONN_ID: str = 'oracle_data'
+    ECC_CONN_ID: str = 'ecc_data'
     SQL_DIR: str = '/opt/airflow/scripts/sql/ECC'
 
 

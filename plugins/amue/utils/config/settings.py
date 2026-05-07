@@ -89,13 +89,13 @@ logger = logging.getLogger(__name__)
 # CONSTANTES CENTRALISÉES
 # =============================================================================
 
-class Defaults:
+class AMUEDefaults:
     """
     Constantes par défaut centralisées pour tout le module AMUE.
 
     Utilisation:
-        from amue.utils.config.settings import Defaults
-        batch_size = Defaults.IMPORT_BATCH_SIZE
+        from amue.utils.config.settings import AMUEDefaults
+        batch_size = AMUEDefaults.IMPORT_BATCH_SIZE
     """
 
     # --- API ---
@@ -199,22 +199,22 @@ class AMUEConfig:
     universite: str                     # Variable: universite (obligatoire)
     api_endpoint_admin: str             # Variable: api_endpoint_admin (obligatoire)
     api_endpoint_table: str             # Variable: api_endpoint_table (obligatoire)
-    api_max_retries: int = Defaults.API_MAX_RETRIES
-    api_retry_delay_seconds: int = Defaults.API_RETRY_DELAY_SECONDS
+    api_max_retries: int = AMUEDefaults.API_MAX_RETRIES
+    api_retry_delay_seconds: int = AMUEDefaults.API_RETRY_DELAY_SECONDS
 
     # --- Polling ---
-    polling_interval_minutes: int = Defaults.POLLING_INTERVAL_MINUTES
-    polling_max_wait_hours: int = Defaults.POLLING_MAX_WAIT_HOURS
+    polling_interval_minutes: int = AMUEDefaults.POLLING_INTERVAL_MINUTES
+    polling_max_wait_hours: int = AMUEDefaults.POLLING_MAX_WAIT_HOURS
     polling_exponential_backoff: bool = False
 
     # --- Import ---
-    import_batch_size: int = Defaults.IMPORT_BATCH_SIZE
-    import_max_memory_mb: int = Defaults.IMPORT_MAX_MEMORY_MB
+    import_batch_size: int = AMUEDefaults.IMPORT_BATCH_SIZE
+    import_max_memory_mb: int = AMUEDefaults.IMPORT_MAX_MEMORY_MB
 
     # --- Email ---
-    smtp_host: str = Defaults.SMTP_HOST
-    smtp_port: int = Defaults.SMTP_PORT
-    smtp_from: str = Defaults.SMTP_FROM
+    smtp_host: str = AMUEDefaults.SMTP_HOST
+    smtp_port: int = AMUEDefaults.SMTP_PORT
+    smtp_from: str = AMUEDefaults.SMTP_FROM
     report_recipients: List[str] = field(default_factory=lambda: ['admin@example.com'])
 
     def __post_init__(self):
@@ -312,21 +312,21 @@ class AMUEConfig:
             api_endpoint_table=get_var('api_endpoint_table', required=True),
 
             # API
-            api_max_retries=int(get_var('amue_api_max_retries', Defaults.API_MAX_RETRIES)),
-            api_retry_delay_seconds=int(get_var('amue_api_retry_delay_seconds', Defaults.API_RETRY_DELAY_SECONDS)),
+            api_max_retries=int(get_var('amue_api_max_retries', AMUEDefaults.API_MAX_RETRIES)),
+            api_retry_delay_seconds=int(get_var('amue_api_retry_delay_seconds', AMUEDefaults.API_RETRY_DELAY_SECONDS)),
 
             # Polling
-            polling_interval_minutes=int(get_var('amue_polling_interval_minutes', Defaults.POLLING_INTERVAL_MINUTES)),
-            polling_max_wait_hours=int(get_var('amue_max_wait_hours', Defaults.POLLING_MAX_WAIT_HOURS)),
+            polling_interval_minutes=int(get_var('amue_polling_interval_minutes', AMUEDefaults.POLLING_INTERVAL_MINUTES)),
+            polling_max_wait_hours=int(get_var('amue_max_wait_hours', AMUEDefaults.POLLING_MAX_WAIT_HOURS)),
             polling_exponential_backoff=get_var('amue_polling_exponential_backoff', 'false').lower() == 'true',
 
             # Import
-            import_batch_size=int(get_var('amue_import_batch_size', Defaults.IMPORT_BATCH_SIZE)),
+            import_batch_size=int(get_var('amue_import_batch_size', AMUEDefaults.IMPORT_BATCH_SIZE)),
 
             # Email
-            smtp_host=get_var('smtp_host', Defaults.SMTP_HOST),
-            smtp_port=int(get_var('smtp_port', Defaults.SMTP_PORT)),
-            smtp_from=get_var('smtp_mail_from', Defaults.SMTP_FROM),
+            smtp_host=get_var('smtp_host', AMUEDefaults.SMTP_HOST),
+            smtp_port=int(get_var('smtp_port', AMUEDefaults.SMTP_PORT)),
+            smtp_from=get_var('smtp_mail_from', AMUEDefaults.SMTP_FROM),
             report_recipients=recipients,
         )
 

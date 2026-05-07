@@ -24,7 +24,7 @@ from typing import Optional
 
 from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 from common.utils.database.hooks import create_postgres_hook
-from amue.utils.tracing import to_iso_str
+from common.utils.tracing import to_iso_str
 
 logger = logging.getLogger(__name__)
 

@@ -9,13 +9,15 @@ import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from amue.utils.config.settings import Defaults
-from amue.exceptions import ConcurrentImportError
+from common.exceptions import ConcurrentImportError
 
 if TYPE_CHECKING:
     from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 
 logger = logging.getLogger(__name__)
+
+#: Durée maximale d'un import (verrou abandonné au-delà).
+BLUEGREEN_LOCK_TIMEOUT_MINUTES: int = 120
 
 
 class BlueGreenLockManager:
@@ -132,7 +134,7 @@ class BlueGreenLockManager:
             return False
         try:
             started_at = datetime.fromisoformat(state.import_started_at)
-            timeout = timedelta(minutes=Defaults.BLUEGREEN_LOCK_TIMEOUT_MINUTES)
+            timeout = timedelta(minutes=BLUEGREEN_LOCK_TIMEOUT_MINUTES)
             return datetime.now() - started_at > timeout
         except (ValueError, TypeError):
             logger.warning(f"[BLUEGREEN] Date de verrou invalide: {state.import_started_at}")

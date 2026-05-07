@@ -8,7 +8,6 @@ from unittest.mock import patch, MagicMock
 from common.utils.database.hooks import (
     create_postgres_hook,
     create_bluegreen_hook,
-    create_api_hook,
     HookManager,
     POSTGRES_DEFAULT_CONN_ID,
     POSTGRES_DEFAULT_SCHEMA,
@@ -95,17 +94,6 @@ class TestCreateBluegreenHook:
             create_bluegreen_hook('splus')
 
 
-class TestCreateApiHook:
-    """Tests pour create_api_hook."""
-
-    @patch('amue.hooks.amue_api_hook.AMUEAPIHook')
-    def test_creates_api_hook(self, mock_hook_class):
-        """Test création du hook API."""
-        create_api_hook()
-
-        mock_hook_class.assert_called_once()
-
-
 class TestHookManagerSingleton:
     """Tests pour le pattern singleton de HookManager."""
 
@@ -122,50 +110,13 @@ class TestHookManagerSingleton:
         assert manager1 is manager2
 
     def test_reset_clears_hooks(self):
-        """Test que reset efface les hooks (thread-local)."""
+        """Test que reset efface le hook (thread-local)."""
         manager = HookManager()
-        manager._local.api_hook = MagicMock()
         manager._local.postgres_hook = MagicMock()
 
         manager.reset()
 
-        assert manager._local.api_hook is None
         assert manager._local.postgres_hook is None
-
-
-class TestHookManagerApiHook:
-    """Tests pour HookManager.api_hook."""
-
-    def teardown_method(self):
-        """Reset singleton après chaque test."""
-        HookManager._instance = None
-        HookManager._local = __import__('threading').local()
-
-    @patch('common.utils.database.hooks.create_api_hook')
-    def test_lazy_loads_api_hook(self, mock_create):
-        """Test lazy loading du hook API."""
-        mock_hook = MagicMock()
-        mock_create.return_value = mock_hook
-
-        manager = HookManager()
-        hook = manager.api_hook
-
-        mock_create.assert_called_once()
-        assert hook is mock_hook
-
-    @patch('common.utils.database.hooks.create_api_hook')
-    def test_reuses_api_hook(self, mock_create):
-        """Test réutilisation du hook API."""
-        mock_hook = MagicMock()
-        mock_create.return_value = mock_hook
-
-        manager = HookManager()
-        hook1 = manager.api_hook
-        hook2 = manager.api_hook
-
-        # create_api_hook ne devrait être appelé qu'une fois
-        mock_create.assert_called_once()
-        assert hook1 is hook2
 
 
 class TestHookManagerPostgresHook:

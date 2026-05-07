@@ -3,11 +3,13 @@ Tests unitaires pour les fonctions de transformation
 """
 import pytest
 
-from amue.utils.transformers import (
-    parse_column_definition,
+from amue.utils.transformers import parse_column_definition
+from common.utils.fingerprint import (
     compute_structure_hash_with_pk,
     format_primary_keys,
     compare_fingerprints,
+)
+from common.utils.validators import (
     validate_table_name,
     validate_column_name,
     validate_identifier,

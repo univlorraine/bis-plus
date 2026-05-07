@@ -1,5 +1,10 @@
-# amue/notifications/templates_base.py
-"""Styles CSS et helpers HTML partagés par tous les templates de notification."""
+"""
+Styles CSS et helpers HTML partagés par tous les templates de notification.
+
+Module générique (AMUE / ECC) : ne contient aucune logique métier liée à
+un plugin. Les classes spécifiques (ErrorTemplates AMUE, ECCNotificationTemplates)
+en héritent.
+"""
 
 
 class BaseTemplates:

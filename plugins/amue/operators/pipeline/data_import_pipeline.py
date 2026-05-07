@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Any
 
 from amue.exceptions import AMUEDatabaseError, AMUEBatchError, AMUEDataError
-from common.operators.batch_inserter import AMUEBatchInserter
+from common.operators.batch_inserter import BatchInserter
 from common.utils.database.hooks import create_postgres_hook
 from common.config import PROTECTED_SOURCE
 
@@ -44,11 +44,11 @@ class DataImportPipeline:
         ... )
     """
 
-    def __init__(self, streamer, inserter: AMUEBatchInserter, target_schema: str = None):
+    def __init__(self, streamer, inserter: BatchInserter, target_schema: str = None):
         """
         Args:
             streamer: AMUEDataStreamer pour la lecture depuis l'API
-            inserter: AMUEBatchInserter pour l'insertion PostgreSQL
+            inserter: BatchInserter pour l'insertion PostgreSQL
             target_schema: Schéma cible blue/green (ex: 'splus_green')
         """
         self.streamer = streamer
@@ -85,7 +85,7 @@ class DataImportPipeline:
         batch_size: int,
         num_workers: int = 1,
         correlation_id: str = "",
-        worker_inserters: List[AMUEBatchInserter] = None,
+        worker_inserters: List[BatchInserter] = None,
     ) -> Tuple[int, int, int, List[Dict]]:
         """
         Exécute le pipeline producteur/consommateur.
@@ -121,7 +121,7 @@ class DataImportPipeline:
             worker_inserters = []
             for _ in range(num_workers):
                 worker_hook = create_postgres_hook(bluegreen_schema=self.target_schema)
-                worker_inserters.append(AMUEBatchInserter(worker_hook, target_schema=self.target_schema))
+                worker_inserters.append(BatchInserter(worker_hook, target_schema=self.target_schema))
         else:
             own_workers = False
             worker_inserters = [self.inserter]
