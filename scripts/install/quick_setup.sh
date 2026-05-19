@@ -277,9 +277,23 @@ _PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib oracledb"
 # SMTP
 SMTP_HOST=$SMTP_HOST
 SMTP_PORT=$SMTP_PORT
+
+# Base de données métier (utilisé par docker-compose pour initialiser le container postgres-data)
+PG_DATA_USER=$PG_LOGIN
+PG_DATA_PASSWORD=$PG_PASSWORD
+PG_DATA_DB=$PG_DATABASE
 EOFENV
 
 log_success "Fichier .env créé (sans credentials — stockés dans Airflow DB)"
+
+# Calcul des endpoints selon l'environnement (prod : pas de segment de chemin intermédiaire)
+if [[ "$ENVIRONMENT" == "production" ]]; then
+    API_ENDPOINT_ADMIN='finances/cdv/v1/${univ}/admin'
+    API_ENDPOINT_TABLE='finances/cdv/v1/${univ}/table'
+else
+    API_ENDPOINT_ADMIN="finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/admin"
+    API_ENDPOINT_TABLE="finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/table"
+fi
 
 # Création du fichier de variables (sans secrets)
 cat > "config/airflow_variables.json" << EOFVARS
@@ -289,8 +303,8 @@ cat > "config/airflow_variables.json" << EOFVARS
   "amue_monitor_schedule": "0 22 * * *",
   "ecc_import_schedule": "0 4 * * *",
   "universite": "$UNIVERSITE",
-  "api_endpoint_admin": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/admin",
-  "api_endpoint_table": "finances/cdv/v1/$AMUE_API_ENV_PATH/\${univ}/table",
+  "api_endpoint_admin": "$API_ENDPOINT_ADMIN",
+  "api_endpoint_table": "$API_ENDPOINT_TABLE",
   "amue_import_batch_size": "5000",
   "amue_import_parallel_workers": "1",
   "amue_api_max_retries": "3",
@@ -587,7 +601,7 @@ if [[ "$ENVIRONMENT" == "dev" ]]; then
 else
     echo -e "${YELLOW}Environnement: PRODUCTION${NC}"
     echo -e "   API Host: $AMUE_API_HOST"
-    echo -e "   Endpoints: finances/cdv/v1/prod/..."
+    echo -e "   Endpoints: finances/cdv/v1/..."
 fi
 
 cat << EOF
