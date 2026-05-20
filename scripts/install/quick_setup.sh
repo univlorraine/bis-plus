@@ -456,6 +456,22 @@ log_info "Saisissez les tables AMUE à importer (table_name, primary_key, delta)
 log_info "Vous pourrez en ajouter/modifier plus tard via : ./manage.sh load-tables"
 echo ""
 
+# Résolution de l'endpoint admin (substitue ${univ} par la valeur réelle)
+ADMIN_ENDPOINT_RESOLVED="${API_ENDPOINT_ADMIN/\$\{univ\}/$UNIVERSITE}"
+
+# Tentative d'obtention d'un token OAuth (silencieuse, non bloquante)
+ACCESS_TOKEN=""
+if [[ -n "$OAUTH_CLIENT_ID" && -n "$OAUTH_CLIENT_SECRET" ]]; then
+    _TOKEN_RESP=$(curl -s --max-time 10 -X POST "$AMUE_TOKEN_URL" \
+        -u "$OAUTH_CLIENT_ID:$OAUTH_CLIENT_SECRET" \
+        -d "grant_type=client_credentials" 2>/dev/null)
+    ACCESS_TOKEN=$(echo "$_TOKEN_RESP" | jq -r '.access_token // empty' 2>/dev/null)
+    unset _TOKEN_RESP
+fi
+[[ -n "$ACCESS_TOKEN" ]] \
+    && log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API" \
+    || log_warning "Token OAuth non disponible — saisie manuelle des clés primaires"
+
 TABLE_COUNT=0
 while true; do
     echo -n "Ajouter une table ? (o/N) : " >&2
@@ -466,8 +482,31 @@ while true; do
     read -r T_NAME </dev/tty
     [[ -z "$T_NAME" ]] && continue
 
-    echo -n "  Clé primaire (séparée par virgules, ex: MANDT,BUKRS,BELNR) : " >&2
-    read -r T_PK </dev/tty
+    # Auto-fetch de la clé primaire depuis l'API, avec fallback saisie manuelle
+    T_PK=""
+    if [[ -n "$ACCESS_TOKEN" ]]; then
+        _KEYS_RESP=$(curl -s --max-time 10 \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "$AMUE_API_HOST/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
+        if echo "$_KEYS_RESP" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            T_PK=$(echo "$_KEYS_RESP" | jq -r 'join(",")')
+        elif echo "$_KEYS_RESP" | jq -e 'type == "object" and has("keys")' > /dev/null 2>&1; then
+            T_PK=$(echo "$_KEYS_RESP" | jq -r '.keys | join(",")')
+        elif echo "$_KEYS_RESP" | jq -e 'type == "string"' > /dev/null 2>&1; then
+            T_PK=$(echo "$_KEYS_RESP" | jq -r '.')
+        fi
+        unset _KEYS_RESP
+    fi
+    if [[ -n "$T_PK" ]]; then
+        log_info "  Clé primaire récupérée depuis l'API : $T_PK"
+        echo -n "  Clé primaire [$T_PK] : " >&2
+        read -r _T_PK_INPUT </dev/tty
+        [[ -n "$_T_PK_INPUT" ]] && T_PK="$_T_PK_INPUT"
+        unset _T_PK_INPUT
+    else
+        echo -n "  Clé primaire (séparée par virgules, ex: MANDT,BUKRS,BELNR) : " >&2
+        read -r T_PK </dev/tty
+    fi
 
     echo -n "  Colonne delta (laisser vide si import complet) : " >&2
     read -r T_DELTA </dev/tty
