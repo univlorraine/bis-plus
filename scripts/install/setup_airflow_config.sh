@@ -27,27 +27,38 @@ MODE="${1:-internal}"
 check_file() {
     local file=$1
     if [[ ! -f "$file" ]]; then
-        log_error "Fichier non trouvé: $file"
+        log_error "Fichier non trouve: $file"
         exit 1
     fi
 }
 
 check_jq() {
     if ! command -v jq &> /dev/null; then
-        log_error "jq n'est pas installé. Installation requise: sudo apt-get install jq"
+        log_error "jq n'est pas installe. Installation requise: sudo apt-get install jq"
         exit 1
     fi
 }
 
-# Charge les variables d'environnement depuis .env
+# Charge les variables d'environnement depuis .env (parseur securise, sans execution de code)
 load_env() {
     if [[ -f "$ENV_FILE" ]]; then
         log_info "Chargement des credentials depuis .env"
-        set -a
-        source "$ENV_FILE"
-        set +a
+        while IFS='=' read -r key value; do
+            # Ignorer les commentaires et les lignes vides
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "${key// }" ]] && continue
+            # Nettoyer les espaces autour de la cle
+            key="${key#"${key%%[![:space:]]*}"}"
+            key="${key%"${key##*[![:space:]]}"}"
+            # Supprimer les guillemets autour de la valeur
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            [[ -n "$key" ]] && export "${key}=${value}"
+        done < "$ENV_FILE"
     else
-        log_warning "Fichier .env non trouvé. Les credentials devront être définis manuellement."
+        log_warning "Fichier .env non trouve. Les credentials devront etre definis manuellement."
     fi
 }
 
@@ -68,57 +79,52 @@ setup_internal() {
     log_info "Configuration des connexions Airflow..."
     setup_connections_internal
 
-    log_success "Configuration terminée avec succès!"
+    log_success "Configuration terminee avec succes!"
 }
 
 setup_variables_internal() {
     local count=0
 
-    # Variables simples (string/number)
-    for key in $(jq -r 'to_entries | map(select(.value | type != "array" and type != "object")) | .[].key' "$VARIABLES_FILE"); do
-        local value
-        value=$(jq -r ".[\"$key\"]" "$VARIABLES_FILE")
-
+    # Passe unique sur toutes les variables — evite N+2 appels jq
+    # Separateur SOH (0x01) : safe pour les valeurs Airflow
+    while IFS=$'\t' read -r key value; do
+        [[ -z "$key" ]] && continue
         if airflow variables set "$key" "$value" 2>/dev/null; then
-            log_success "Variable créée: $key"
+            log_success "Variable creee: $key"
             count=$((count + 1))
         else
-            log_warning "Échec création variable: $key"
+            log_warning "Echec creation variable: $key"
         fi
-    done
+    done < <(jq -r \
+        'to_entries[] | .key + "\t" + (.value | if type == "array" or type == "object" then tojson else tostring end)' \
+        "$VARIABLES_FILE")
 
-    # Variables complexes (arrays/objects) - en JSON
-    for key in $(jq -r 'to_entries | map(select(.value | type == "array" or type == "object")) | .[].key' "$VARIABLES_FILE"); do
-        local value
-        value=$(jq -c ".[\"$key\"]" "$VARIABLES_FILE")
-
-        if airflow variables set "$key" "$value" 2>/dev/null; then
-            log_success "Variable créée: $key (JSON)"
-            count=$((count + 1))
-        else
-            log_warning "Échec création variable: $key"
-        fi
-    done
-
-    log_info "Total: $count variables créées"
+    log_info "Total: $count variables creees"
 }
 
 setup_connections_internal() {
     local count=0
 
     for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
-        # Skip si la connexion existe déjà (credentials préservés dans Airflow DB)
+        # Skip si la connexion existe deja (credentials preserves dans Airflow DB)
         if airflow connections get "$conn_id" > /dev/null 2>&1; then
-            log_info "Connexion existante ignorée (credentials préservés): $conn_id"
+            log_info "Connexion existante ignoree (credentials preserves): $conn_id"
             continue
         fi
 
-        local conn_type host port schema extra
-        conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
-        host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-        port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
-        schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
-        extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+        # Lecture de tous les champs en un seul appel jq (au lieu de 4 appels separes)
+        mapfile -t _conn_fields < <(jq -r --arg id "$conn_id" \
+            '.[$id] | .conn_type,
+                      (.host // ""),
+                      ((.port // "") | tostring),
+                      (.schema // ""),
+                      (.extra // {} | tojson)' \
+            "$CONNECTIONS_FILE")
+        local conn_type="${_conn_fields[0]}"
+        local host="${_conn_fields[1]}"
+        local port="${_conn_fields[2]}"
+        local schema="${_conn_fields[3]}"
+        local extra="${_conn_fields[4]}"
 
         local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
         [[ -n "$host"   ]] && add_cmd+=(--conn-host   "$host")
@@ -127,14 +133,14 @@ setup_connections_internal() {
         [[ "$extra" != "{}" ]] && add_cmd+=(--conn-extra "$extra")
 
         if "${add_cmd[@]}" 2>/dev/null; then
-            log_success "Connexion créée (structure): $conn_id ($conn_type)"
+            log_success "Connexion creee (structure): $conn_id ($conn_type)"
             count=$((count + 1))
         else
-            log_warning "Échec création connexion: $conn_id"
+            log_warning "Echec creation connexion: $conn_id"
         fi
     done
 
-    log_info "Total: $count connexions créées"
+    log_info "Total: $count connexions creees"
 }
 
 ###############################################################################
@@ -148,9 +154,9 @@ setup_external() {
     check_file "$CONNECTIONS_FILE"
     check_jq
 
-    # Vérifie que docker-compose est disponible
+    # Verifie que docker-compose est disponible
     if ! command -v docker-compose &> /dev/null && ! command -v docker &> /dev/null; then
-        log_error "docker-compose ou docker non trouvé"
+        log_error "docker-compose ou docker non trouve"
         exit 1
     fi
 
@@ -159,10 +165,10 @@ setup_external() {
         docker_cmd="docker compose"
     fi
 
-    # Vérifie que le service airflow-apiserver est en cours d'exécution
-    if ! $docker_cmd ps | grep -q "airflow-apiserver"; then
-        log_error "Le service airflow-apiserver n'est pas en cours d'exécution"
-        log_info "Démarrez Airflow avec: $docker_cmd up -d"
+    # Verifie que l'API Airflow est accessible
+    if ! curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
+        log_error "L'API Airflow n'est pas accessible sur http://localhost:8080"
+        log_info "Demarrez Airflow avec: $docker_cmd up -d"
         exit 1
     fi
 
@@ -172,7 +178,7 @@ setup_external() {
     log_info "Configuration des connexions Airflow..."
     setup_connections_external "$docker_cmd"
 
-    log_success "Configuration terminée avec succès!"
+    log_success "Configuration terminee avec succes!"
 }
 
 setup_variables_external() {
@@ -180,7 +186,7 @@ setup_variables_external() {
 
     log_info "Import des variables..."
 
-    # Crée un fichier temporaire avec les valeurs complexes sérialisées en JSON string
+    # Cree un fichier temporaire avec les valeurs complexes serialisees en JSON string
     local temp_file
     temp_file=$(mktemp --suffix=.json)
     jq 'to_entries | map({key: .key, value: (if (.value | type) == "array" or (.value | type) == "object" then (.value | tojson) else .value end)}) | from_entries' "$VARIABLES_FILE" > "$temp_file"
@@ -189,10 +195,11 @@ setup_variables_external() {
     $docker_cmd cp "$temp_file" airflow-apiserver:/tmp/airflow_vars_import.json
 
     if $docker_cmd exec -T airflow-apiserver airflow variables import /tmp/airflow_vars_import.json 2>&1 | grep -v "^$"; then
-        local count=$(jq 'keys | length' "$VARIABLES_FILE")
-        log_success "$count variables importées"
+        local count
+        count=$(jq 'keys | length' "$VARIABLES_FILE")
+        log_success "$count variables importees"
     else
-        log_warning "Import échoué"
+        log_warning "Import echoue"
     fi
 
     # Nettoyage
@@ -208,19 +215,26 @@ setup_connections_external() {
     local count=0
 
     for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
-        # Skip si la connexion existe déjà (credentials préservés dans Airflow DB)
+        # Skip si la connexion existe deja (credentials preserves dans Airflow DB)
         if $docker_cmd exec -T airflow-apiserver airflow connections get "$conn_id" \
                 > /dev/null 2>&1; then
-            log_info "Connexion existante ignorée (credentials préservés): $conn_id"
+            log_info "Connexion existante ignoree (credentials preserves): $conn_id"
             continue
         fi
 
-        local conn_type host port schema extra
-        conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
-        host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-        port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
-        schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
-        extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+        # Lecture de tous les champs en un seul appel jq (au lieu de 4 appels separes)
+        mapfile -t _conn_fields < <(jq -r --arg id "$conn_id" \
+            '.[$id] | .conn_type,
+                      (.host // ""),
+                      ((.port // "") | tostring),
+                      (.schema // ""),
+                      (.extra // {} | tojson)' \
+            "$CONNECTIONS_FILE")
+        local conn_type="${_conn_fields[0]}"
+        local host="${_conn_fields[1]}"
+        local port="${_conn_fields[2]}"
+        local schema="${_conn_fields[3]}"
+        local extra="${_conn_fields[4]}"
 
         local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
         [[ -n "$host"   ]] && add_cmd+=(--conn-host   "$host")
@@ -229,22 +243,22 @@ setup_connections_external() {
         [[ "$extra" != "{}" ]] && add_cmd+=(--conn-extra "$extra")
 
         if $docker_cmd exec -T airflow-apiserver "${add_cmd[@]}" 2>/dev/null; then
-            log_success "Connexion créée (structure): $conn_id"
+            log_success "Connexion creee (structure): $conn_id"
             count=$((count + 1))
         else
-            log_warning "Échec création connexion: $conn_id"
+            log_warning "Echec creation connexion: $conn_id"
         fi
     done
 
-    log_info "Total: $count connexions créées"
+    log_info "Total: $count connexions creees"
 }
 
 ###############################################################################
-# Fonction de vérification
+# Fonction de verification
 ###############################################################################
 
 verify_configuration() {
-    log_info "Vérification de la configuration..."
+    log_info "Verification de la configuration..."
 
     local docker_cmd="docker-compose"
     if ! command -v docker-compose &> /dev/null; then
@@ -290,7 +304,7 @@ export_configuration() {
         log_warning "Impossible d'exporter les connexions"
     }
 
-    log_success "Export terminé dans: $export_dir"
+    log_success "Export termine dans: $export_dir"
     log_warning "ATTENTION: L'export des connexions peut contenir des credentials!"
 }
 
@@ -312,36 +326,36 @@ Usage: $0 [OPTION]
 
 Configure les variables et connexions Airflow depuis des fichiers JSON.
 Les credentials (login/password) sont saisis lors du setup initial (quick_setup.sh)
-et stockés directement dans la base de données Airflow (chiffrés).
+et stockes directement dans la base de donnees Airflow (chiffres).
 
 Options:
-  --internal, -i       Configuration depuis l'intérieur du container
-  --external, -e       Configuration depuis l'extérieur via docker-compose
+  --internal, -i       Configuration depuis l'interieur du container
+  --external, -e       Configuration depuis l'exterieur via docker-compose
   --variables-only, -V Import des variables uniquement (sans toucher aux connexions)
-                        Utilisé par quick_setup.sh qui crée les connexions avec credentials
-  --verify, -v         Vérifie la configuration actuelle
+                        Utilise par quick_setup.sh qui cree les connexions avec credentials
+  --verify, -v         Verifie la configuration actuelle
   --export, -x         Exporte la configuration actuelle
   --help, -h           Affiche cette aide
 
 Exemples:
-  $0 --external              # Configure variables + connexions (structure seule) depuis l'hôte
+  $0 --external              # Configure variables + connexions (structure seule) depuis l'hote
   $0 --internal              # Configure variables + connexions depuis le container
-  $0 --variables-only        # Import des variables uniquement (connexions gérées par quick_setup.sh)
-  $0 --verify                # Vérifie la config
+  $0 --variables-only        # Import des variables uniquement (connexions gerees par quick_setup.sh)
+  $0 --verify                # Verifie la config
   $0 --export                # Exporte la config
 
 Fichiers requis:
   - config/airflow_variables.json (sans secrets)
-  - config/airflow_connections.json (structure uniquement, sans credentials) — requis sauf en mode --variables-only
+  - config/airflow_connections.json (structure uniquement, sans credentials)
 
-Note: Les connexions avec credentials doivent être créées via quick_setup.sh.
-Les connexions existantes sont ignorées en mode --external/--internal (credentials préservés).
+Note: Les connexions avec credentials doivent etre creees via quick_setup.sh.
+Les connexions existantes sont ignorees en mode --external/--internal (credentials preserves).
 
 EOF
 }
 
 ###############################################################################
-# Point d'entrée
+# Point d'entree
 ###############################################################################
 
 main() {
@@ -357,13 +371,13 @@ main() {
             docker_cmd="$(detect_docker_cmd)"
             check_file "$VARIABLES_FILE"
             check_jq
-            if ! $docker_cmd ps | grep -q "airflow-apiserver"; then
-                log_error "Le service airflow-apiserver n'est pas en cours d'exécution"
+            if ! curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
+                log_error "L'API Airflow n'est pas accessible sur http://localhost:8080"
                 exit 1
             fi
-            log_info "Import des variables Airflow (connexions ignorées)..."
+            log_info "Import des variables Airflow (connexions ignorees)..."
             setup_variables_external "$docker_cmd"
-            log_success "Variables configurées. Les connexions sont gérées par quick_setup.sh."
+            log_success "Variables configurees. Les connexions sont gerees par quick_setup.sh."
             ;;
         --verify|-v)
             verify_configuration

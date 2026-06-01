@@ -29,6 +29,9 @@ from common.utils.tracing import to_iso_str
 logger = logging.getLogger(__name__)
 
 _TABLE = "splus_admin.amue_state"
+# SECURITY: _TABLE must never become user-configurable — all queries interpolate it via f-strings.
+# To make it dynamic, migrate all queries to psycopg2.sql.Identifier first.
+assert _TABLE == "splus_admin.amue_state", "Unsafe _TABLE modification detected"
 _ROW_ID = 1
 
 
@@ -270,8 +273,8 @@ class AdminStateManager:
                 logger.info(f"[ADMIN_STATE] Verrou acquis (correlation_id: {correlation_id or 'N/A'})")
             return acquired
         except Exception as e:
-            logger.error(f"[ADMIN_STATE] Erreur acquisition verrou: {e}")
-            return False
+            logger.error(f"[ADMIN_STATE] Erreur BDD acquisition verrou: {e}")
+            raise
 
     def release_import_lock(self, active_schema: str) -> bool:
         """

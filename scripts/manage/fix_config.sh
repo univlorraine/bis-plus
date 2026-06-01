@@ -38,9 +38,8 @@ EOF
 log_info "Étape 1/4: Vérifications"
 
 # Vérifie que les services sont démarrés
-if ! $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    log_error "Le service airflow-apiserver n'est pas démarré"
-    log_info "Démarrez avec: ./manage.sh start"
+if ! curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
+    log_error "L'API Airflow n'est pas accessible — démarrez avec: ./manage.sh start"
     exit 1
 fi
 
@@ -114,54 +113,29 @@ log_info "Étape 3/4: Configuration des Variables"
 VARS_SUCCESS=0
 VARS_FAILED=0
 
-# Variables simples
-for key in $(jq -r 'to_entries | map(select(.value | type != "array" and type != "object")) | .[].key' "$VARIABLES_FILE"); do
-    log_info "Variable trouvé: $key"
-done
-for key in $(jq -r 'to_entries | map(select(.value | type != "array" and type != "object")) | .[].key' "$VARIABLES_FILE"); do
-    value=$(jq -r ".[\"$key\"]" "$VARIABLES_FILE")
-
+# Passe unique sur toutes les variables (simples et JSON) — evite N+2 appels jq
+# Separateur SOH (0x01) : safe pour les valeurs Airflow, compatible Linux/Windows
+while IFS=$'\001' read -r key value; do
+    [[ -z "$key" ]] && continue
     log_info "Configuration de la variable: $key"
     log_info "  Valeur: $value"
-    # Tentative de création
-    local _log
+
     _log=$(mktemp)
     if $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$value" 2>&1 | tee "$_log" | grep -qE "Variable|success|created|updated|set"; then
-        log_success "  ✓ Variable '$key' créée"
+        log_success "  Variable '$key' creee"
         VARS_SUCCESS=$((VARS_SUCCESS + 1))
     else
-        log_error "  ✗ Échec pour '$key'"
+        log_error "  Echec pour '$key'"
         cat "$_log"
         VARS_FAILED=$((VARS_FAILED + 1))
     fi
     rm -f "$_log"
-done
-
-# Variables complexes (JSON)
-for key in $(jq -r 'to_entries | map(select(.value | type == "array" or type == "object")) | .[].key' "$VARIABLES_FILE"); do
-    local value
-    value=$(jq -c ".[\"$key\"]" "$VARIABLES_FILE")
-
-    log_info "Configuration de la variable JSON: $key"
-
-    local _val_file _log
-    _val_file=$(mktemp)
-    _log=$(mktemp)
-    echo "$value" > "$_val_file"
-
-    if $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$(cat "$_val_file")" 2>&1 | tee "$_log" | grep -qE "Variable|success|created|updated|set"; then
-        log_success "  ✓ Variable JSON '$key' créée"
-        VARS_SUCCESS=$((VARS_SUCCESS + 1))
-    else
-        log_error "  ✗ Échec pour '$key'"
-        cat "$_log"
-        VARS_FAILED=$((VARS_FAILED + 1))
-    fi
-    rm -f "$_val_file" "$_log"
-done
+done < <(jq -r \
+    'to_entries[] | .key + "" + (.value | if type == "array" or type == "object" then tojson else tostring end)' \
+    "$VARIABLES_FILE")
 
 echo ""
-log_info "Variables: $VARS_SUCCESS réussies, $VARS_FAILED échecs"
+log_info "Variables: $VARS_SUCCESS reussies, $VARS_FAILED echecs"
 
 ###############################################################################
 # 4. Configuration des Connexions
@@ -175,19 +149,28 @@ CONNS_FAILED=0
 for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
     log_info "Configuration de la connexion: $conn_id"
 
-    local conn_type host login password port schema extra
-    conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
-    host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-    login=$(jq -r ".[\"$conn_id\"].login // empty" "$CONNECTIONS_FILE")
-    password=$(jq -r ".[\"$conn_id\"].password // empty" "$CONNECTIONS_FILE")
-    port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
-    schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
-    extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+    # Lecture de tous les champs en un seul appel jq (au lieu de 6 appels separes)
+    mapfile -t _conn_fields < <(jq -r --arg id "$conn_id" \
+        '.[$id] | .conn_type,
+                  (.host // ""),
+                  (.login // ""),
+                  (.password // ""),
+                  ((.port // "") | tostring),
+                  (.schema // ""),
+                  (.extra // {} | tojson)' \
+        "$CONNECTIONS_FILE")
+    conn_type="${_conn_fields[0]}"
+    host="${_conn_fields[1]}"
+    login="${_conn_fields[2]}"
+    password="${_conn_fields[3]}"
+    port="${_conn_fields[4]}"
+    schema="${_conn_fields[5]}"
+    extra="${_conn_fields[6]}"
 
     $DOCKER_CMD exec -T airflow-apiserver airflow connections delete "$conn_id" >/dev/null 2>&1 || true
 
-    # Tableau bash — évite les problèmes d'apostrophes dans les valeurs
-    local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
+    # Tableau bash — evite les problemes d'apostrophes dans les valeurs
+    add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
     [ -n "$host"     ] && add_cmd+=(--conn-host     "$host")
     [ -n "$login"    ] && add_cmd+=(--conn-login    "$login")
     [ -n "$password" ] && add_cmd+=(--conn-password "$password")
@@ -195,13 +178,12 @@ for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
     [ -n "$schema"   ] && add_cmd+=(--conn-schema   "$schema")
     [ "$extra" != "{}" ] && [ "$extra" != "null" ] && add_cmd+=(--conn-extra "$extra")
 
-    local _log
     _log=$(mktemp)
     if $DOCKER_CMD exec -T airflow-apiserver "${add_cmd[@]}" 2>&1 | tee "$_log" | grep -qE "Connection|success|Successfully|created"; then
-        log_success "  ✓ Connexion '$conn_id' créée"
+        log_success "  Connexion '$conn_id' creee"
         CONNS_SUCCESS=$((CONNS_SUCCESS + 1))
     else
-        log_error "  ✗ Échec pour '$conn_id'"
+        log_error "  Echec pour '$conn_id'"
         cat "$_log"
         CONNS_FAILED=$((CONNS_FAILED + 1))
     fi
@@ -209,7 +191,7 @@ for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
 done
 
 echo ""
-log_info "Connexions: $CONNS_SUCCESS réussies, $CONNS_FAILED échecs"
+log_info "Connexions: $CONNS_SUCCESS reussies, $CONNS_FAILED echecs"
 
 ###############################################################################
 # 5. Vérification finale

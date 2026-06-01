@@ -18,7 +18,7 @@ def compute_structure_hash_with_pk(
     type_key: str = 'type_postgres',
 ) -> str:
     """
-    Calcule un hash MD5 de la structure d'une table (colonnes + clés primaires).
+    Calcule un hash SHA-256 de la structure d'une table (colonnes + clés primaires).
 
     Args:
         columns: Liste de dicts avec clés 'name' et le type spécifié par type_key.
@@ -26,7 +26,7 @@ def compute_structure_hash_with_pk(
         type_key: Clé du dict à utiliser pour le type (ex: 'type_postgres', 'type_original').
 
     Returns:
-        Hash MD5 hexadécimal (32 caractères).
+        Hash SHA-256 hexadécimal (64 caractères).
     """
     columns_str = ','.join(f"{col['name']}:{col[type_key]}" for col in columns)
     if primary_keys:
@@ -35,7 +35,7 @@ def compute_structure_hash_with_pk(
     else:
         pk_str = 'NO_PRIMARY_KEY'
     full_structure = f"COLUMNS:{columns_str}|PRIMARY_KEYS:{pk_str}"
-    fingerprint = hashlib.md5(full_structure.encode('utf-8')).hexdigest()
+    fingerprint = hashlib.sha256(full_structure.encode('utf-8')).hexdigest()
     logger.info(f"[FINGERPRINT] Colonnes: {len(columns)}, PK: {pk_str}")
     logger.info(f"[FINGERPRINT] Hash: {fingerprint}")
     return fingerprint

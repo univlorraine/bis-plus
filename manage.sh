@@ -54,7 +54,8 @@ Usage: ./manage.sh [COMMAND]
 Commandes disponibles:
 
   GESTION DES SERVICES
-    start               Démarre tous les services
+    build               Reconstruit l'image Docker (jq + packages pré-installés)
+    start               Démarre tous les services (build auto si image absente)
     stop                Arrête tous les services
     restart             Redémarre tous les services
     refresh-plugins     Rafraichi les plugins
@@ -63,7 +64,7 @@ Commandes disponibles:
     health              Vérifie la santé de tous les services
 
   CONFIGURATION
-    setup               Installation complète initiale (inclut Blue/Green)
+    setup               Installation complète initiale (build image + Blue/Green)
     setup-bluegreen     Initialise uniquement les schémas Blue/Green
     config              Reconfigure les variables et connexions
     fix                 Corrige la configuration (avec attente API)
@@ -160,8 +161,43 @@ Interfaces:
 EOF
 }
 
+###############################################################################
+# Build de l'image Docker personnalisée
+###############################################################################
+
+# Retourne le nom de l'image Airflow défini dans .env (ou la valeur par défaut)
+_get_airflow_image_name() {
+    local name
+    name=$(grep -E '^AIRFLOW_IMAGE_NAME=' .env 2>/dev/null | cut -d= -f2 | tr -d '"')
+    echo "${name:-apache/airflow:3.1.7}"
+}
+
+# Construit l'image si le Dockerfile est présent. Utilisé lors du setup et du reset.
+_build_image() {
+    [[ ! -f "Dockerfile" ]] && return 0
+    log_info "Construction de l'image Docker (jq + packages pip pré-installés)..."
+    if ! $DOCKER_CMD build; then
+        log_error "Échec de la construction de l'image Docker"
+        exit 1
+    fi
+    log_success "Image Docker construite"
+}
+
+# Construit l'image uniquement si elle est absente localement.
+# Utilisé par cmd_start pour couvrir le premier démarrage après un clone.
+_build_image_if_missing() {
+    [[ ! -f "Dockerfile" ]] && return 0
+    local image
+    image=$(_get_airflow_image_name)
+    if [[ -z "$(docker images -q "$image" 2>/dev/null)" ]]; then
+        log_info "Image '$image' absente — construction initiale..."
+        _build_image
+    fi
+}
+
 cmd_start() {
     log_info "Démarrage des services..."
+    _build_image_if_missing
     $DOCKER_CMD up -d
 
     # S'assurer que MailHog est démarré
@@ -214,6 +250,8 @@ cmd_logs() {
 
 cmd_setup() {
     log_info "Lancement du setup complet..."
+    # L'image est construite par docker-compose up dans quick_setup.sh,
+    # apres generation du .env avec le bon AIRFLOW_IMAGE_NAME
     chmod +x scripts/install/quick_setup.sh
     ./scripts/install/quick_setup.sh
 
@@ -373,6 +411,11 @@ EOSQL
         while IFS= read -r table_name; do
             [[ -z "$table_name" ]] && continue
 
+            if [[ ! "$table_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+                log_warning "  Nom de table non sécurisé ignoré : '$table_name'"
+                continue
+            fi
+
             log_info "  Création de la vue splus.$table_name -> splus_blue.$table_name"
             $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -q << EOSQL
 CREATE OR REPLACE VIEW splus.$table_name AS SELECT * FROM splus_blue.$table_name;
@@ -383,6 +426,19 @@ EOSQL
 
         log_success "$view_count vue(s) créée(s) dans le schéma splus"
     fi
+}
+
+cmd_build() {
+    if [[ ! -f "Dockerfile" ]]; then
+        log_error "Dockerfile absent — rien à construire"
+        exit 1
+    fi
+    log_info "Construction forcée de l'image Docker..."
+    if ! $DOCKER_CMD build "${@}"; then
+        log_error "Échec de la construction"
+        exit 1
+    fi
+    log_success "Image reconstruite. Relancez 'manage.sh start' pour l'utiliser."
 }
 
 cmd_config() {
@@ -675,19 +731,24 @@ except Exception as e:
     # Test d'une connexion spécifique
     log_info "Test de la connexion '$conn_id'..."
 
-    $DOCKER_CMD exec -T airflow-apiserver python -c "
-from airflow.hooks.base import BaseHook
-try:
-    conn = BaseHook.get_connection('$conn_id')
-    print(f'Type: {conn.conn_type}')
-    print(f'Host: {conn.host}')
-    print(f'Port: {conn.port or \"default\"}')
-    print(f'Schema: {conn.schema or \"N/A\"}')
-    print(f'Login: {conn.login or \"N/A\"}')
-    print('Status: Configuration OK')
-except Exception as e:
-    print(f'Erreur: {e}')
-    exit(1)
+    local conn_json
+    conn_json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections get "$conn_id" --output json 2>/dev/null)
+    if [[ $? -ne 0 ]] || [[ -z "$conn_json" ]]; then
+        log_error "Connexion '$conn_id' introuvable ou erreur Airflow"
+        return 1
+    fi
+    # $conn_id passé via argument Airflow CLI (pas interpolé dans du code Python)
+    # conn_json lu depuis stdin uniquement — pas d'injection possible
+    echo "$conn_json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+r = data[0] if isinstance(data, list) else data
+print('Type:', r.get('conn_type', 'N/A'))
+print('Host:', r.get('host', 'N/A'))
+print('Port:', r.get('port') or 'default')
+print('Schema:', r.get('schema') or 'N/A')
+print('Login:', r.get('login') or 'N/A')
+print('Status: Configuration OK')
 "
 }
 
@@ -882,8 +943,12 @@ cmd_config_validate() {
         "smtp_mail_from"
     )
 
+    # Fetch une seule fois pour eviter 8 docker exec separes
+    local _vars_json
+    _vars_json=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null || echo "[]")
+
     for var in "${airflow_vars[@]}"; do
-        if $DOCKER_CMD exec -T airflow-apiserver airflow variables get "$var" &> /dev/null; then
+        if printf '%s' "$_vars_json" | jq -e --arg v "$var" '.[] | select(.key == $v)' >/dev/null 2>&1; then
             echo "  ✓ $var"
         else
             echo "  ✗ $var (non définie)"
@@ -895,9 +960,13 @@ cmd_config_validate() {
 
     # 4. Vérification des connexions Airflow
     log_info "=== Connexions Airflow ==="
+    # Fetch une seule fois pour eviter 2 docker exec separes
+    local _conns_json
+    _conns_json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null || echo "[]")
+
     for conn_id in oauth_api postgres_data; do
         local login
-        login=$(_get_airflow_conn "$conn_id" login 2>/dev/null)
+        login=$(printf '%s' "$_conns_json" | jq -r --arg c "$conn_id" '.[] | select(.conn_id == $c) | .login // ""')
         if [[ -n "$login" ]]; then
             echo "  ✓ $conn_id (login: $login)"
         else
@@ -1117,9 +1186,10 @@ cmd_delete_user() {
 # Champs disponibles: host, port, schema, login, password, conn_type
 _get_airflow_conn() {
     local conn_id=$1 field=$2
+    # $field passé en sys.argv[1] — jamais interpolé dans le code Python
     $DOCKER_CMD exec -T airflow-apiserver airflow connections get "$conn_id" \
         --output json 2>/dev/null \
-        | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('$field') or '')"
+        | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get(sys.argv[1]) or '')" "$field"
 }
 
 ###############################################################################
@@ -1154,6 +1224,11 @@ print('\x1f'.join([
 
     if [[ -z "$PG_HOST" || -z "$PG_DB" || -z "$PG_USER" ]]; then
         log_error "Connexion postgres_data introuvable dans Airflow DB"
+        exit 1
+    fi
+
+    if [[ ! "$PG_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+        log_error "PG_USER contient des caractères non autorisés : '$PG_USER'"
         exit 1
     fi
 
@@ -1284,6 +1359,56 @@ cmd_load_tables() {
     log_info "(ON CONFLICT DO UPDATE — les entrées existantes sont mises à jour)"
     echo ""
 
+    # Chargement des credentials API depuis la connexion Airflow oauth_api (même pattern que _load_pg_creds)
+    local _api_json _api_parsed _api_host _api_client_id _api_client_secret _api_token_url ACCESS_TOKEN ADMIN_ENDPOINT_RESOLVED
+    _api_json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections get oauth_api \
+        --output json 2>/dev/null)
+    _api_parsed=$(echo "$_api_json" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    r = d[0] if isinstance(d, list) else d
+    extra = r.get('extra_dejson') or r.get('extra') or {}
+    if isinstance(extra, str):
+        extra = json.loads(extra)
+    if not isinstance(extra, dict):
+        extra = {}
+    print('\x1f'.join([
+        r.get('host') or '',
+        r.get('login') or '',
+        r.get('password') or '',
+        extra.get('token_url') or '',
+    ]))
+except Exception:
+    print('\x1f'.join(['', '', '', '']))
+" 2>/dev/null)
+    IFS=$'\x1f' read -r _api_host _api_client_id _api_client_secret _api_token_url <<< "$_api_parsed"
+
+    ACCESS_TOKEN=""
+    if [[ -n "$_api_client_id" && -n "$_api_client_secret" && -n "$_api_token_url" ]]; then
+        _TOKEN_RESP=$(curl -s --max-time 10 -X POST "$_api_token_url" \
+            -u "$_api_client_id:$_api_client_secret" \
+            -d "grant_type=client_credentials" 2>/dev/null)
+        ACCESS_TOKEN=$(echo "$_TOKEN_RESP" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d.get('access_token', ''))
+except Exception:
+    pass
+" 2>/dev/null || true)
+        unset _TOKEN_RESP
+    fi
+
+    local _universite _endpoint_admin
+    _universite=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get universite 2>/dev/null || echo "")
+    _endpoint_admin=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_admin 2>/dev/null || echo "")
+    ADMIN_ENDPOINT_RESOLVED="${_endpoint_admin/\$\{univ\}/$_universite}"
+
+    [[ -n "$ACCESS_TOKEN" ]] \
+        && log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API" \
+        || log_warning "Token OAuth non disponible — saisie manuelle des clés primaires"
+
     local count=0
     while true; do
         echo -n "Ajouter une table ? (o/N) : " >&2
@@ -1294,8 +1419,40 @@ cmd_load_tables() {
         read -r T_NAME </dev/tty
         [[ -z "$T_NAME" ]] && continue
 
-        echo -n "  Clé primaire (séparée par virgules) : " >&2
-        read -r T_PK </dev/tty
+        local T_PK=""
+        if [[ -n "$ACCESS_TOKEN" && -n "$_api_host" && -n "$ADMIN_ENDPOINT_RESOLVED" ]]; then
+            _KEYS_RESP=$(curl -s --max-time 10 \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                "$_api_host/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
+            T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+import json, sys
+text = sys.stdin.read()
+try:
+    data = json.loads(text)
+    if isinstance(data, list):
+        print(','.join(str(k) for k in data if k))
+    elif isinstance(data, dict):
+        keys = data.get('keys', [])
+        print(','.join(str(k) for k in keys if k))
+    elif isinstance(data, str):
+        print(data.strip())
+except (json.JSONDecodeError, ValueError):
+    cleaned = text.strip()
+    if cleaned and not cleaned.startswith('<'):
+        print(cleaned)
+" 2>/dev/null || true)
+            unset _KEYS_RESP
+        fi
+        if [[ -n "$T_PK" ]]; then
+            log_info "  Clé primaire récupérée depuis l'API : $T_PK"
+            echo -n "  Clé primaire [$T_PK] : " >&2
+            read -r _T_PK_INPUT </dev/tty
+            [[ -n "$_T_PK_INPUT" ]] && T_PK="$_T_PK_INPUT"
+            unset _T_PK_INPUT
+        else
+            echo -n "  Clé primaire (séparée par virgules, ex: MANDT,BUKRS,BELNR) : " >&2
+            read -r T_PK </dev/tty
+        fi
 
         echo -n "  Colonne delta (vide = import complet) : " >&2
         read -r T_DELTA </dev/tty
@@ -1570,11 +1727,10 @@ cmd_version() {
     $DOCKER_CMD version --short 2>/dev/null || echo "N/A"
 
     if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-        echo -n "Airflow: "
-        $DOCKER_CMD exec -T airflow-apiserver airflow version 2>/dev/null || echo "N/A"
-
-        echo -n "Python: "
-        $DOCKER_CMD exec -T airflow-apiserver python --version 2>/dev/null || echo "N/A"
+        $DOCKER_CMD exec -T airflow-apiserver bash -c "
+            echo -n 'Airflow: '; airflow version 2>/dev/null || echo 'N/A'
+            echo -n 'Python: '; python --version 2>/dev/null || echo 'N/A'
+        "
     else
         log_warning "Services Airflow non démarrés"
     fi
@@ -1627,14 +1783,12 @@ cmd_health() {
     log_info "=== Métriques ==="
     local _dags_json total active
     _dags_json=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list --output json 2>/dev/null || echo "[]")
-    total=$(echo "$_dags_json" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
-    active=$(echo "$_dags_json" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-print(sum(1 for x in (d if isinstance(d,list) else []) if not x.get('is_paused', True)))" 2>/dev/null || echo "0")
+    read -r total active < <(echo "$_dags_json" | python3 -c "
+import json, sys
+lst = json.load(sys.stdin)
+lst = lst if isinstance(lst, list) else []
+print(len(lst), sum(1 for x in lst if not x.get('is_paused', True)))
+" 2>/dev/null || echo "0 0")
     echo "DAGs totaux : $total"
     echo "DAGs actifs : $active"
 }
@@ -1776,9 +1930,14 @@ cmd_cleanup_db() {
     [[ ! "$CONFIRM" =~ ^[oOyY]$ ]] && { log_info "Annulé"; exit 0; }
 
     local cutoff_date
+    # Validate $days is a positive integer before use
+    if [[ ! "$days" =~ ^[0-9]+$ ]]; then
+        log_error "Valeur invalide pour le nombre de jours : '$days'"
+        exit 1
+    fi
     cutoff_date=$(date -d "$days days ago" +%Y-%m-%d 2>/dev/null \
         || date -v-${days}d +%Y-%m-%d 2>/dev/null \
-        || python3 -c "from datetime import date,timedelta; print((date.today()-timedelta(days=$days)).isoformat())")
+        || { log_error "Commande date incompatible — impossible de calculer la date"; exit 1; })
 
     $DOCKER_CMD exec -T airflow-apiserver airflow db clean \
         --clean-before-timestamp "$cutoff_date" \
@@ -1804,6 +1963,7 @@ cmd_reset() {
 
     $DOCKER_CMD down -v
 
+    _build_image
     log_info "Redémarrage des services..."
     $DOCKER_CMD up -d
 
@@ -1814,7 +1974,7 @@ cmd_reset() {
             log_success "API Airflow disponible"
             break
         fi
-        ((_retries-=1))
+        _retries=$(( _retries - 1 ))
         [[ $_retries -eq 0 ]] && log_warning "API Airflow non disponible après 3 min — vérifiez les logs"
         sleep 5
     done
@@ -1832,10 +1992,7 @@ cmd_validate() {
     log_info "Validation des DAGs..."
     echo ""
 
-    # Liste les erreurs d'import des DAGs
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors
-
-    # Comptage fiable via JSON (évite de compter l'en-tête du tableau texte)
+    # Comptage via JSON (evite de compter l'en-tete du tableau texte)
     local _errors_json error_count
     _errors_json=$($DOCKER_CMD exec -T airflow-apiserver \
         airflow dags list-import-errors --output json 2>/dev/null || echo "[]")
@@ -1846,6 +2003,8 @@ cmd_validate() {
     if [[ "$error_count" -eq 0 ]]; then
         log_success "Tous les DAGs sont valides"
     else
+        # Affichage texte uniquement en cas d'erreurs (evite le double appel dans le cas nominal)
+        $DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors
         log_error "$error_count erreur(s) d'import détectée(s)"
     fi
 
@@ -1978,6 +2137,7 @@ main() {
 
     case "$command" in
         # Gestion des services
+        build)          cmd_build "$@" ;;
         start)          cmd_start "$@" ;;
         stop)           cmd_stop "$@" ;;
         restart)        cmd_restart "$@" ;;

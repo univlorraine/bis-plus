@@ -52,16 +52,16 @@ log_section "1.1. Vérification des Services Critiques"
 
 check_service() {
     local service=$1
-    if $DOCKER_CMD ps | grep -q "$service"; then
-        if $DOCKER_CMD ps | grep "$service" | grep -q "Up"; then
-            log_success "$service est en cours d'exécution"
-            return 0
-        else
-            log_error "$service n'est pas en état 'Up'"
-            return 1
-        fi
-    else
+    local status
+    status=$($DOCKER_CMD ps --filter "name=$service" --format "{{.Status}}" 2>/dev/null | head -1)
+    if [[ -z "$status" ]]; then
         log_error "$service n'existe pas"
+        return 1
+    elif echo "$status" | grep -q "^Up"; then
+        log_success "$service est en cours d'exécution"
+        return 0
+    else
+        log_error "$service n'est pas en état 'Up'"
         return 1
     fi
 }
@@ -78,11 +78,14 @@ check_service "postgres-data"
 
 log_section "2. Vérification de l'API Airflow"
 
-if curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v2/version | grep -q "200"; then
+_api_resp=$(curl -s -w "\n%{http_code}" http://localhost:8080/api/v2/version 2>/dev/null)
+_api_code=$(printf '%s' "$_api_resp" | tail -1)
+_api_body=$(printf '%s' "$_api_resp" | head -1)
+if [[ "$_api_code" = "200" ]]; then
     log_success "API Airflow est accessible (HTTP 200)"
 
     # Récupère la version
-    VERSION=$(curl -s http://localhost:8080/api/v2/version 2>/dev/null | jq -r '.version' 2>/dev/null || echo "N/A")
+    VERSION=$(printf '%s' "$_api_body" | jq -r '.version' 2>/dev/null || echo "N/A")
     log_info "Version Airflow: $VERSION"
 else
     log_error "API Airflow n'est pas accessible sur http://localhost:8080"
@@ -97,7 +100,9 @@ log_section "3. Vérification des Bases de Données"
 
 # PostgreSQL Airflow
 log_info "PostgreSQL Airflow (metadata):"
+_pg_airflow_ok=false
 if $DOCKER_CMD exec -T postgres pg_isready -q >/dev/null 2>&1; then
+    _pg_airflow_ok=true
     log_success "Base Airflow accessible"
 
     # Compte les DAGs
@@ -110,6 +115,7 @@ fi
 # PostgreSQL Data
 log_info "PostgreSQL Data (business_data):"
 if $DOCKER_CMD exec -T postgres-data pg_isready -q >/dev/null 2>&1; then
+    _pg_data_ok=true
     log_success "Base Data accessible"
 
     # Vérifie le schéma splus
@@ -162,17 +168,22 @@ check_file "$PROJECT_DIR/docker-compose.yml" "Docker Compose"
 # 5. Vérification des Variables Airflow
 ###############################################################################
 
+# Cache l'état d'airflow-apiserver (réutilisé dans les sections 5, 6, 7)
+_apiserver_up=false
+$DOCKER_CMD ps | grep -q "airflow-apiserver" && _apiserver_up=true
+
 log_section "5. Variables Airflow"
 
-if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+if $_apiserver_up; then
+    _vars_json=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null || echo "[]")
+    VAR_COUNT=$(printf '%s' "$_vars_json" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     log_info "Nombre de variables configurées: $VAR_COUNT"
 
     # Vérifie les variables critiques
     CRITICAL_VARS=("universite" "api_endpoint_admin" "api_endpoint_table" "amue_import_batch_size" "amue_report_recipients")
 
     for var in "${CRITICAL_VARS[@]}"; do
-        if $DOCKER_CMD exec -T airflow-apiserver airflow variables get "$var" >/dev/null 2>&1; then
+        if printf '%s' "$_vars_json" | jq -e --arg v "$var" '.[] | select(.key == $v)' >/dev/null 2>&1; then
             log_success "Variable '$var' existe"
         else
             log_error "Variable '$var' est manquante"
@@ -182,7 +193,8 @@ if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
     # Affiche toutes les variables
     echo ""
     log_info "Liste complète des variables:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow variables list 2>/dev/null || log_error "Impossible de lister les variables"
+    printf '%s' "$_vars_json" | jq -r '.[] | .key + " = " + (.val // "(vide)")' 2>/dev/null \
+        || log_error "Impossible de lister les variables"
 else
     log_error "Service airflow-apiserver non démarré"
 fi
@@ -193,15 +205,16 @@ fi
 
 log_section "6. Connexions Airflow"
 
-if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+if $_apiserver_up; then
+    _conns_json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null || echo "[]")
+    CONN_COUNT=$(printf '%s' "$_conns_json" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     log_info "Nombre de connexions configurées: $CONN_COUNT"
 
     # Vérifie les connexions critiques
     CRITICAL_CONNS=("oauth_api" "postgres_data")
 
     for conn in "${CRITICAL_CONNS[@]}"; do
-        if $DOCKER_CMD exec -T airflow-apiserver airflow connections get "$conn" >/dev/null 2>&1; then
+        if printf '%s' "$_conns_json" | jq -e --arg c "$conn" '.[] | select(.conn_id == $c)' >/dev/null 2>&1; then
             log_success "Connexion '$conn' existe"
 
             # Test la connexion si possible
@@ -219,7 +232,8 @@ if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
     # Affiche toutes les connexions
     echo ""
     log_info "Liste complète des connexions:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow connections list 2>/dev/null || log_error "Impossible de lister les connexions"
+    printf '%s' "$_conns_json" | jq -r '.[] | .conn_id + " (" + .conn_type + ")"' 2>/dev/null \
+        || log_error "Impossible de lister les connexions"
 else
     log_error "Service airflow-apiserver non démarré"
 fi
@@ -230,10 +244,11 @@ fi
 
 log_section "7. DAGs Airflow"
 
-if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    # Liste les DAGs
+if $_apiserver_up; then
+    # Liste les DAGs (mis en cache pour réutilisation en section 9)
     log_info "DAGs détectés:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null || log_error "Impossible de lister les DAGs"
+    _dags_output=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null || echo "")
+    echo "$_dags_output" || log_error "Impossible de lister les DAGs"
 
     echo ""
 
@@ -250,7 +265,7 @@ if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
 
     # Vérifie le DAG principal
     echo ""
-    if $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | grep -q "amue_multi_table_import"; then
+    if echo "$_dags_output" | grep -q "amue_multi_table_import"; then
         log_success "DAG 'amue_multi_table_import' détecté"
     else
         log_warning "DAG 'amue_multi_table_import' non trouvé"
@@ -278,23 +293,21 @@ $DOCKER_CMD logs airflow-apiserver --tail=20 2>&1 | grep -i "error\|exception\|f
 
 log_section "9. Recommandations"
 
-# Variables manquantes
-VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
-if [ "$VAR_COUNT" -lt 5 ]; then
+# Variables manquantes (VAR_COUNT calculé en section 5)
+if [ "${VAR_COUNT:-0}" -lt 5 ]; then
     log_warning "Peu de variables configurées ($VAR_COUNT)"
     echo "  → Exécutez: ./manage.sh config"
 fi
 
-# Connexions manquantes
-CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
-if [ "$CONN_COUNT" -lt 2 ]; then
+# Connexions manquantes (CONN_COUNT calculé en section 6)
+if [ "${CONN_COUNT:-0}" -lt 2 ]; then
     log_warning "Peu de connexions configurées ($CONN_COUNT)"
     echo "  → Vérifiez: config/airflow_connections.json"
     echo "  → Exécutez: ./manage.sh config"
 fi
 
-# DAGs
-if ! $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | grep -q "amue"; then
+# DAGs (_dags_output calculé en section 7)
+if ! echo "${_dags_output:-}" | grep -q "amue"; then
     log_warning "Aucun DAG AMUE détecté"
     echo "  → Vérifiez le dossier: dags/"
     echo "  → Vérifiez les logs: ./manage.sh logs dag-processor"
@@ -313,9 +326,9 @@ cat << EOF
 EOF
 
 log_info "Services Docker       : $(if $DOCKER_CMD ps | grep -q 'Up'; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
-log_info "API Airflow          : $(if curl -s http://localhost:8080/api/v2/version >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
-log_info "Base Airflow         : $(if $DOCKER_CMD exec -T postgres pg_isready -q >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
-log_info "Base Data            : $(if $DOCKER_CMD exec -T postgres-data pg_isready -q >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
+log_info "API Airflow          : $(if [[ "$_api_code" = "200" ]]; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
+log_info "Base Airflow         : $(if $_pg_airflow_ok; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
+log_info "Base Data            : $(if $_pg_data_ok; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
 log_info "Variables ($VAR_COUNT)      : $(if [ "$VAR_COUNT" -ge 10 ]; then echo -e "${GREEN}OK${NC}"; else echo -e "${YELLOW}À vérifier${NC}"; fi)"
 log_info "Connexions ($CONN_COUNT)     : $(if [ "$CONN_COUNT" -ge 2 ]; then echo -e "${GREEN}OK${NC}"; else echo -e "${YELLOW}À vérifier${NC}"; fi)"
 

@@ -111,7 +111,7 @@ if [[ " ${ISSUES[@]} " =~ " services_down " ]]; then
             log_success "Services redémarrés"
             break
         fi
-        ((_r-=1))
+        _r=$(( _r - 1 ))
         sleep 3
     done
     if [[ $_r -eq 0 ]]; then
@@ -204,9 +204,11 @@ fi
 
 log_step "Étape 5/5: Résumé"
 
-# Récupère les stats finales
-VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
-CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+# Re-fetch les stats seulement si des corrections ont ete appliquees
+if [ ${#ISSUES[@]} -gt 0 ]; then
+    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+fi
 API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v2/version 2>/dev/null || echo "000")
 
 cat << EOF

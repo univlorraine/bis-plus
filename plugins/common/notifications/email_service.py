@@ -134,6 +134,8 @@ class EmailService:
         """
         self.config = config or EmailConfig.from_airflow_variables()
         logger.info(f"EmailService initialisé: {self.config.host}:{self.config.port}")
+        if not self.config.use_tls and self.config.host not in ('mailhog', 'localhost', '127.0.0.1'):
+            logger.warning("[SMTP] ATTENTION: TLS désactivé sur un serveur non-local — les emails transitent en clair !")
 
     def send(self, email: Email) -> bool:
         """

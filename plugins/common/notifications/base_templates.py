@@ -178,30 +178,9 @@ class BaseTemplates:
 
     @classmethod
     def _render_stacktrace(cls, traceback_str: 'str | None') -> str:
-        """Rendu de la stacktrace complète dans un bloc <details> repliable."""
-        if not traceback_str or traceback_str.strip() in ('NoneType: None', 'None'):
-            return ''
-        # Escape HTML + conversion \n → <br> pour un rendu fiable dans les emails
-        escaped = (str(traceback_str)
-                   .replace('&', '&amp;')
-                   .replace('<', '&lt;')
-                   .replace('>', '&gt;')
-                   .replace('\n', '<br>'))
-        return f"""
-        <details style="margin-top: 12px;">
-            <summary style="cursor: pointer; color: #666; font-size: 13px;
-                            font-weight: 600; user-select: none;">
-                <strong>Stacktrace complète : </strong>
-            </summary>
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 4px;
-                        border: 1px solid #e0e0e0; margin: 8px 0 0 0;
-                        font-family: 'Courier New', monospace; font-size: 11px;
-                        color: #555; word-break: break-all; overflow-wrap: break-word;
-                        overflow: hidden; max-width: 100%; box-sizing: border-box;">
-                {escaped}
-            </div>
-        </details>
-        """
+        """Stack traces exclues des emails pour éviter l'exposition d'informations système.
+        Consulter les logs Airflow pour les détails techniques."""
+        return ''
 
     @classmethod
     def _wrap_html(cls, header: str, content: str, footer: str) -> str:

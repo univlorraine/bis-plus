@@ -77,7 +77,6 @@ USAGE
 import json
 import logging
 import os
-import sys
 import tempfile
 import threading
 from datetime import datetime, timedelta
@@ -124,8 +123,10 @@ class _TokenCache:
         with _file_lock:
             safe_duration = int(expires_in_seconds * 0.9)
             expires_at = datetime.now() + timedelta(seconds=safe_duration)
-            with open(_CACHE_FILE, "w") as f:
-                json.dump({"token": token, "expires_at": expires_at.isoformat()}, f)
+            data = json.dumps({"token": token, "expires_at": expires_at.isoformat()})
+            fd = os.open(_CACHE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as f:
+                f.write(data)
 
     def invalidate(self) -> None:
         with _file_lock:
@@ -327,9 +328,11 @@ class AMUEAPIHook:
             'Authorization': f'Bearer {self.access_token}',
             'Accept': 'application/json',
         }
+        _SENSITIVE_PARAM_KEYS = frozenset({'token', 'api_key', 'password', 'secret', 'auth', 'Authorization'})
         appel = f"[API] Appel: {url}"
         if params:
-            appel += f" + Params: {params}"
+            safe_params = {k: '***' if k.lower() in {s.lower() for s in _SENSITIVE_PARAM_KEYS} else v for k, v in params.items()}
+            appel += f" + Params: {safe_params}"
         logger.info(appel)
         if use_retry and not check_status_only:
             return self._call_api_with_retry(url, headers, params, timeout)
@@ -426,7 +429,7 @@ class AMUEAPIHook:
             except ValueError as e:
                 # ValueError couvre json.JSONDecodeError ET simplejson.JSONDecodeError
                 # (les vieilles versions de simplejson n'héritent pas de json.JSONDecodeError)
-                logger.info(f"[API] Réponse en texte brut (non JSON) : {e.with_traceback(sys.exception().__traceback__)}")
+                logger.debug(f"[API] Réponse en texte brut (non JSON) : {type(e).__name__}: {e}")
                 return response.text
 
         def on_retry(attempt: int, error: Exception, delay: float):

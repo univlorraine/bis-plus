@@ -25,6 +25,7 @@ Le switch est atomique grâce à :
 
 ================================================================================
 """
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -174,6 +175,7 @@ class ViewSwitcher:
             if self.custom_views_dir.exists():
                 ok = ko = 0
                 for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
+                    self._verify_sql_file_integrity(sql_file)
                     content = sql_file.read_text(encoding="utf-8").replace("{target_schema}", target_schema)
                     try:
                         cursor.execute(content)
@@ -231,6 +233,7 @@ class ViewSwitcher:
             cursor = conn.cursor()
             try:
                 for sql_file in sorted(self.custom_views_dir.glob("*.sql")):
+                    self._verify_sql_file_integrity(sql_file)
                     content = sql_file.read_text(encoding="utf-8").replace(
                         "{target_schema}", target_schema
                     )
@@ -509,6 +512,34 @@ class ViewSwitcher:
             re.IGNORECASE,
         )
         return match.group(1).lower() if match else None
+
+    def _verify_sql_file_integrity(self, sql_file: Path) -> None:
+        """Vérifie l'intégrité d'un fichier SQL via un manifest SHA-256.
+
+        Si le manifest `.manifest.sha256` existe dans le répertoire, le hash du
+        fichier doit correspondre. Lève ValueError si compromis, log un avertissement
+        si le manifest est absent (permet l'usage sans manifest en dev).
+        """
+        manifest_path = sql_file.parent / ".manifest.sha256"
+        if not manifest_path.exists():
+            logger.debug(f"[VIEW_SWITCH] Pas de manifest d'intégrité pour {sql_file.name}")
+            return
+        expected: dict = {}
+        for line in manifest_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    expected[parts[1].strip()] = parts[0]
+        if sql_file.name not in expected:
+            logger.debug(f"[VIEW_SWITCH] {sql_file.name} absent du manifest — exécution permise")
+            return
+        actual = hashlib.sha256(sql_file.read_bytes()).hexdigest()
+        if actual != expected[sql_file.name]:
+            raise ValueError(
+                f"[VIEW_SWITCH] Intégrité fichier SQL compromise : {sql_file.name} "
+                f"(attendu {expected[sql_file.name][:16]}…, obtenu {actual[:16]}…)"
+            )
 
     def _load_custom_view_sqls(self, target_schema: str) -> List[str]:
         """

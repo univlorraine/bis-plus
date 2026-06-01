@@ -23,7 +23,10 @@
 ---
 x-airflow-common:
   &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.1.7}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ${AIRFLOW_IMAGE_NAME:-airflow-amue:3.1.7}
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -37,13 +40,15 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     AIRFLOW__CORE__DEFAULT_TIMEZONE: 'Europe/Paris'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW__WEBSERVER__PERMANENT_SESSION_LIFETIME: '1800'
+    AIRFLOW__WEBSERVER__SESSION_COOKIE_HTTPONLY: 'True'
     AIRFLOW__SMTP__SMTP_HOST: mailhog
     AIRFLOW__SMTP__SMTP_STARTTLS: 'False'
     AIRFLOW__SMTP__SMTP_SSL: 'False'
     AIRFLOW__SMTP__SMTP_PORT: 1025
     AIRFLOW__SMTP__SMTP_MAIL_FROM: airflow@votre-universite.fr
     AIRFLOW__EMAIL__EMAIL_BACKEND: airflow.providers.smtp.notifications.smtp.SmtpNotifier
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- requests oauthlib requests-oauthlib oracledb pyodbc}
+    _PIP_ADDITIONAL_REQUIREMENTS: ''
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
@@ -134,9 +139,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
@@ -149,9 +154,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
@@ -207,40 +212,9 @@ services:
           echo "   https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#before-you-begin"
           echo
         fi
-        echo
-        echo "Creating missing opt dirs if missing:"
-        echo
-        mkdir -v -p /opt/airflow/{logs,dags,plugins,config,scripts}
-        echo
-        echo "Airflow version:"
-        /entrypoint airflow version
-        echo
-        echo "Files in shared volumes:"
-        echo
-        ls -la /opt/airflow/{logs,dags,plugins,config,scripts}
-        echo
-        echo "Running airflow config list to create default config file if missing."
-        echo
-        /entrypoint airflow config list >/dev/null
-        echo
-        echo "Files in shared volumes:"
-        echo
-        ls -la /opt/airflow/{logs,dags,plugins,config,scripts}
-        echo
-        echo "Change ownership of files in /opt/airflow to $${AIRFLOW_UID}:0"
-        echo
-        chown -R "$${AIRFLOW_UID}:0" /opt/airflow/
-        echo
-        echo "Change ownership of files in shared volumes to $${AIRFLOW_UID}:0"
-        echo
-        chown -v -R "$${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins,config,scripts}
-        echo
-        echo "Files in shared volumes:"
-        echo
-        ls -la /opt/airflow/{logs,dags,plugins,config,scripts}
-        echo
-        echo "Installing jq for configuration scripts..."
-        apt-get update && apt-get install -y jq || echo "Failed to install jq"
+        mkdir -p /opt/airflow/{logs,dags,plugins,config,scripts}
+        chown -R "$${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins,config,scripts}
+        exec /entrypoint airflow version
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'

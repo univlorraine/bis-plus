@@ -118,6 +118,23 @@ ask_confirm() {
     echo "${result:-$default}"
 }
 
+validate_password_strength() {
+    local pwd="$1" label="${2:-Mot de passe}"
+    if [[ ${#pwd} -lt 12 ]]; then
+        log_error "$label trop court (minimum 12 caractères)"
+        return 1
+    fi
+    if [[ ! "$pwd" =~ [A-Z] ]]; then
+        log_error "$label doit contenir au moins une majuscule"
+        return 1
+    fi
+    if [[ ! "$pwd" =~ [0-9] ]]; then
+        log_error "$label doit contenir au moins un chiffre"
+        return 1
+    fi
+    return 0
+}
+
 ###############################################################################
 # Étape 1: Vérification des prérequis
 ###############################################################################
@@ -221,10 +238,13 @@ if [[ ! "$UNIVERSITE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     exit 1
 fi
 
-AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par des virgules)" "admin@example.com")
-if [[ ! "$AMUE_REPORT_RECIPIENTS" =~ ^[^@[:space:]]+@[^@[:space:]]+(,[^@[:space:]]+@[^@[:space:]]+)*$ ]]; then
-    log_warning "Format d'email potentiellement invalide: $AMUE_REPORT_RECIPIENTS"
-fi
+while true; do
+    AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par des virgules)" "admin@example.com")
+    if [[ "$AMUE_REPORT_RECIPIENTS" =~ ^[^@[:space:]]+@[^[:space:]]+(,[^@[:space:]]+@[^[:space:]]+)*$ ]]; then
+        break
+    fi
+    log_error "Format d'email invalide. Exemple: user@domain.com,other@domain.com"
+done
 SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue.local")
 
 echo ""
@@ -400,15 +420,29 @@ $DOCKER_CMD down -v 2>/dev/null || true
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d
 
-# Vérification que les services sont en cours d'exécution
-if ! $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    log_error "Le service airflow-apiserver n'a pas démarré correctement"
-    log_info "Logs:"
-    $DOCKER_CMD logs airflow-apiserver --tail=50
-    exit 1
-fi
+# Attend que airflow-apiserver soit en etat 'Up' (pas juste 'Started')
+# Le container peut mettre quelques secondes a stabiliser apres docker-compose up -d
+log_info "Attente du demarrage de airflow-apiserver..."
+_up_retries=15
+_up_sleep=2
+while [[ $_up_retries -gt 0 ]]; do
+    if $DOCKER_CMD ps | grep "airflow-apiserver" | grep -q "Up"; then
+        break
+    fi
+    ((_up_retries--))
+    if [[ $_up_retries -eq 0 ]]; then
+        log_error "Le service airflow-apiserver n'a pas demarre correctement"
+        log_info "Etat des containers:"
+        $DOCKER_CMD ps
+        echo ""
+        log_info "Logs airflow-apiserver (50 dernieres lignes):"
+        $DOCKER_CMD logs airflow-apiserver --tail=50 2>&1 || true
+        exit 1
+    fi
+    sleep "$_up_sleep"
+done
 
-log_success "Containers démarrés"
+log_success "Containers demarres"
 
 ###############################################################################
 # Étape 7: Configuration d'Airflow
@@ -418,15 +452,22 @@ log_info "Étape 7/9: Configuration d'Airflow"
 
 # Attendre que l'API soit disponible
 log_info "Attente de l'API Airflow..."
-_api_retries=30
+_api_retries=36
 while [[ $_api_retries -gt 0 ]]; do
     if curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
         log_success "API Airflow disponible"
         break
     fi
-    ((_api_retries-=1))
+    # Utiliser $(()) au lieu de (()) pour eviter le code de retour 1 quand la
+    # valeur atteint 0 avec set -e (bug classique bash)
+    _api_retries=$(( _api_retries - 1 ))
     if [[ $_api_retries -eq 0 ]]; then
-        log_error "Timeout: API Airflow non disponible après $(( 30 * 5 ))s"
+        log_error "Timeout: API Airflow non disponible apres $(( 36 * 5 ))s"
+        log_info "Etat des containers:"
+        $DOCKER_CMD ps
+        echo ""
+        log_info "Logs airflow-apiserver:"
+        $DOCKER_CMD logs airflow-apiserver --tail=80 2>&1 || true
         exit 1
     fi
     sleep 5
@@ -497,7 +538,7 @@ while [[ $_pg_retries -gt 0 ]]; do
     fi
     log_warning "postgres-data pas encore prêt... ($_pg_retries restants)"
     sleep 3
-    ((_pg_retries-=1))
+    _pg_retries=$(( _pg_retries - 1 ))
 done
 if [[ $_pg_retries -eq 0 ]]; then
     log_error "postgres-data non accessible après $(( 30 * 3 ))s — init_db.sql a-t-il échoué ?"
@@ -547,13 +588,23 @@ while true; do
         _KEYS_RESP=$(curl -s --max-time 10 \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             "$AMUE_API_HOST/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
-        if echo "$_KEYS_RESP" | jq -e 'type == "array"' > /dev/null 2>&1; then
-            T_PK=$(echo "$_KEYS_RESP" | jq -r 'join(",")')
-        elif echo "$_KEYS_RESP" | jq -e 'type == "object" and has("keys")' > /dev/null 2>&1; then
-            T_PK=$(echo "$_KEYS_RESP" | jq -r '.keys | join(",")')
-        elif echo "$_KEYS_RESP" | jq -e 'type == "string"' > /dev/null 2>&1; then
-            T_PK=$(echo "$_KEYS_RESP" | jq -r '.')
-        fi
+        T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+import json, sys
+text = sys.stdin.read()
+try:
+    data = json.loads(text)
+    if isinstance(data, list):
+        print(','.join(str(k) for k in data if k))
+    elif isinstance(data, dict):
+        keys = data.get('keys', [])
+        print(','.join(str(k) for k in keys if k))
+    elif isinstance(data, str):
+        print(data.strip())
+except (json.JSONDecodeError, ValueError):
+    cleaned = text.strip()
+    if cleaned and not cleaned.startswith('<'):
+        print(cleaned)
+" 2>/dev/null || true)
         unset _KEYS_RESP
     fi
     if [[ -n "$T_PK" ]]; then
@@ -570,15 +621,19 @@ while true; do
     echo -n "  Colonne delta (laisser vide si import complet) : " >&2
     read -r T_DELTA </dev/tty
 
+    # Interpolation shell directe avec echappement SQL (apostrophes → '')
+    # La substitution de variables psql (:'var') ne fonctionne pas via docker exec -T
+    _sql_name="${T_NAME//\'/\'\'}"
+    _sql_pk="${T_PK//\'/\'\'}"
+    _sql_delta="${T_DELTA//\'/\'\'}"
     $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -q \
-        -v "tname=$T_NAME" -v "tpk=$T_PK" -v "tdelta=$T_DELTA" \
         -c "INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
-            VALUES (:'tname', :'tpk', :'tdelta')
+            VALUES ('$_sql_name', '$_sql_pk', '$_sql_delta')
             ON CONFLICT (table_name) DO UPDATE
               SET primary_key = EXCLUDED.primary_key,
                   delta       = EXCLUDED.delta,
                   updated_at  = NOW();" \
-    && log_success "  Table '$T_NAME' enregistrée" \
+    && log_success "  Table '$T_NAME' enregistree" \
     || log_warning  "  Erreur pour '$T_NAME'"
 
     ((TABLE_COUNT+=1))
@@ -636,7 +691,14 @@ while true; do
     echo -n "  Mot de passe : " >&2
     read -rs USER_PASSWORD </dev/tty
     echo "" >&2
-    [[ -z "$USER_PASSWORD" ]] && { log_warning "Mot de passe vide, utilisateur ignoré"; continue; }
+    if [[ -z "$USER_PASSWORD" ]]; then
+        log_warning "Mot de passe vide, utilisateur ignoré"
+        continue
+    fi
+    if ! validate_password_strength "$USER_PASSWORD" "Mot de passe de $USER_NAME"; then
+        log_warning "Utilisateur $USER_NAME ignoré (mot de passe non conforme)"
+        continue
+    fi
 
     log_info "Création de l'utilisateur $USER_NAME ($USER_ROLE)..."
 

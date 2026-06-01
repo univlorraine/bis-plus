@@ -133,16 +133,18 @@ class AMUETableManager:
             table_name: Nom de la table à mettre à jour
         """
         qualified_name = self._get_qualified_table_name(table_name)
+        if not _SAFE_IDENTIFIER_RE.match(qualified_name):
+            raise AMUESchemaError(f"Nom de table non sécurisé pour le DDL : {qualified_name!r}")
         logger.info(f"[TABLE_MGT] Vérification meta colonnes pour {qualified_name}")
 
         alter_sql = (
             f"ALTER TABLE {qualified_name} "
-            f"ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT '{self.default_source}', "
-            f"ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            "ADD COLUMN IF NOT EXISTS _source VARCHAR(50) DEFAULT %s, "
+            "ADD COLUMN IF NOT EXISTS _imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         )
 
         try:
-            self.postgres_hook.run(alter_sql)
+            self.postgres_hook.run(alter_sql, parameters=(self.default_source,))
             logger.info(f"[TABLE_MGT] Meta colonnes OK pour {qualified_name}")
         except Exception as e:
             logger.warning(f"[TABLE_MGT] Erreur ajout meta colonnes pour {qualified_name}: {e}")

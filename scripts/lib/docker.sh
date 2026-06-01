@@ -111,16 +111,16 @@ check_service() {
     local service=$1
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
-    if $docker_cmd ps 2>/dev/null | grep -q "$service"; then
-        if $docker_cmd ps 2>/dev/null | grep "$service" | grep -q "Up"; then
-            log_ok "$service est en cours d'exécution"
-            return 0
-        else
-            log_fail "$service n'est pas en état 'Up'"
-            return 1
-        fi
-    else
+    local status
+    status=$($docker_cmd ps --filter "name=$service" --format "{{.Status}}" 2>/dev/null | head -1)
+    if [[ -z "$status" ]]; then
         log_fail "$service n'existe pas"
+        return 1
+    elif echo "$status" | grep -q "^Up"; then
+        log_ok "$service est en cours d'exécution"
+        return 0
+    else
+        log_fail "$service n'est pas en état 'Up'"
         return 1
     fi
 }
@@ -130,17 +130,19 @@ wait_for_service() {
     local service=$1
     local max_wait=${2:-60}
     local docker_cmd="${3:-$(detect_docker_compose)}"
-    local count=0
+    local elapsed=0
+    local _sleep=1
 
     log_info "Attente du service $service..."
 
-    while [[ $count -lt $max_wait ]]; do
-        if $docker_cmd ps 2>/dev/null | grep "$service" | grep -q "healthy"; then
+    while [[ $elapsed -lt $max_wait ]]; do
+        if $docker_cmd ps --filter "name=$service" --format "{{.Status}}" 2>/dev/null | grep -q "healthy"; then
             log_success "$service est prêt"
             return 0
         fi
-        sleep 1
-        ((count++))
+        sleep "$_sleep"
+        elapsed=$(( elapsed + _sleep ))
+        [[ $_sleep -lt 5 ]] && _sleep=$(( _sleep * 2 )) || _sleep=5
     done
 
     log_error "$service n'est pas prêt après ${max_wait}s"

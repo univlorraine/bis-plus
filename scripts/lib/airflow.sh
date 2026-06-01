@@ -119,26 +119,27 @@ check_dag() {
     local dag_id="$1"
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
-    local result
-    result=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
-        airflow dags list 2>/dev/null | grep "$dag_id")
+    # Un seul appel JSON au lieu de deux (plain + json)
+    local dag_status
+    dag_status=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+        airflow dags list --output json 2>/dev/null | \
+        python3 -c "
+import json, sys, os
+d = json.load(sys.stdin)
+target = os.environ.get('_CHECK_DAG_ID', '')
+r = [x for x in (d if isinstance(d, list) else []) if x.get('dag_id') == target]
+print(r[0].get('is_paused', 'missing') if r else 'missing')
+" 2>/dev/null || echo "missing") _CHECK_DAG_ID="$dag_id"
 
-    if [[ -n "$result" ]]; then
-        # Utilise --output json pour éviter la dépendance au format texte de airflow dags list
-        local dag_json
-        dag_json=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
-            airflow dags list --output json 2>/dev/null | \
-            python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in (d if isinstance(d,list) else []) if x.get('dag_id')=='$dag_id']; print(r[0].get('is_paused','true') if r else 'missing')" 2>/dev/null || echo "missing")
-        if [[ "$dag_json" == "False" ]] || [[ "$dag_json" == "false" ]]; then
-            log_ok "DAG '$dag_id' existe et est activé"
-            return 0
-        elif [[ "$dag_json" == "missing" ]]; then
-            log_fail "DAG '$dag_id' n'existe pas"
-            return 2
-        else
-            log_warn "DAG '$dag_id' existe mais n'est pas activé"
-            return 1
-        fi
+    if [[ "$dag_status" == "False" ]] || [[ "$dag_status" == "false" ]]; then
+        log_ok "DAG '$dag_id' existe et est activé"
+        return 0
+    elif [[ "$dag_status" == "missing" ]]; then
+        log_fail "DAG '$dag_id' n'existe pas"
+        return 2
+    else
+        log_warn "DAG '$dag_id' existe mais n'est pas activé"
+        return 1
     fi
 }
 

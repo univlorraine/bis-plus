@@ -6,9 +6,12 @@ from typing import Dict, List
 from airflow.exceptions import AirflowSkipException
 from airflow.sdk import task
 from airflow.task.trigger_rule import TriggerRule
+from psycopg2 import sql
 
 from common.services.bluegreen.bluegreen_manager import BlueGreenManager
 from common.utils.database.hooks import create_postgres_hook
+
+_VALID_SCHEMAS = frozenset({"splus_blue", "splus_green"})
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,11 @@ def restore_inactive(tables: List[Dict], source_name: str, import_results: List)
     manager = BlueGreenManager()
     active = manager.get_active_schema()
 
+    if inactive not in _VALID_SCHEMAS:
+        raise ValueError(f"[RESTORE] Schéma inactif non autorisé : {inactive!r}")
+    if active not in _VALID_SCHEMAS:
+        raise ValueError(f"[RESTORE] Schéma actif non autorisé : {active!r}")
+
     if not inactive or inactive == active:
         logger.warning(
             f"[RESTORE] Schéma inactif non distinct de l'actif ({inactive!r}), restauration ignorée"
@@ -89,7 +97,9 @@ def restore_inactive(tables: List[Dict], source_name: str, import_results: List)
 
             # Supprimer les données partielles de ce run
             cursor.execute(
-                f'DELETE FROM {inactive}."{tname}" WHERE _source = %s',
+                sql.SQL('DELETE FROM {}.{} WHERE _source = %s').format(
+                    sql.Identifier(inactive), sql.Identifier(tname)
+                ),
                 [source_name],
             )
             deleted = cursor.rowcount
@@ -106,10 +116,10 @@ def restore_inactive(tables: List[Dict], source_name: str, import_results: List)
             )
             if cursor.fetchone()[0]:
                 cursor.execute(
-                    f"""
-                    INSERT INTO {inactive}."{tname}"
-                    SELECT * FROM {active}."{tname}" WHERE _source = %s
-                    """,
+                    sql.SQL('INSERT INTO {}.{} SELECT * FROM {}.{} WHERE _source = %s').format(
+                        sql.Identifier(inactive), sql.Identifier(tname),
+                        sql.Identifier(active), sql.Identifier(tname)
+                    ),
                     [source_name],
                 )
                 inserted = cursor.rowcount

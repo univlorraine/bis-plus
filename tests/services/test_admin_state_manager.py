@@ -182,13 +182,12 @@ class TestAdminStateManagerImportLock:
         assert result is False
 
     def test_try_acquire_import_lock_error(self):
-        """Retourne False en cas d'erreur BDD"""
+        """Propage l'exception BDD (ne masque pas une erreur DB comme 'verrou occupé')"""
         manager, hook = make_manager()
         hook.get_records.side_effect = Exception("DB error")
 
-        result = manager.try_acquire_import_lock('2026-02-17T10:00:00', 'corr-123')
-
-        assert result is False
+        with pytest.raises(Exception, match="DB error"):
+            manager.try_acquire_import_lock('2026-02-17T10:00:00', 'corr-123')
 
     def test_release_import_lock_success(self):
         """Libère le verrou quand il est tenu (RETURNING retourne une ligne)"""

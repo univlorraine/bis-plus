@@ -60,17 +60,28 @@ echo ""
 log_info "=== API ==="
 test_check "API Airflow accessible" "curl -s http://localhost:8080/api/v2/version | grep -q version"
 
+# Fetch variables et connexions une seule fois (évite 6 docker exec séparés)
+_vars_json=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null || echo "[]")
+_conns_json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null || echo "[]")
+export _vars_json _conns_json
+
 echo ""
 log_info "=== Variables Critiques ==="
-test_check "Variable 'universite' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get universite 2>/dev/null"
-test_check "Variable 'api_endpoint_admin' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_admin 2>/dev/null"
-test_check "Variable 'api_endpoint_table' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_table 2>/dev/null"
-test_check "Variable 'amue_import_batch_size' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_import_batch_size 2>/dev/null"
+test_check "Variable 'universite' existe" \
+    "printf '%s' \"\$_vars_json\" | jq -e --arg v universite '.[] | select(.key == \$v)' >/dev/null 2>&1"
+test_check "Variable 'api_endpoint_admin' existe" \
+    "printf '%s' \"\$_vars_json\" | jq -e --arg v api_endpoint_admin '.[] | select(.key == \$v)' >/dev/null 2>&1"
+test_check "Variable 'api_endpoint_table' existe" \
+    "printf '%s' \"\$_vars_json\" | jq -e --arg v api_endpoint_table '.[] | select(.key == \$v)' >/dev/null 2>&1"
+test_check "Variable 'amue_import_batch_size' existe" \
+    "printf '%s' \"\$_vars_json\" | jq -e --arg v amue_import_batch_size '.[] | select(.key == \$v)' >/dev/null 2>&1"
 
 echo ""
 log_info "=== Connexions ==="
-test_check "Connexion 'oauth_api' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow connections get oauth_api 2>/dev/null"
-test_check "Connexion 'postgres_data' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow connections get postgres_data 2>/dev/null"
+test_check "Connexion 'oauth_api' existe" \
+    "printf '%s' \"\$_conns_json\" | jq -e --arg c oauth_api '.[] | select(.conn_id == \$c)' >/dev/null 2>&1"
+test_check "Connexion 'postgres_data' existe" \
+    "printf '%s' \"\$_conns_json\" | jq -e --arg c postgres_data '.[] | select(.conn_id == \$c)' >/dev/null 2>&1"
 
 echo ""
 log_info "=== Base de Données ==="

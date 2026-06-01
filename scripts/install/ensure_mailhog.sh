@@ -27,14 +27,16 @@ log_info "Démarrage de MailHog..."
 $DOCKER_CMD up -d mailhog
 
 _retries=10
+_sleep=1
 while [[ $_retries -gt 0 ]]; do
-    if $DOCKER_CMD ps 2>/dev/null | grep -q "mailhog.*Up"; then
+    if $DOCKER_CMD ps --filter "name=mailhog" --format "{{.Status}}" 2>/dev/null | grep -q "^Up"; then
         log_success "MailHog démarré avec succès"
         log_info "Interface disponible sur: http://localhost:8025"
         exit 0
     fi
-    ((_retries-=1))
-    sleep 1
+    _retries=$(( _retries - 1 ))
+    sleep "$_sleep"
+    [[ $_sleep -lt 4 ]] && _sleep=$(( _sleep * 2 )) || _sleep=4
 done
 
 log_warning "MailHog pourrait ne pas être complètement démarré"
