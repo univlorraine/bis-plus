@@ -6,18 +6,10 @@
 ###############################################################################
 
 set -e
+set -o pipefail
 
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_SCRIPT_DIR/../lib/colors.sh"
 
 DOCKER_CMD="docker-compose"
 if ! command -v docker-compose &> /dev/null; then
@@ -74,8 +66,9 @@ echo ""
 
 log_info "Étape 3/4: Test d'envoi via Python"
 
-# Crée un script Python de test
-cat > /tmp/test_email.py << 'PYEOF'
+# Crée un script Python de test dans un fichier temporaire
+_py_tmp=$(mktemp --suffix=.py)
+cat > "$_py_tmp" << 'PYEOF'
 import sys
 import smtplib
 from email.mime.text import MIMEText
@@ -144,16 +137,17 @@ except Exception as e:
 PYEOF
 
 # Copie et exécute dans le container
-$DOCKER_CMD exec -T airflow-apiserver bash -c "cat > /tmp/test_email.py" < /tmp/test_email.py
+$DOCKER_CMD exec -T airflow-apiserver bash -c "cat > /tmp/test_email.py" < "$_py_tmp"
 
-if $DOCKER_CMD exec -T airflow-apiserver python /tmp/test_email.py; then
+if $DOCKER_CMD exec -T airflow-apiserver python3 /tmp/test_email.py; then
     log_success "Email de test envoyé"
 else
     log_error "Échec envoi email"
     log_info "Vérifiez les logs ci-dessus"
 fi
 
-rm -f /tmp/test_email.py
+rm -f "$_py_tmp"
+$DOCKER_CMD exec -T airflow-apiserver rm -f /tmp/test_email.py 2>/dev/null || true
 
 ###############################################################################
 # Vérification MailHog

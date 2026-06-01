@@ -6,6 +6,7 @@
 ###############################################################################
 
 set -e
+set -o pipefail
 
 # Couleurs
 RED='\033[0;31m'
@@ -19,6 +20,8 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+trap 'log_error "Erreur à la ligne $LINENO — commande : $BASH_COMMAND"' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -222,16 +225,8 @@ cmd_setup() {
 cmd_setup_bluegreen() {
     log_info "Configuration de l'architecture Blue/Green..."
 
-    local PG_DB PG_USER PG_PASSWORD
-    PG_DB=$(_get_airflow_conn postgres_data schema)
-    PG_USER=$(_get_airflow_conn postgres_data login)
-    PG_PASSWORD=$(_get_airflow_conn postgres_data password)
-
-    if [[ -z "$PG_DB" ]] || [[ -z "$PG_USER" ]] || [[ -z "$PG_PASSWORD" ]]; then
-        log_error "Connexion postgres_data introuvable dans Airflow DB"
-        log_info "Assurez-vous que quick_setup.sh a été exécuté correctement"
-        return 1
-    fi
+    local PG_HOST PG_PORT PG_DB PG_USER PG_PASSWORD
+    _load_pg_creds  # exit 1 si connexion introuvable
 
     log_info "Connexion à PostgreSQL: postgres-data/$PG_DB (user: $PG_USER)"
 
@@ -301,11 +296,62 @@ EOSQL
     log_info "  - splus_blue  : schéma des tables blue"
     log_info "  - splus_green : schéma des tables green"
 
+    # Crée le schéma admin (état centralisé) — idempotent, au cas où init_db.sql
+    # n'aurait pas tourné (volume existant depuis un run précédent)
+    log_info "Création du schéma splus_admin (si absent)..."
+    $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" << EOSQL
+CREATE SCHEMA IF NOT EXISTS splus_admin;
+
+CREATE TABLE IF NOT EXISTS splus_admin.amue_state (
+    id                    INTEGER PRIMARY KEY DEFAULT 1,
+    last_finish_timestamp TIMESTAMPTZ,
+    last_successful_run   TIMESTAMPTZ,
+    last_report_start     TIMESTAMPTZ,
+    active_schema         VARCHAR(20),
+    last_switch_timestamp TIMESTAMPTZ,
+    last_sync_timestamp   TIMESTAMPTZ,
+    import_in_progress    BOOLEAN NOT NULL DEFAULT FALSE,
+    import_started_at     TIMESTAMPTZ,
+    import_correlation_id VARCHAR(255),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT single_row CHECK (id = 1)
+);
+INSERT INTO splus_admin.amue_state (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS splus_admin.amue_tables (
+    table_name      VARCHAR(100) PRIMARY KEY,
+    enabled         BOOLEAN      NOT NULL DEFAULT TRUE,
+    primary_key     TEXT         NOT NULL DEFAULT '',
+    delta           TEXT         NOT NULL DEFAULT '',
+    fingerprint_api TEXT         NOT NULL DEFAULT '',
+    fingerprint_local TEXT        NOT NULL DEFAULT '',
+    setup_status    VARCHAR(20)  NOT NULL DEFAULT 'pending',
+    ecc_query       TEXT,
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO $PG_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO $PG_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA splus_admin
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $PG_USER;
+
+SELECT 'splus_admin schema ready' AS status;
+EOSQL
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Erreur lors de la création du schéma splus_admin"
+        return 1
+    fi
+
+    log_success "Schéma splus_admin prêt"
+
     # Création des vues dans splus pour les tables existantes dans splus_blue
     log_info "Vérification et création des vues dans splus..."
 
     # Récupère la liste des tables dans splus_blue qui n'ont pas de vue correspondante dans splus
-    local tables_without_views=$($DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -t -A << 'EOSQL'
+    local tables_without_views
+    tables_without_views=$($DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" -t -A << 'EOSQL'
 SELECT t.table_name
 FROM information_schema.tables t
 WHERE t.table_schema = 'splus_blue'
@@ -480,7 +526,7 @@ cmd_var_set() {
         # Mode interactif pour les valeurs longues
         log_info "Entrez la valeur (terminez par une ligne vide):"
         value=""
-        while IFS= read -r line; do
+        while IFS= read -r line </dev/tty; do
             [[ -z "$line" ]] && break
             value+="$line"
         done
@@ -517,7 +563,8 @@ cmd_var_export() {
     mkdir -p "$export_dir"
 
     if [[ -z "$output_file" ]]; then
-        local timestamp=$(date +%Y%m%d_%H%M%S)
+        local timestamp
+        timestamp=$(date +%Y%m%d_%H%M%S)
         output_file="${export_dir}/variables_${timestamp}.json"
     fi
 
@@ -529,11 +576,12 @@ cmd_var_export() {
     if [[ -s "$output_file" ]]; then
         # Formate le JSON si jq est disponible
         if command -v jq &> /dev/null; then
-            local temp_file=$(mktemp)
+            local temp_file
+            temp_file=$(mktemp)
             jq '.' "$output_file" > "$temp_file" && mv "$temp_file" "$output_file"
         fi
         log_success "Variables exportées vers: $output_file"
-        log_info "Nombre de variables: $(grep -c '"' "$output_file" 2>/dev/null || echo "N/A")"
+        log_info "Nombre de variables: $(jq 'length' "$output_file" 2>/dev/null || echo "N/A")"
     else
         log_error "Échec de l'export"
         rm -f "$output_file"
@@ -646,48 +694,45 @@ except Exception as e:
 cmd_conn_export() {
     local export_dir="config/exports"
     mkdir -p "$export_dir"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local output_file="${export_dir}/connections_${timestamp}.json"
+    local timestamp output_file
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    output_file="${export_dir}/connections_${timestamp}.json"
 
     log_info "Export des connexions Airflow (sans secrets)..."
 
-    # Export avec masquage des secrets
-    $DOCKER_CMD exec -T airflow-apiserver python -c "
-import json
-from airflow.hooks.base import BaseHook
-from airflow.models import Connection
-from airflow.utils.db import create_session
+    # Export via CLI (compatible Airflow 3.x), masquage password/extra via jq
+    local _raw
+    _raw=$($DOCKER_CMD exec -T airflow-apiserver \
+        airflow connections export - --file-format json 2>/dev/null)
 
-connections = []
-with create_session() as session:
-    for conn in session.query(Connection).all():
-        connections.append({
-            'conn_id': conn.conn_id,
-            'conn_type': conn.conn_type,
-            'host': conn.host,
-            'port': conn.port,
-            'schema': conn.schema,
-            'login': conn.login,
-            'password': '***MASKED***' if conn.password else None,
-            'extra': '***MASKED***' if conn.extra else None,
-            'description': conn.description
-        })
-print(json.dumps(connections, indent=2, default=str))
-" > "$output_file" 2>/dev/null
+    if [[ -z "$_raw" ]]; then
+        log_error "Échec de l'export — airflow connections export a retourné vide"
+        exit 1
+    fi
+
+    # Le format peut être une liste [] ou un objet {} selon la version d'Airflow
+    echo "$_raw" | jq '
+        if type == "array" then
+            [ .[] | .password = (if .password then "***MASKED***" else null end)
+                  | .extra    = (if .extra    then "***MASKED***" else null end) ]
+        else
+            with_entries(
+                .value.password = (if .value.password then "***MASKED***" else null end) |
+                .value.extra    = (if .value.extra    then "***MASKED***" else null end)
+            )
+        end' > "$output_file" 2>/dev/null
 
     if [[ -s "$output_file" ]]; then
         log_success "Connexions exportées vers: $output_file"
         log_warning "Note: Les mots de passe et extras sont masqués"
-
         echo ""
         log_info "Connexions exportées:"
-        if command -v jq &> /dev/null; then
-            jq -r '.[].conn_id' "$output_file" | while read -r conn; do
-                echo "  - $conn"
-            done
-        fi
+        jq -r 'if type == "array" then .[].conn_id else keys[] end' \
+            "$output_file" 2>/dev/null | while read -r conn; do
+            echo "  - $conn"
+        done
     else
-        log_error "Échec de l'export"
+        log_error "Échec du masquage"
         rm -f "$output_file"
         exit 1
     fi
@@ -751,15 +796,17 @@ print(f'{conn.conn_type}|{conn.host or \"\"}|{conn.port or \"\"}|{conn.schema or
 
     log_info "Mise à jour de la connexion..."
 
-    # Construit la commande de mise à jour
-    local cmd="airflow connections delete '$conn_id' 2>/dev/null; airflow connections add '$conn_id' --conn-type '$NEW_TYPE'"
-    [[ -n "$NEW_HOST" ]] && cmd+=" --conn-host '$NEW_HOST'"
-    [[ -n "$NEW_PORT" ]] && cmd+=" --conn-port '$NEW_PORT'"
-    [[ -n "$NEW_SCHEMA" ]] && cmd+=" --conn-schema '$NEW_SCHEMA'"
-    [[ -n "$NEW_LOGIN" ]] && cmd+=" --conn-login '$NEW_LOGIN'"
-    [[ -n "$NEW_PASSWORD" ]] && cmd+=" --conn-password '$NEW_PASSWORD'"
+    # Suppression puis recréation avec un tableau bash (évite les problèmes d'apostrophes)
+    $DOCKER_CMD exec -T airflow-apiserver airflow connections delete "$conn_id" 2>/dev/null || true
 
-    $DOCKER_CMD exec -T airflow-apiserver bash -c "$cmd"
+    local add_cmd=(airflow connections add "$conn_id" --conn-type "$NEW_TYPE")
+    [[ -n "$NEW_HOST"     ]] && add_cmd+=(--conn-host     "$NEW_HOST")
+    [[ -n "$NEW_PORT"     ]] && add_cmd+=(--conn-port     "$NEW_PORT")
+    [[ -n "$NEW_SCHEMA"   ]] && add_cmd+=(--conn-schema   "$NEW_SCHEMA")
+    [[ -n "$NEW_LOGIN"    ]] && add_cmd+=(--conn-login    "$NEW_LOGIN")
+    [[ -n "$NEW_PASSWORD" ]] && add_cmd+=(--conn-password "$NEW_PASSWORD")
+
+    $DOCKER_CMD exec -T airflow-apiserver "${add_cmd[@]}"
 
     log_success "Connexion '$conn_id' mise à jour"
 }
@@ -803,6 +850,7 @@ cmd_config_validate() {
         while IFS= read -r line; do
             [[ "$line" =~ ^#.*$ ]] && continue
             [[ -z "$line" ]] && continue
+            local var_name
             var_name=$(echo "$line" | cut -d'=' -f1)
             if ! grep -q "^${var_name}=" .env; then
                 echo "  ✗ $var_name (dans .env.example mais pas dans .env)"
@@ -890,9 +938,10 @@ cmd_config_validate() {
 cmd_config_backup() {
     local backup_dir="backups/config"
     mkdir -p "$backup_dir"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_name="config_backup_${timestamp}"
-    local backup_path="${backup_dir}/${backup_name}"
+    local timestamp backup_name backup_path
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    backup_name="config_backup_${timestamp}"
+    backup_path="${backup_dir}/${backup_name}"
 
     log_info "Sauvegarde de la configuration complète..."
     mkdir -p "$backup_path"
@@ -901,6 +950,7 @@ cmd_config_backup() {
     log_info "Sauvegarde des fichiers locaux..."
     cp -r config/*.json "$backup_path/" 2>/dev/null || true
     cp .env "$backup_path/.env" 2>/dev/null || true
+    log_warning "  Le fichier .env (clé Fernet) est inclus — ne partagez pas cette archive"
 
     # Export des variables Airflow
     log_info "Export des variables Airflow..."
@@ -942,43 +992,50 @@ cmd_config_restore() {
     read -r CONFIRM </dev/tty
     [[ ! "$CONFIRM" =~ ^[oOyY]$ ]] && { log_info "Annulé"; exit 0; }
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir backup_dir
+    temp_dir=$(mktemp -d)
     log_info "Extraction de la sauvegarde..."
     tar -xzf "$backup_file" -C "$temp_dir"
 
-    local backup_content=$(ls "$temp_dir")
-
-    # Restauration des fichiers de config
-    if [[ -f "$temp_dir/$backup_content/airflow_variables.json" ]]; then
-        log_info "Restauration de airflow_variables.json..."
-        cp "$temp_dir/$backup_content/airflow_variables.json" config/
+    # Trouve le répertoire extrait (robuste même si le tar contient plusieurs items)
+    backup_dir=$(find "$temp_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
+    if [[ -z "$backup_dir" ]]; then
+        log_error "Archive invalide — aucun répertoire trouvé"
+        rm -rf "$temp_dir"
+        exit 1
     fi
 
-    if [[ -f "$temp_dir/$backup_content/airflow_connections.json" ]]; then
+    # Restauration des fichiers de config
+    if [[ -f "$backup_dir/airflow_variables.json" ]]; then
+        log_info "Restauration de airflow_variables.json..."
+        cp "$backup_dir/airflow_variables.json" config/
+    fi
+
+    if [[ -f "$backup_dir/airflow_connections.json" ]]; then
         log_info "Restauration de airflow_connections.json..."
-        cp "$temp_dir/$backup_content/airflow_connections.json" config/
+        cp "$backup_dir/airflow_connections.json" config/
     fi
 
     # Restauration du .env (avec confirmation)
-    if [[ -f "$temp_dir/$backup_content/.env" ]]; then
+    if [[ -f "$backup_dir/.env" ]]; then
         echo -n "Restaurer aussi le fichier .env ? (o/N) : " >&2
         read -r CONFIRM_ENV </dev/tty
         if [[ "$CONFIRM_ENV" =~ ^[oOyY]$ ]]; then
-            cp "$temp_dir/$backup_content/.env" .env
+            cp "$backup_dir/.env" .env
             log_info ".env restauré"
         fi
     fi
 
     # Import des variables Airflow
-    if [[ -f "$temp_dir/$backup_content/airflow_variables_export.json" ]]; then
+    if [[ -f "$backup_dir/airflow_variables_export.json" ]]; then
         log_info "Import des variables Airflow..."
-        $DOCKER_CMD exec -T airflow-apiserver airflow variables import - < "$temp_dir/$backup_content/airflow_variables_export.json" 2>/dev/null || true
+        $DOCKER_CMD exec -T airflow-apiserver airflow variables import - < "$backup_dir/airflow_variables_export.json" 2>/dev/null || true
     fi
 
     # Import des connexions Airflow
-    if [[ -f "$temp_dir/$backup_content/airflow_connections_export.json" ]]; then
+    if [[ -f "$backup_dir/airflow_connections_export.json" ]]; then
         log_info "Import des connexions Airflow..."
-        $DOCKER_CMD exec -T airflow-apiserver airflow connections import "$temp_dir/$backup_content/airflow_connections_export.json" 2>/dev/null || true
+        $DOCKER_CMD exec -T airflow-apiserver airflow connections import "$backup_dir/airflow_connections_export.json" 2>/dev/null || true
     fi
 
     # Nettoyage
@@ -1070,18 +1127,26 @@ _get_airflow_conn() {
 ###############################################################################
 
 _load_pg_creds() {
-    local _json
+    local _json _parsed
     _json=$($DOCKER_CMD exec -T airflow-apiserver airflow connections get postgres_data \
         --output json 2>/dev/null)
 
-    PG_HOST=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('host') or '')")
-    PG_PORT=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('port') or '')")
-    PG_DB=$(echo "$_json"     | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('schema') or '')")
-    PG_USER=$(echo "$_json"   | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('login') or '')")
-    PG_PASSWORD=$(echo "$_json" | python3 -c "import json,sys; d=json.load(sys.stdin); r=d[0] if isinstance(d,list) else d; print(r.get('password') or '')")
+    # Parse tous les champs en un seul appel Python (séparateur \x1f)
+    _parsed=$(echo "$_json" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+r = d[0] if isinstance(d, list) else d
+print('\x1f'.join([
+    r.get('host') or '',
+    str(r.get('port') or ''),
+    r.get('schema') or '',
+    r.get('login') or '',
+    r.get('password') or '',
+]))" 2>/dev/null)
+
+    IFS=$'\x1f' read -r PG_HOST PG_PORT PG_DB PG_USER PG_PASSWORD <<< "$_parsed"
 
     PG_PORT=${PG_PORT:-5432}
-    # Depuis le host, postgres-data n'est accessible que via le port mappé
     if [[ "$PG_HOST" == "postgres-data" ]]; then
         PG_HOST="localhost"
         PG_PORT="${PG_DATA_PORT:-5433}"
@@ -1103,6 +1168,11 @@ _pg_exec() {
     PG_HOST="$PG_HOST" PG_PORT="$PG_PORT" PG_DB="$PG_DB" \
     PG_USER="$PG_USER" PG_PASSWORD="$PG_PASSWORD" \
         python3 scripts/lib/pg_client.py "$@"
+}
+
+_pg_escape() {
+    # Échappe une valeur pour un littéral SQL PostgreSQL ('' pour les apostrophes)
+    printf "%s" "${1//\'/\'\'}"
 }
 
 ###############################################################################
@@ -1160,9 +1230,12 @@ cmd_add_table() {
                 ECC_SQL="'$(echo "$ECC_LINES" | sed "s/'/''/g")'"
             fi
 
+            local TABLE_NAME_ESC TABLE_DELTA_ESC
+            TABLE_NAME_ESC=$(_pg_escape "$TABLE_NAME")
+            TABLE_DELTA_ESC=$(_pg_escape "$TABLE_DELTA")
             RESULT=$(_pg_exec -At -c "
                 INSERT INTO splus_admin.amue_tables (table_name, enabled, delta, ecc_query, setup_status)
-                VALUES ('$TABLE_NAME', true, '$TABLE_DELTA', $ECC_SQL, 'pending')
+                VALUES ('$TABLE_NAME_ESC', true, '$TABLE_DELTA_ESC', $ECC_SQL, 'pending')
                 ON CONFLICT (table_name) DO NOTHING
                 RETURNING table_name
             " 2>&1 || true)
@@ -1181,9 +1254,11 @@ cmd_add_table() {
         local added=0
         local skipped=0
         for table in "${tables[@]}"; do
+            local table_esc
+            table_esc=$(_pg_escape "$table")
             RESULT=$(_pg_exec -At -c "
                 INSERT INTO splus_admin.amue_tables (table_name, enabled, setup_status)
-                VALUES ('$table', true, 'pending')
+                VALUES ('$table_esc', true, 'pending')
                 ON CONFLICT (table_name) DO NOTHING
                 RETURNING table_name
             " 2>&1 || true)
@@ -1225,9 +1300,10 @@ cmd_load_tables() {
         echo -n "  Colonne delta (vide = import complet) : " >&2
         read -r T_DELTA </dev/tty
 
-        T_NAME_ESC="${T_NAME//\'/\'\'}"
-        T_PK_ESC="${T_PK//\'/\'\'}"
-        T_DELTA_ESC="${T_DELTA//\'/\'\'}"
+        local T_NAME_ESC T_PK_ESC T_DELTA_ESC
+        T_NAME_ESC=$(_pg_escape "$T_NAME")
+        T_PK_ESC=$(_pg_escape "$T_PK")
+        T_DELTA_ESC=$(_pg_escape "$T_DELTA")
         RESULT=$(_pg_exec -q -c "
             INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
             VALUES ('$T_NAME_ESC', '$T_PK_ESC', '$T_DELTA_ESC')
@@ -1268,9 +1344,11 @@ cmd_remove_table() {
     local not_found=0
 
     for table in "${tables[@]}"; do
+        local table_esc
+        table_esc=$(_pg_escape "$table")
         RESULT=$(_pg_exec -At -c "
             DELETE FROM splus_admin.amue_tables
-            WHERE table_name = '$table'
+            WHERE table_name = '$table_esc'
             RETURNING table_name
         " 2>&1 || true)
         if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
@@ -1302,10 +1380,12 @@ cmd_toggle_table() {
     local not_found=()
 
     for table in "${tables[@]}"; do
+        local table_esc
+        table_esc=$(_pg_escape "$table")
         RESULT=$(_pg_exec -At -c "
             UPDATE splus_admin.amue_tables
             SET enabled = NOT enabled, updated_at = NOW()
-            WHERE table_name = '$table'
+            WHERE table_name = '$table_esc'
             RETURNING table_name, enabled
         " 2>&1 || true)
         if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
@@ -1342,10 +1422,12 @@ cmd_enable_table() {
     local not_found=()
 
     for table in "${tables[@]}"; do
+        local table_esc
+        table_esc=$(_pg_escape "$table")
         RESULT=$(_pg_exec -At -c "
             UPDATE splus_admin.amue_tables
             SET enabled = true, updated_at = NOW()
-            WHERE table_name = '$table'
+            WHERE table_name = '$table_esc'
             RETURNING table_name
         " 2>&1 || true)
         if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
@@ -1375,10 +1457,12 @@ cmd_disable_table() {
     local not_found=()
 
     for table in "${tables[@]}"; do
+        local table_esc
+        table_esc=$(_pg_escape "$table")
         RESULT=$(_pg_exec -At -c "
             UPDATE splus_admin.amue_tables
             SET enabled = false, updated_at = NOW()
-            WHERE table_name = '$table'
+            WHERE table_name = '$table_esc'
             RETURNING table_name
         " 2>&1 || true)
         if [[ -n "$RESULT" && "$RESULT" != *"ERROR"* ]]; then
@@ -1398,17 +1482,19 @@ cmd_disable_table() {
 
 cmd_db_shell() {
     log_info "Connexion au shell PostgreSQL (base métier)..."
-    $DOCKER_CMD exec -it postgres-data psql -U datauser -d business_data
+    _load_pg_creds
+    PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -it postgres-data psql -U "$PG_USER" -d "$PG_DB"
 }
 
 cmd_db_backup() {
+    _load_pg_creds
     local backup_dir="backups"
     mkdir -p "$backup_dir"
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_file="${backup_dir}/business_data_${timestamp}.sql"
+    local backup_file="${backup_dir}/${PG_DB}_${timestamp}.sql"
 
-    log_info "Sauvegarde de la base de données..."
-    $DOCKER_CMD exec -T postgres-data pg_dump -U datauser business_data > "$backup_file"
+    log_info "Sauvegarde de la base de données ($PG_DB)..."
+    PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data pg_dump -U "$PG_USER" "$PG_DB" > "$backup_file"
     log_success "Sauvegarde créée: $backup_file"
 }
 
@@ -1422,15 +1508,16 @@ cmd_db_restore() {
     fi
 
     log_warning "ATTENTION: Cette opération va écraser la base de données actuelle!"
-    read -p "Continuer? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo -n "Continuer ? (o/N) : " >&2
+    read -r _CONFIRM </dev/tty
+    if [[ ! "$_CONFIRM" =~ ^[oOyY]$ ]]; then
         log_info "Opération annulée"
         exit 0
     fi
 
-    log_info "Restauration de la base de données..."
-    $DOCKER_CMD exec -T postgres-data psql -U datauser -d business_data < "$backup_file"
+    _load_pg_creds
+    log_info "Restauration de la base de données ($PG_DB)..."
+    PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data psql -U "$PG_USER" -d "$PG_DB" < "$backup_file"
     log_success "Base de données restaurée"
 }
 
@@ -1515,21 +1602,22 @@ cmd_health() {
         log_error "API Server: KO"
     fi
 
-    # Scheduler
-    if $DOCKER_CMD exec -T airflow-scheduler airflow jobs check --job-type SchedulerJob --hostname "$(hostname)" 2>/dev/null; then
+    # Scheduler — hostname évalué dans le container (pas sur le host)
+    if $DOCKER_CMD exec -T airflow-scheduler bash -c \
+        'airflow jobs check --job-type SchedulerJob --hostname "$(hostname)"' 2>/dev/null; then
         log_success "Scheduler: OK"
     else
         log_warning "Scheduler: vérification manuelle requise"
     fi
 
     # Base de données
-    if $DOCKER_CMD exec -T postgres pg_isready -U airflow > /dev/null 2>&1; then
+    if $DOCKER_CMD exec -T postgres pg_isready -q > /dev/null 2>&1; then
         log_success "PostgreSQL Airflow: OK"
     else
         log_error "PostgreSQL Airflow: KO"
     fi
 
-    if $DOCKER_CMD exec -T postgres-data pg_isready -U datauser > /dev/null 2>&1; then
+    if $DOCKER_CMD exec -T postgres-data pg_isready -q > /dev/null 2>&1; then
         log_success "PostgreSQL Data: OK"
     else
         log_error "PostgreSQL Data: KO"
@@ -1537,8 +1625,18 @@ cmd_health() {
 
     echo ""
     log_info "=== Métriques ==="
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | tail -n +4 | wc -l | xargs -I {} echo "DAGs totaux: {}"
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list 2>/dev/null | grep -c "False" | xargs -I {} echo "DAGs actifs: {}" || echo "DAGs actifs: 0"
+    local _dags_json total active
+    _dags_json=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list --output json 2>/dev/null || echo "[]")
+    total=$(echo "$_dags_json" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
+    active=$(echo "$_dags_json" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(sum(1 for x in (d if isinstance(d,list) else []) if not x.get('is_paused', True)))" 2>/dev/null || echo "0")
+    echo "DAGs totaux : $total"
+    echo "DAGs actifs : $active"
 }
 
 cmd_failed() {
@@ -1569,16 +1667,16 @@ cmd_task_logs() {
     if [[ -n "$run_id" ]]; then
         $DOCKER_CMD exec -T airflow-apiserver airflow tasks logs "$dag_id" "$task_id" "$run_id"
     else
-        # Récupère le dernier run_id
+        # Récupère le dernier run_id — dag_id et task_id passés en args positionnels (évite l'injection)
         log_info "Recherche du dernier run..."
-        $DOCKER_CMD exec -T airflow-apiserver bash -c "
-            LAST_RUN=\$(airflow dags list-runs -d $dag_id -o plain 2>/dev/null | head -1 | awk '{print \$3}')
-            if [[ -n \"\$LAST_RUN\" ]]; then
-                airflow tasks logs $dag_id $task_id \"\$LAST_RUN\"
+        $DOCKER_CMD exec -T airflow-apiserver bash -c '
+            LAST_RUN=$(airflow dags list-runs -d "$1" -o plain 2>/dev/null | head -1 | awk "{print \$3}")
+            if [[ -n "$LAST_RUN" ]]; then
+                airflow tasks logs "$1" "$2" "$LAST_RUN"
             else
-                echo 'Aucun run trouvé pour ce DAG'
+                echo "Aucun run trouvé pour ce DAG"
             fi
-        "
+        ' _ "$dag_id" "$task_id"
     fi
 }
 
@@ -1651,7 +1749,8 @@ cmd_cleanup_logs() {
     log_info "Nettoyage des logs de plus de $days jours..."
 
     # Logs locaux
-    local count_local=$(find logs -type f -mtime +$days 2>/dev/null | wc -l)
+    local count_local
+    count_local=$(find logs -type f -mtime +$days 2>/dev/null | wc -l)
     find logs -type f -mtime +$days -delete 2>/dev/null || true
     find logs -type d -empty -delete 2>/dev/null || true
     log_success "Logs locaux supprimés: $count_local fichiers"
@@ -1676,8 +1775,13 @@ cmd_cleanup_db() {
     read -r CONFIRM </dev/tty
     [[ ! "$CONFIRM" =~ ^[oOyY]$ ]] && { log_info "Annulé"; exit 0; }
 
+    local cutoff_date
+    cutoff_date=$(date -d "$days days ago" +%Y-%m-%d 2>/dev/null \
+        || date -v-${days}d +%Y-%m-%d 2>/dev/null \
+        || python3 -c "from datetime import date,timedelta; print((date.today()-timedelta(days=$days)).isoformat())")
+
     $DOCKER_CMD exec -T airflow-apiserver airflow db clean \
-        --clean-before-timestamp "$(date -d "$days days ago" +%Y-%m-%d 2>/dev/null || date -v-${days}d +%Y-%m-%d)" \
+        --clean-before-timestamp "$cutoff_date" \
         --yes
 
     log_success "Purge terminée"
@@ -1699,15 +1803,24 @@ cmd_reset() {
     log_info "Reset complet en cours..."
 
     $DOCKER_CMD down -v
-    docker volume prune -f 2>/dev/null || true
 
     log_info "Redémarrage des services..."
     $DOCKER_CMD up -d
 
-    log_info "Attente du démarrage (60s)..."
-    sleep 60
+    log_info "Attente que l'API Airflow soit disponible..."
+    local _retries=36
+    while [[ $_retries -gt 0 ]]; do
+        if curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
+            log_success "API Airflow disponible"
+            break
+        fi
+        ((_retries-=1))
+        [[ $_retries -eq 0 ]] && log_warning "API Airflow non disponible après 3 min — vérifiez les logs"
+        sleep 5
+    done
 
     log_success "Reset terminé"
+    log_info "Relancez './manage.sh config' pour reconfigurer les variables et connexions Airflow"
     cmd_status
 }
 
@@ -1722,7 +1835,13 @@ cmd_validate() {
     # Liste les erreurs d'import des DAGs
     $DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors
 
-    local error_count=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors 2>/dev/null | grep -c "^" || echo "0")
+    # Comptage fiable via JSON (évite de compter l'en-tête du tableau texte)
+    local _errors_json error_count
+    _errors_json=$($DOCKER_CMD exec -T airflow-apiserver \
+        airflow dags list-import-errors --output json 2>/dev/null || echo "[]")
+    error_count=$(echo "$_errors_json" | \
+        python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" \
+        2>/dev/null || echo "0")
 
     if [[ "$error_count" -eq 0 ]]; then
         log_success "Tous les DAGs sont valides"
@@ -1735,7 +1854,7 @@ cmd_validate() {
     $DOCKER_CMD exec -T airflow-apiserver bash -c "
         for dag_file in /opt/airflow/dags/*.py; do
             if [[ -f \"\$dag_file\" ]]; then
-                python -m py_compile \"\$dag_file\" 2>&1 && echo \"  ✓ \$(basename \$dag_file)\" || echo \"  ✗ \$(basename \$dag_file)\"
+                python3 -m py_compile \"\$dag_file\" 2>&1 && echo \"  ✓ \$(basename \$dag_file)\" || echo \"  ✗ \$(basename \$dag_file)\"
             fi
         done
     "
@@ -1754,7 +1873,7 @@ cmd_lint() {
         $DOCKER_CMD exec -T airflow-apiserver flake8 /opt/airflow/dags/ --max-line-length=120 || true
     else
         log_warning "Aucun linter disponible (ruff, flake8)"
-        log_info "Installation de ruff..."
+        log_warning "Installation de ruff dans le container (sera perdu au prochain restart)..."
         $DOCKER_CMD exec -T airflow-apiserver pip install ruff --quiet
         $DOCKER_CMD exec -T airflow-apiserver ruff check /opt/airflow/dags/ || true
     fi
@@ -1780,15 +1899,9 @@ cmd_tests() {
     if [[ -f "$VENV_PYTEST" ]]; then
         # Tests avec le venv local
         log_info "Exécution avec le venv local"
-        if [[ -n "$test_path" ]]; then
-            if [[ "$verbose" == "-v" ]] || [[ "$test_path" == "-v" ]]; then
-                "$VENV_PYTEST" tests/ -v
-            else
-                "$VENV_PYTEST" "tests/$test_path" -v
-            fi
-        else
-            "$VENV_PYTEST" tests/ -v --tb=short
-        fi
+        local _pytest_target="tests/"
+        [[ -n "$test_path" && "$test_path" != "-v" ]] && _pytest_target="tests/$test_path"
+        "$VENV_PYTEST" "$_pytest_target" -v --tb=short
     elif command -v pytest &> /dev/null; then
         # Tests avec pytest global
         log_info "Exécution avec pytest global"
@@ -1804,6 +1917,10 @@ cmd_tests() {
         fi
 
         # Copie les tests dans le container si nécessaire
+        if [[ ! -d "tests" ]]; then
+            log_error "Dossier tests/ introuvable"
+            exit 1
+        fi
         $DOCKER_CMD cp tests airflow-apiserver:/opt/airflow/tests 2>/dev/null || true
 
         if [[ -n "$test_path" ]] && [[ "$test_path" != "-v" ]]; then

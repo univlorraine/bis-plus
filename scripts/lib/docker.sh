@@ -162,9 +162,7 @@ restart_service() {
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
     log_info "Redémarrage de $service..."
-    $docker_cmd restart "$service" 2>&1
-
-    if [[ $? -eq 0 ]]; then
+    if $docker_cmd restart "$service" 2>&1; then
         log_success "$service redémarré"
         return 0
     else
@@ -177,8 +175,7 @@ restart_service() {
 exec_in_container() {
     local container=$1
     shift
-    local cmd="$@"
-    local docker_cmd="$(detect_docker_compose)"
-
-    $docker_cmd exec -T "$container" $cmd
+    local docker_cmd
+    docker_cmd=$(detect_docker_compose)
+    $docker_cmd exec -T "$container" "$@"
 }

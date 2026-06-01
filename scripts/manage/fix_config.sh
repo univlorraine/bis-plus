@@ -6,21 +6,12 @@
 ###############################################################################
 
 set -e
-
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+source "$SCRIPT_DIR/../lib/colors.sh"
 CONFIG_DIR="${PROJECT_DIR}/config"
 VARIABLES_FILE="${CONFIG_DIR}/airflow_variables.json"
 CONNECTIONS_FILE="${CONFIG_DIR}/airflow_connections.json"
@@ -113,9 +104,6 @@ while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
     sleep 2
 done
 
-# Attente supplémentaire pour s'assurer que les commandes CLI sont prêtes
-log_info "Attente supplémentaire (5s) pour la CLI..."
-sleep 5
 
 ###############################################################################
 # 3. Configuration des Variables
@@ -136,39 +124,41 @@ for key in $(jq -r 'to_entries | map(select(.value | type != "array" and type !=
     log_info "Configuration de la variable: $key"
     log_info "  Valeur: $value"
     # Tentative de création
-    if $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$value" | tee /tmp/airflow_var_output.log 2>&1 | grep -qE "Variable|success|created|updated|set"; then
+    local _log
+    _log=$(mktemp)
+    if $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$value" 2>&1 | tee "$_log" | grep -qE "Variable|success|created|updated|set"; then
         log_success "  ✓ Variable '$key' créée"
         VARS_SUCCESS=$((VARS_SUCCESS + 1))
     else
         log_error "  ✗ Échec pour '$key'"
-        cat /tmp/airflow_var_output.log
+        cat "$_log"
         VARS_FAILED=$((VARS_FAILED + 1))
     fi
+    rm -f "$_log"
 done
 
 # Variables complexes (JSON)
 for key in $(jq -r 'to_entries | map(select(.value | type == "array" or type == "object")) | .[].key' "$VARIABLES_FILE"); do
+    local value
     value=$(jq -c ".[\"$key\"]" "$VARIABLES_FILE")
 
     log_info "Configuration de la variable JSON: $key"
 
-    # Crée un fichier temporaire pour éviter les problèmes d'échappement
-    echo "$value" > /tmp/airflow_var_value.json
+    local _val_file _log
+    _val_file=$(mktemp)
+    _log=$(mktemp)
+    echo "$value" > "$_val_file"
 
-    # Tentative de création
-    if $DOCKER_CMD exec -T airflow-apiserver bash -c "airflow variables set '$key' '$(cat /tmp/airflow_var_value.json)'" 2>&1 | tee /tmp/airflow_var_output.log | grep -qE "Variable|success|created|updated|set"; then
+    if $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$(cat "$_val_file")" 2>&1 | tee "$_log" | grep -qE "Variable|success|created|updated|set"; then
         log_success "  ✓ Variable JSON '$key' créée"
         VARS_SUCCESS=$((VARS_SUCCESS + 1))
     else
         log_error "  ✗ Échec pour '$key'"
-        cat /tmp/airflow_var_output.log
+        cat "$_log"
         VARS_FAILED=$((VARS_FAILED + 1))
     fi
-
-    rm -f /tmp/airflow_var_value.json
+    rm -f "$_val_file" "$_log"
 done
-
-rm -f /tmp/airflow_var_output.log
 
 echo ""
 log_info "Variables: $VARS_SUCCESS réussies, $VARS_FAILED échecs"
@@ -185,6 +175,7 @@ CONNS_FAILED=0
 for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
     log_info "Configuration de la connexion: $conn_id"
 
+    local conn_type host login password port schema extra
     conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
     host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
     login=$(jq -r ".[\"$conn_id\"].login // empty" "$CONNECTIONS_FILE")
@@ -193,39 +184,29 @@ for conn_id in $(jq -r 'keys[]' "$CONNECTIONS_FILE"); do
     schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
     extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
 
-    # Supprime la connexion existante
     $DOCKER_CMD exec -T airflow-apiserver airflow connections delete "$conn_id" >/dev/null 2>&1 || true
 
-    # Construction de la commande
-    cmd="airflow connections add \"$conn_id\" --conn-type \"$conn_type\""
+    # Tableau bash — évite les problèmes d'apostrophes dans les valeurs
+    local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
+    [ -n "$host"     ] && add_cmd+=(--conn-host     "$host")
+    [ -n "$login"    ] && add_cmd+=(--conn-login    "$login")
+    [ -n "$password" ] && add_cmd+=(--conn-password "$password")
+    [ -n "$port"     ] && add_cmd+=(--conn-port     "$port")
+    [ -n "$schema"   ] && add_cmd+=(--conn-schema   "$schema")
+    [ "$extra" != "{}" ] && [ "$extra" != "null" ] && add_cmd+=(--conn-extra "$extra")
 
-    [ -n "$host" ] && cmd="$cmd --conn-host \"$host\""
-    [ -n "$login" ] && cmd="$cmd --conn-login \"$login\""
-    [ -n "$password" ] && cmd="$cmd --conn-password \"$password\""
-    [ -n "$port" ] && cmd="$cmd --conn-port \"$port\""
-    [ -n "$schema" ] && cmd="$cmd --conn-schema \"$schema\""
-
-    # Traitement spécial pour extra (doit être en JSON valide)
-    if [ "$extra" != "{}" ] && [ "$extra" != "null" ]; then
-        # Échappe correctement le JSON pour bash
-        extra_escaped=$(echo "$extra" | sed "s/'/'\\\\''/g")
-        cmd="$cmd --conn-extra '$extra_escaped'"
-    fi
-
-    log_info "  Commande: $cmd"
-
-    # Crée la connexion
-    if $DOCKER_CMD exec -T airflow-apiserver bash -c "$cmd" 2>&1 | tee /tmp/airflow_conn_output.log | grep -qE "Connection|success|Successfully|created"; then
+    local _log
+    _log=$(mktemp)
+    if $DOCKER_CMD exec -T airflow-apiserver "${add_cmd[@]}" 2>&1 | tee "$_log" | grep -qE "Connection|success|Successfully|created"; then
         log_success "  ✓ Connexion '$conn_id' créée"
         CONNS_SUCCESS=$((CONNS_SUCCESS + 1))
     else
         log_error "  ✗ Échec pour '$conn_id'"
-        cat /tmp/airflow_conn_output.log
+        cat "$_log"
         CONNS_FAILED=$((CONNS_FAILED + 1))
     fi
+    rm -f "$_log"
 done
-
-rm -f /tmp/airflow_conn_output.log
 
 echo ""
 log_info "Connexions: $CONNS_SUCCESS réussies, $CONNS_FAILED échecs"

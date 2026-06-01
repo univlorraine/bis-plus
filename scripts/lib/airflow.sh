@@ -39,7 +39,8 @@ check_airflow_variable() {
     local var_name="$1"
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
-    local result=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+    local result
+    result=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
         airflow variables get "$var_name" 2>/dev/null)
 
     if [[ -n "$result" && "$result" != "null" ]]; then
@@ -57,10 +58,8 @@ set_airflow_variable() {
     local var_value="$2"
     local docker_cmd="${3:-$(detect_docker_compose)}"
 
-    $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
-        airflow variables set "$var_name" "$var_value" 2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
+    if $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+        airflow variables set "$var_name" "$var_value" 2>/dev/null; then
         log_ok "Variable '$var_name' définie"
         return 0
     else
@@ -95,13 +94,10 @@ set_airflow_connection() {
     $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
         airflow connections delete "$conn_id" 2>/dev/null || true
 
-    # Crée la connexion
-    $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+    if $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
         airflow connections add "$conn_id" \
         --conn-type "$conn_type" \
-        --conn-uri "$conn_uri" 2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
+        --conn-uri "$conn_uri" 2>/dev/null; then
         log_ok "Connexion '$conn_id' créée"
         return 0
     else
@@ -123,20 +119,26 @@ check_dag() {
     local dag_id="$1"
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
-    local result=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+    local result
+    result=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
         airflow dags list 2>/dev/null | grep "$dag_id")
 
     if [[ -n "$result" ]]; then
-        if echo "$result" | grep -q "True"; then
+        # Utilise --output json pour éviter la dépendance au format texte de airflow dags list
+        local dag_json
+        dag_json=$($docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+            airflow dags list --output json 2>/dev/null | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in (d if isinstance(d,list) else []) if x.get('dag_id')=='$dag_id']; print(r[0].get('is_paused','true') if r else 'missing')" 2>/dev/null || echo "missing")
+        if [[ "$dag_json" == "False" ]] || [[ "$dag_json" == "false" ]]; then
             log_ok "DAG '$dag_id' existe et est activé"
             return 0
+        elif [[ "$dag_json" == "missing" ]]; then
+            log_fail "DAG '$dag_id' n'existe pas"
+            return 2
         else
             log_warn "DAG '$dag_id' existe mais n'est pas activé"
             return 1
         fi
-    else
-        log_fail "DAG '$dag_id' n'existe pas"
-        return 2
     fi
 }
 
@@ -145,10 +147,8 @@ enable_dag() {
     local dag_id="$1"
     local docker_cmd="${2:-$(detect_docker_compose)}"
 
-    $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
-        airflow dags unpause "$dag_id" 2>/dev/null
-
-    if [[ $? -eq 0 ]]; then
+    if $docker_cmd exec -T "$AIRFLOW_CONTAINER" \
+        airflow dags unpause "$dag_id" 2>/dev/null; then
         log_ok "DAG '$dag_id' activé"
         return 0
     else

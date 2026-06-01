@@ -6,17 +6,13 @@
 ###############################################################################
 
 set -e
+set -o pipefail
 
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_SCRIPT_DIR/../lib/colors.sh"
+# Surcharge : format [✓]/[✗] spécifique à ce script
 log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_error() { echo -e "${RED}[✗]${NC} $1"; }
+log_error()   { echo -e "${RED}[✗]${NC} $1"; }
 
 DOCKER_CMD="docker-compose"
 if ! command -v docker-compose &> /dev/null; then
@@ -30,7 +26,7 @@ test_check() {
     local name=$1
     local cmd=$2
 
-    if eval "$cmd" >/dev/null 2>&1; then
+    if bash -c "$cmd" >/dev/null 2>&1; then
         log_success "$name"
         ((PASSED++))
         return 0
@@ -66,10 +62,10 @@ test_check "API Airflow accessible" "curl -s http://localhost:8080/api/v2/versio
 
 echo ""
 log_info "=== Variables Critiques ==="
-test_check "Variable 'environment' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get environment 2>/dev/null"
-test_check "Variable 'oauth_api_connection_id' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get oauth_api_connection_id 2>/dev/null"
-test_check "Variable 'amue_tables_to_import' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_tables_to_import 2>/dev/null"
-test_check "Variable 'api_endpoint' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint 2>/dev/null"
+test_check "Variable 'universite' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get universite 2>/dev/null"
+test_check "Variable 'api_endpoint_admin' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_admin 2>/dev/null"
+test_check "Variable 'api_endpoint_table' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_table 2>/dev/null"
+test_check "Variable 'amue_import_batch_size' existe" "$DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_import_batch_size 2>/dev/null"
 
 echo ""
 log_info "=== Connexions ==="
@@ -78,8 +74,8 @@ test_check "Connexion 'postgres_data' existe" "$DOCKER_CMD exec -T airflow-apise
 
 echo ""
 log_info "=== Base de Données ==="
-test_check "Base Airflow accessible" "$DOCKER_CMD exec -T postgres pg_isready -U airflow"
-test_check "Base Data accessible" "$DOCKER_CMD exec -T postgres-data pg_isready -U datauser"
+test_check "Base Airflow accessible" "$DOCKER_CMD exec -T postgres pg_isready -q"
+test_check "Base Data accessible" "$DOCKER_CMD exec -T postgres-data pg_isready -q"
 
 echo ""
 log_info "=== DAGs ==="

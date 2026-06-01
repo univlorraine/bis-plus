@@ -6,23 +6,16 @@
 ###############################################################################
 
 set -e
-
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[⚠]${NC} $1"; }
-log_error() { echo -e "${RED}[✗]${NC} $1"; }
-log_section() { echo -e "\n${CYAN}=== $1 ===${NC}"; }
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+source "$SCRIPT_DIR/../lib/colors.sh"
+# Surcharge : format [✓]/[✗] spécifique à ce script
+log_success() { echo -e "${GREEN}[✓]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[⚠]${NC} $1"; }
+log_error()   { echo -e "${RED}[✗]${NC} $1"; }
 
 # Détecte docker-compose
 DOCKER_CMD="docker-compose"
@@ -104,7 +97,7 @@ log_section "3. Vérification des Bases de Données"
 
 # PostgreSQL Airflow
 log_info "PostgreSQL Airflow (metadata):"
-if $DOCKER_CMD exec -T postgres pg_isready -U airflow >/dev/null 2>&1; then
+if $DOCKER_CMD exec -T postgres pg_isready -q >/dev/null 2>&1; then
     log_success "Base Airflow accessible"
 
     # Compte les DAGs
@@ -116,7 +109,7 @@ fi
 
 # PostgreSQL Data
 log_info "PostgreSQL Data (business_data):"
-if $DOCKER_CMD exec -T postgres-data pg_isready -U datauser >/dev/null 2>&1; then
+if $DOCKER_CMD exec -T postgres-data pg_isready -q >/dev/null 2>&1; then
     log_success "Base Data accessible"
 
     # Vérifie le schéma splus
@@ -172,11 +165,11 @@ check_file "$PROJECT_DIR/docker-compose.yml" "Docker Compose"
 log_section "5. Variables Airflow"
 
 if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     log_info "Nombre de variables configurées: $VAR_COUNT"
 
     # Vérifie les variables critiques
-    CRITICAL_VARS=("environment" "oauth_api_connection_id" "amue_tables_to_import")
+    CRITICAL_VARS=("universite" "api_endpoint_admin" "api_endpoint_table" "amue_import_batch_size" "amue_report_recipients")
 
     for var in "${CRITICAL_VARS[@]}"; do
         if $DOCKER_CMD exec -T airflow-apiserver airflow variables get "$var" >/dev/null 2>&1; then
@@ -201,7 +194,7 @@ fi
 log_section "6. Connexions Airflow"
 
 if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
-    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     log_info "Nombre de connexions configurées: $CONN_COUNT"
 
     # Vérifie les connexions critiques
@@ -246,7 +239,7 @@ if $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
 
     # Vérifie les erreurs de parsing
     log_info "Erreurs de parsing des DAGs:"
-    PARSE_ERRORS=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors 2>/dev/null | tail -n +3 | wc -l || echo "0")
+    PARSE_ERRORS=$($DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
 
     if [ "$PARSE_ERRORS" -eq 0 ]; then
         log_success "Aucune erreur de parsing"
@@ -286,14 +279,14 @@ $DOCKER_CMD logs airflow-apiserver --tail=20 2>&1 | grep -i "error\|exception\|f
 log_section "9. Recommandations"
 
 # Variables manquantes
-VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
 if [ "$VAR_COUNT" -lt 5 ]; then
     log_warning "Peu de variables configurées ($VAR_COUNT)"
     echo "  → Exécutez: ./manage.sh config"
 fi
 
 # Connexions manquantes
-CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
 if [ "$CONN_COUNT" -lt 2 ]; then
     log_warning "Peu de connexions configurées ($CONN_COUNT)"
     echo "  → Vérifiez: config/airflow_connections.json"
@@ -321,8 +314,8 @@ EOF
 
 log_info "Services Docker       : $(if $DOCKER_CMD ps | grep -q 'Up'; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
 log_info "API Airflow          : $(if curl -s http://localhost:8080/api/v2/version >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
-log_info "Base Airflow         : $(if $DOCKER_CMD exec -T postgres pg_isready -U airflow >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
-log_info "Base Data            : $(if $DOCKER_CMD exec -T postgres-data pg_isready -U datauser >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
+log_info "Base Airflow         : $(if $DOCKER_CMD exec -T postgres pg_isready -q >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
+log_info "Base Data            : $(if $DOCKER_CMD exec -T postgres-data pg_isready -q >/dev/null 2>&1; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}KO${NC}"; fi)"
 log_info "Variables ($VAR_COUNT)      : $(if [ "$VAR_COUNT" -ge 10 ]; then echo -e "${GREEN}OK${NC}"; else echo -e "${YELLOW}À vérifier${NC}"; fi)"
 log_info "Connexions ($CONN_COUNT)     : $(if [ "$CONN_COUNT" -ge 2 ]; then echo -e "${GREEN}OK${NC}"; else echo -e "${YELLOW}À vérifier${NC}"; fi)"
 

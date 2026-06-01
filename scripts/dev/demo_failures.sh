@@ -39,7 +39,8 @@ print_info() {
 
 wait_for_user() {
     echo ""
-    read -p "Appuyez sur Entrée pour continuer..."
+    echo -n "Appuyez sur Entrée pour continuer..." >&2
+    read -r </dev/tty
     echo ""
 }
 
@@ -72,7 +73,8 @@ demo_missing_table() {
     print_step "Sauvegarde de la configuration actuelle..."
 
     # Récupérer la config actuelle via docker
-    docker exec airflow-apiserver airflow variables get amue_tables_to_import > /tmp/amue_backup.json 2>/dev/null || true
+    _backup_file=$(mktemp --suffix=.json)
+    docker exec airflow-apiserver airflow variables get amue_tables_to_import > "$_backup_file" 2>/dev/null || true
 
     print_step "Ajout d'une table fictive à la configuration..."
 
@@ -107,8 +109,9 @@ demo_api_timeout() {
     wait_for_user
 
     print_step "Sauvegarde de l'endpoint actuel..."
+    _endpoint_backup=$(mktemp --suffix=.txt)
     CURRENT_ENDPOINT=$(docker exec airflow-apiserver airflow variables get api_endpoint_table 2>/dev/null || echo "")
-    echo "$CURRENT_ENDPOINT" > /tmp/endpoint_backup.txt
+    echo "$CURRENT_ENDPOINT" > "$_endpoint_backup"
 
     print_step "Modification de l'endpoint vers une URL invalide..."
     docker exec airflow-apiserver airflow variables set api_endpoint_table "invalid/endpoint/that/does/not/exist"
@@ -229,7 +232,8 @@ main() {
     # Menu interactif
     while true; do
         show_menu
-        read -p "Votre choix: " choice
+        echo -n "Votre choix : " >&2
+        read -r choice </dev/tty
 
         case $choice in
             1) demo_missing_table ;;

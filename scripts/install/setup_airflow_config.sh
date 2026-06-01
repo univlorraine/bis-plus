@@ -9,16 +9,10 @@
 ###############################################################################
 
 set -e
+set -o pipefail
 
-# Couleurs pour les logs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration par défaut
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/colors.sh"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 CONFIG_DIR="${PROJECT_DIR}/config"
 VARIABLES_FILE="${CONFIG_DIR}/airflow_variables.json"
@@ -29,22 +23,6 @@ MODE="${1:-internal}"
 ###############################################################################
 # Fonctions utilitaires
 ###############################################################################
-
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
 
 check_file() {
     local file=$1
@@ -98,7 +76,8 @@ setup_variables_internal() {
 
     # Variables simples (string/number)
     for key in $(jq -r 'to_entries | map(select(.value | type != "array" and type != "object")) | .[].key' "$VARIABLES_FILE"); do
-        local value=$(jq -r ".[\"$key\"]" "$VARIABLES_FILE")
+        local value
+        value=$(jq -r ".[\"$key\"]" "$VARIABLES_FILE")
 
         if airflow variables set "$key" "$value" 2>/dev/null; then
             log_success "Variable créée: $key"
@@ -110,7 +89,8 @@ setup_variables_internal() {
 
     # Variables complexes (arrays/objects) - en JSON
     for key in $(jq -r 'to_entries | map(select(.value | type == "array" or type == "object")) | .[].key' "$VARIABLES_FILE"); do
-        local value=$(jq -c ".[\"$key\"]" "$VARIABLES_FILE")
+        local value
+        value=$(jq -c ".[\"$key\"]" "$VARIABLES_FILE")
 
         if airflow variables set "$key" "$value" 2>/dev/null; then
             log_success "Variable créée: $key (JSON)"
@@ -133,21 +113,20 @@ setup_connections_internal() {
             continue
         fi
 
-        local conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
-        local host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
-        local port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
-        local schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
-        local extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
+        local conn_type host port schema extra
+        conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
+        host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
+        port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
+        schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
+        extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
 
-        # Construction de la commande (champs structurels uniquement, sans credentials)
-        local cmd="airflow connections add '$conn_id' --conn-type '$conn_type'"
+        local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
+        [[ -n "$host"   ]] && add_cmd+=(--conn-host   "$host")
+        [[ -n "$port"   ]] && add_cmd+=(--conn-port   "$port")
+        [[ -n "$schema" ]] && add_cmd+=(--conn-schema "$schema")
+        [[ "$extra" != "{}" ]] && add_cmd+=(--conn-extra "$extra")
 
-        [[ -n "$host" ]]   && cmd="$cmd --conn-host '$host'"
-        [[ -n "$port" ]]   && cmd="$cmd --conn-port '$port'"
-        [[ -n "$schema" ]] && cmd="$cmd --conn-schema '$schema'"
-        [[ "$extra" != "{}" ]] && cmd="$cmd --conn-extra '$extra'"
-
-        if eval "$cmd" 2>/dev/null; then
+        if "${add_cmd[@]}" 2>/dev/null; then
             log_success "Connexion créée (structure): $conn_id ($conn_type)"
             count=$((count + 1))
         else
@@ -202,7 +181,8 @@ setup_variables_external() {
     log_info "Import des variables..."
 
     # Crée un fichier temporaire avec les valeurs complexes sérialisées en JSON string
-    local temp_file="/tmp/airflow_vars_import.json"
+    local temp_file
+    temp_file=$(mktemp --suffix=.json)
     jq 'to_entries | map({key: .key, value: (if (.value | type) == "array" or (.value | type) == "object" then (.value | tojson) else .value end)}) | from_entries' "$VARIABLES_FILE" > "$temp_file"
 
     # Copie le fichier dans le container et importe
@@ -235,20 +215,20 @@ setup_connections_external() {
             continue
         fi
 
-        local conn_type host port schema extra cmd
+        local conn_type host port schema extra
         conn_type=$(jq -r ".[\"$conn_id\"].conn_type" "$CONNECTIONS_FILE")
         host=$(jq -r ".[\"$conn_id\"].host // empty" "$CONNECTIONS_FILE")
         port=$(jq -r ".[\"$conn_id\"].port // empty" "$CONNECTIONS_FILE")
         schema=$(jq -r ".[\"$conn_id\"].schema // empty" "$CONNECTIONS_FILE")
         extra=$(jq -c ".[\"$conn_id\"].extra // {}" "$CONNECTIONS_FILE")
 
-        cmd="airflow connections add '$conn_id' --conn-type '$conn_type'"
-        [[ -n "$host" ]]   && cmd="$cmd --conn-host '$host'"
-        [[ -n "$port" ]]   && cmd="$cmd --conn-port '$port'"
-        [[ -n "$schema" ]] && cmd="$cmd --conn-schema '$schema'"
-        [[ "$extra" != "{}" ]] && cmd="$cmd --conn-extra '$extra'"
+        local add_cmd=(airflow connections add "$conn_id" --conn-type "$conn_type")
+        [[ -n "$host"   ]] && add_cmd+=(--conn-host   "$host")
+        [[ -n "$port"   ]] && add_cmd+=(--conn-port   "$port")
+        [[ -n "$schema" ]] && add_cmd+=(--conn-schema "$schema")
+        [[ "$extra" != "{}" ]] && add_cmd+=(--conn-extra "$extra")
 
-        if $docker_cmd exec -T airflow-apiserver bash -c "$cmd" 2>/dev/null; then
+        if $docker_cmd exec -T airflow-apiserver "${add_cmd[@]}" 2>/dev/null; then
             log_success "Connexion créée (structure): $conn_id"
             count=$((count + 1))
         else
@@ -295,7 +275,8 @@ export_configuration() {
     local export_dir="${CONFIG_DIR}/exports"
     mkdir -p "$export_dir"
 
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     local vars_export="${export_dir}/variables_${timestamp}.json"
     local conns_export="${export_dir}/connections_${timestamp}.txt"
 

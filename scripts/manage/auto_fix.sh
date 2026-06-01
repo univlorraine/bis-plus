@@ -6,23 +6,13 @@
 ###############################################################################
 
 set -e
-
-# Couleurs
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_step() { echo -e "\n${CYAN}▶ $1${NC}\n"; }
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+source "$SCRIPT_DIR/../lib/colors.sh"
+log_step() { echo -e "\n${CYAN}▶ $1${NC}\n"; }
 
 # Détecte docker-compose
 DOCKER_CMD="docker-compose"
@@ -44,9 +34,9 @@ Ce script va :
 
 EOF
 
-read -p "Continuer? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+echo -n "Continuer ? (o/N) : " >&2
+read -r _CONFIRM </dev/tty
+if [[ ! "$_CONFIRM" =~ ^[oOyY]$ ]]; then
     log_info "Opération annulée"
     exit 0
 fi
@@ -77,7 +67,7 @@ fi
 
 # Variables
 if $DOCKER_CMD ps | grep -q "airflow-apiserver.*Up"; then
-    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+    VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     if [ "$VAR_COUNT" -lt 5 ]; then
         ISSUES+=("missing_variables")
         log_warning "Variables manquantes (seulement $VAR_COUNT configurées)"
@@ -88,7 +78,7 @@ fi
 
 # Connexions
 if $DOCKER_CMD ps | grep -q "airflow-apiserver.*Up"; then
-    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+    CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
     if [ "$CONN_COUNT" -lt 2 ]; then
         ISSUES+=("missing_connections")
         log_warning "Connexions manquantes (seulement $CONN_COUNT configurées)"
@@ -115,11 +105,16 @@ log_step "Étape 2/5: Correction des problèmes"
 if [[ " ${ISSUES[@]} " =~ " services_down " ]]; then
     log_info "Redémarrage des services..."
     $DOCKER_CMD restart
-    sleep 10
-
-    if $DOCKER_CMD ps | grep -q "airflow-apiserver.*Up"; then
-        log_success "Services redémarrés"
-    else
+    _r=10
+    while [[ $_r -gt 0 ]]; do
+        if $DOCKER_CMD ps | grep -q "airflow-apiserver.*Up"; then
+            log_success "Services redémarrés"
+            break
+        fi
+        ((_r-=1))
+        sleep 3
+    done
+    if [[ $_r -eq 0 ]]; then
         log_error "Échec du redémarrage. Essayez manuellement: ./manage.sh restart"
         exit 1
     fi
@@ -148,9 +143,6 @@ if [[ " ${ISSUES[@]} " =~ " api_not_ready " ]]; then
         fi
     done
 
-    # Attente supplémentaire pour la CLI
-    log_info "Attente supplémentaire pour la CLI (5s)..."
-    sleep 5
 fi
 
 # Variables manquantes
@@ -174,14 +166,12 @@ fi
 
 log_step "Étape 3/5: Vérification"
 
-sleep 2
-
 # Test rapide
 log_info "Exécution du test rapide..."
 
-chmod +x "$SCRIPT_DIR/quick_test.sh"
+chmod +x "$SCRIPT_DIR/quick_fix.sh"
 
-if "$SCRIPT_DIR/quick_test.sh"; then
+if "$SCRIPT_DIR/quick_fix.sh"; then
     log_success "Tous les tests sont passés"
 else
     log_warning "Certains tests ont échoué"
@@ -215,8 +205,8 @@ fi
 log_step "Étape 5/5: Résumé"
 
 # Récupère les stats finales
-VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list 2>/dev/null | tail -n +3 | wc -l || echo "0")
-CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list 2>/dev/null | tail -n +3 | wc -l || echo "0")
+VAR_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
+CONN_COUNT=$($DOCKER_CMD exec -T airflow-apiserver airflow connections list --output json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,(list,dict)) else 0)" 2>/dev/null || echo "0")
 API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v2/version 2>/dev/null || echo "000")
 
 cat << EOF

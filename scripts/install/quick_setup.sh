@@ -8,6 +8,7 @@
 ###############################################################################
 
 set -e
+set -o pipefail
 
 # Couleurs
 RED='\033[0;31m'
@@ -22,8 +23,16 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+trap 'log_error "Setup interrompu à la ligne $LINENO. Vérifiez : $DOCKER_CMD logs airflow-apiserver --tail=50"' ERR
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+# Détecté tôt — requis par le trap ERR avant l'étape 1
+DOCKER_CMD="docker-compose"
+if ! command -v docker-compose &> /dev/null; then
+    DOCKER_CMD="docker compose"
+fi
 
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
@@ -33,6 +42,19 @@ cat << "EOF"
 ╚═══════════════════════════════════════════════════════════════╝
 EOF
 
+echo ""
+echo -e "\033[1;33m╔═══════════════════════════════════════════════════════════════╗\033[0m"
+echo -e "\033[1;33m║  ATTENTION : ce script supprime tous les volumes Docker        ║\033[0m"
+echo -e "\033[1;33m║  (docker-compose down -v). Toutes les données existantes       ║\033[0m"
+echo -e "\033[1;33m║  (PostgreSQL, logs) seront DÉFINITIVEMENT PERDUES.             ║\033[0m"
+echo -e "\033[1;33m╚═══════════════════════════════════════════════════════════════╝\033[0m"
+echo ""
+echo -n "Continuer ? (o/N) : "
+read -r _CONFIRM </dev/tty
+if [[ ! "$_CONFIRM" =~ ^[oOyY]$ ]]; then
+    echo "Annulé."
+    exit 0
+fi
 echo ""
 
 ###############################################################################
@@ -85,9 +107,13 @@ ask_choice() {
 
 ask_confirm() {
     local prompt="$1"
-    local default="$2"
+    local default="${2:-n}"
     local result
-    echo -n "$prompt (o/N) : " >&2
+    if [[ "${default,,}" =~ ^[oy]$ ]]; then
+        echo -n "$prompt (O/n) : " >&2
+    else
+        echo -n "$prompt (o/N) : " >&2
+    fi
     read -r result </dev/tty
     echo "${result:-$default}"
 }
@@ -103,14 +129,14 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    log_error "Docker Compose n'est pas installé"
+if ! $DOCKER_CMD version &> /dev/null; then
+    log_error "Docker Compose n'est pas installé ou inaccessible"
     exit 1
 fi
 
-DOCKER_CMD="docker-compose"
-if ! command -v docker-compose &> /dev/null; then
-    DOCKER_CMD="docker compose"
+if ! command -v python3 &> /dev/null; then
+    log_error "python3 est requis (génération clé Fernet, parsing JSON)"
+    exit 1
 fi
 
 if ! command -v jq &> /dev/null; then
@@ -142,7 +168,6 @@ case "$ENV_CHOICE" in
     1|dev)
         ENVIRONMENT="dev"
         AMUE_API_HOST="https://sandbox.api.amue.fr"
-        AMUE_AUTH_HOST="https://sandbox.auth.amue.fr"
         AMUE_TOKEN_URL="https://sandbox.auth.amue.fr/auth/fer/oauth/token"
         AMUE_API_ENV_PATH="preprod"
         SMTP_HOST="mailhog"
@@ -152,7 +177,6 @@ case "$ENV_CHOICE" in
     2|prod)
         ENVIRONMENT="production"
         AMUE_API_HOST="https://api.amue.fr"
-        AMUE_AUTH_HOST="https://auth.amue.fr"
         AMUE_TOKEN_URL="https://auth.amue.fr/auth/fer/oauth/token"
         AMUE_API_ENV_PATH="prod"
         SMTP_HOST=$(ask "Serveur SMTP" "smtp.example.com")
@@ -192,7 +216,15 @@ log_info "Étape 4/9: Configuration des paramètres"
 echo ""
 log_info "=== Configuration générale ==="
 UNIVERSITE=$(ask "Code université (ex: univ)" "univ")
+if [[ ! "$UNIVERSITE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    log_error "Code université invalide — caractères autorisés : lettres, chiffres, - et _"
+    exit 1
+fi
+
 AMUE_REPORT_RECIPIENTS=$(ask "Emails destinataires des rapports (séparés par des virgules)" "admin@example.com")
+if [[ ! "$AMUE_REPORT_RECIPIENTS" =~ ^[^@[:space:]]+@[^@[:space:]]+(,[^@[:space:]]+@[^@[:space:]]+)*$ ]]; then
+    log_warning "Format d'email potentiellement invalide: $AMUE_REPORT_RECIPIENTS"
+fi
 SMTP_MAIL_FROM=$(ask "Adresse d'envoi des emails" "airflow@amue.local")
 
 echo ""
@@ -239,23 +271,24 @@ fi
 
 log_info "Étape 5/9: Génération des fichiers de configuration"
 
+# Packages pip — oracledb uniquement si ECC configuré
+PIP_REQS="requests oauthlib requests-oauthlib"
+[[ -n "$ORACLE_HOST" ]] && PIP_REQS="$PIP_REQS oracledb"
+
+# Lecture de la version Airflow depuis docker-compose.yml pour rester synchronisé
+AIRFLOW_IMAGE_NAME=$(grep 'AIRFLOW_IMAGE_NAME:-' "$PROJECT_DIR/docker-compose.yml" \
+    | grep -oP '(?<=:-)[^}]+' | head -1 || echo "apache/airflow:3.1.7")
+
 # Génération de la clé Fernet
 generate_fernet_key() {
     python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || \
-    openssl rand -base64 32
+    python3 -c "import os,base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())" 2>/dev/null || \
+    openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 }
 
-# Préserver la clé Fernet existante si .env est déjà présent
-FERNET_KEY=""
-if [[ -f ".env" ]]; then
-    FERNET_KEY=$(grep "^AIRFLOW__CORE__FERNET_KEY=" ".env" | cut -d'=' -f2-)
-fi
-if [[ -z "$FERNET_KEY" ]]; then
-    FERNET_KEY=$(generate_fernet_key)
-    log_info "Nouvelle clé Fernet générée"
-else
-    log_info "Clé Fernet existante préservée"
-fi
+# Nouvelle clé à chaque setup (down -v supprime les volumes — l'ancienne clé est inutile)
+FERNET_KEY=$(generate_fernet_key)
+log_info "Clé Fernet générée"
 
 # Création du fichier .env (sans credentials)
 cat > ".env" << EOFENV
@@ -268,11 +301,11 @@ cat > ".env" << EOFENV
 
 # Airflow
 AIRFLOW_UID=1001
-AIRFLOW_IMAGE_NAME=apache/airflow:3.1.7
+AIRFLOW_IMAGE_NAME=$AIRFLOW_IMAGE_NAME
 AIRFLOW__CORE__FERNET_KEY=$FERNET_KEY
 _AIRFLOW_WWW_USER_USERNAME=airflow
 _AIRFLOW_WWW_USER_PASSWORD=airflow
-_PIP_ADDITIONAL_REQUIREMENTS="requests oauthlib requests-oauthlib oracledb"
+_PIP_ADDITIONAL_REQUIREMENTS="$PIP_REQS"
 
 # SMTP
 SMTP_HOST=$SMTP_HOST
@@ -282,6 +315,7 @@ SMTP_PORT=$SMTP_PORT
 PG_DATA_USER=$PG_LOGIN
 PG_DATA_PASSWORD=$PG_PASSWORD
 PG_DATA_DB=$PG_DATABASE
+PG_DATA_PORT=5433
 EOFENV
 
 log_success "Fichier .env créé (sans credentials — stockés dans Airflow DB)"
@@ -360,14 +394,11 @@ log_success "Fichier config/airflow_variables.json créé (sans secrets)"
 
 log_info "Étape 6/9: Démarrage des containers Docker"
 
-log_info "Arrêt des containers existants..."
-$DOCKER_CMD down 2>/dev/null || true
+log_info "Arrêt des containers existants et suppression des volumes..."
+$DOCKER_CMD down -v 2>/dev/null || true
 
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d
-
-log_info "Attente que les services soient prêts..."
-sleep 30
 
 # Vérification que les services sont en cours d'exécution
 if ! $DOCKER_CMD ps | grep -q "airflow-apiserver"; then
@@ -387,13 +418,15 @@ log_info "Étape 7/9: Configuration d'Airflow"
 
 # Attendre que l'API soit disponible
 log_info "Attente de l'API Airflow..."
-for i in {1..30}; do
+_api_retries=30
+while [[ $_api_retries -gt 0 ]]; do
     if curl -s http://localhost:8080/api/v2/version > /dev/null 2>&1; then
         log_success "API Airflow disponible"
         break
     fi
-    if [[ $i -eq 30 ]]; then
-        log_error "Timeout: API Airflow non disponible"
+    ((_api_retries-=1))
+    if [[ $_api_retries -eq 0 ]]; then
+        log_error "Timeout: API Airflow non disponible après $(( 30 * 5 ))s"
         exit 1
     fi
     sleep 5
@@ -431,9 +464,14 @@ fi
 
 if [[ -n "$ORACLE_HOST" ]]; then
     $DOCKER_CMD exec -T airflow-apiserver airflow connections delete oracle_data 2>/dev/null || true
-    # Passage du mot de passe via stdin (évite l'exposition dans ps aux)
-    _ORACLE_JSON=$(printf '{"oracle_data":{"conn_type":"odbc","host":"%s","schema":"%s","port":%s,"login":"%s","password":"%s"}}' \
-        "$ORACLE_HOST" "$ORACLE_SID" "$ORACLE_PORT" "$ORACLE_LOGIN" "$ORACLE_PASSWORD")
+    # Construction JSON via jq pour gérer les caractères spéciaux dans les valeurs
+    _ORACLE_JSON=$(jq -n \
+        --arg host     "$ORACLE_HOST" \
+        --arg schema   "$ORACLE_SID" \
+        --argjson port "$ORACLE_PORT" \
+        --arg login    "$ORACLE_LOGIN" \
+        --arg password "$ORACLE_PASSWORD" \
+        '{"oracle_data":{"conn_type":"odbc","host":$host,"schema":$schema,"port":$port,"login":$login,"password":$password}}')
     if ! echo "$_ORACLE_JSON" | $DOCKER_CMD exec -i airflow-apiserver \
             bash -c 'cat > /tmp/_oc.json && airflow connections import /tmp/_oc.json; EC=$?; rm -f /tmp/_oc.json; exit $EC'; then
         log_error "Échec création connexion oracle_data"
@@ -444,6 +482,27 @@ fi
 log_success "Credentials injectés directement dans Airflow DB"
 
 log_success "Configuration Airflow terminée"
+
+###############################################################################
+# Attente que postgres-data soit initialisé (init_db.sql doit avoir tourné)
+###############################################################################
+
+log_info "Attente que postgres-data soit initialisé..."
+_pg_retries=30
+while [[ $_pg_retries -gt 0 ]]; do
+    if $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" \
+        -c "SELECT 1 FROM splus_admin.amue_tables LIMIT 1" > /dev/null 2>&1; then
+        log_success "postgres-data prêt"
+        break
+    fi
+    log_warning "postgres-data pas encore prêt... ($_pg_retries restants)"
+    sleep 3
+    ((_pg_retries-=1))
+done
+if [[ $_pg_retries -eq 0 ]]; then
+    log_error "postgres-data non accessible après $(( 30 * 3 ))s — init_db.sql a-t-il échoué ?"
+    exit 1
+fi
 
 ###############################################################################
 # Étape 8/9: Configuration des tables à importer
@@ -511,16 +570,14 @@ while true; do
     echo -n "  Colonne delta (laisser vide si import complet) : " >&2
     read -r T_DELTA </dev/tty
 
-    T_NAME_ESC="${T_NAME//\'/\'\'}"
-    T_PK_ESC="${T_PK//\'/\'\'}"
-    T_DELTA_ESC="${T_DELTA//\'/\'\'}"
-    $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -q -c \
-        "INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
-         VALUES ('$T_NAME_ESC', '$T_PK_ESC', '$T_DELTA_ESC')
-         ON CONFLICT (table_name) DO UPDATE
-           SET primary_key = EXCLUDED.primary_key,
-               delta       = EXCLUDED.delta,
-               updated_at  = NOW();" \
+    $DOCKER_CMD exec -T postgres-data psql -U "$PG_LOGIN" -d "$PG_DATABASE" -q \
+        -v "tname=$T_NAME" -v "tpk=$T_PK" -v "tdelta=$T_DELTA" \
+        -c "INSERT INTO splus_admin.amue_tables (table_name, primary_key, delta)
+            VALUES (:'tname', :'tpk', :'tdelta')
+            ON CONFLICT (table_name) DO UPDATE
+              SET primary_key = EXCLUDED.primary_key,
+                  delta       = EXCLUDED.delta,
+                  updated_at  = NOW();" \
     && log_success "  Table '$T_NAME' enregistrée" \
     || log_warning  "  Erreur pour '$T_NAME'"
 
@@ -549,8 +606,6 @@ log_info "=== Configuration des utilisateurs Airflow ==="
 log_info "L'utilisateur admin par défaut (airflow/airflow) a été créé."
 log_info "Voulez-vous créer des utilisateurs supplémentaires ?"
 echo ""
-
-AIRFLOW_USERS="[]"
 
 while true; do
     echo -n "Créer un utilisateur supplémentaire ? (o/N) : " >&2
