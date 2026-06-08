@@ -31,6 +31,52 @@ logger = logging.getLogger(__name__)
 
 _TABLE = "splus_admin.amue_tables"
 
+# SQL pré-compilé à l'initialisation du module — les identifiants sont des
+# constantes, pas des entrées utilisateur.
+_SQL_SELECT_ALL = (
+    f"SELECT table_name, enabled, primary_key, delta, "
+    f"fingerprint_api, fingerprint_local, setup_status "
+    f"FROM {_TABLE} ORDER BY table_name"
+)
+_SQL_SELECT_ONE = (
+    f"SELECT table_name, enabled, primary_key, delta, "
+    f"fingerprint_api, fingerprint_local, setup_status "
+    f"FROM {_TABLE} WHERE table_name = %s"
+)
+_SQL_BATCH_UPDATE = (
+    f"UPDATE {_TABLE} AS t\n"
+    f"    SET fingerprint_api = v.fp_api,\n"
+    f"        fingerprint_local  = v.fp_local,\n"
+    f"        primary_key     = v.pk,\n"
+    f"        updated_at      = NOW()\n"
+    f"    FROM (VALUES %s) AS v(fp_api, fp_local, pk, tname)\n"
+    f"    WHERE t.table_name = v.tname"
+)
+_SQL_SAVE_PKS = (
+    f"UPDATE {_TABLE} SET primary_key = %s, updated_at = NOW() "
+    f"WHERE table_name = %s"
+)
+_SQL_RESET_META = (
+    f"UPDATE {_TABLE}\n"
+    f"    SET fingerprint_api = '',\n"
+    f"        fingerprint_local  = '',\n"
+    f"        updated_at      = NOW()\n"
+    f"    WHERE table_name = %s"
+)
+_SQL_SAVE_SETUP = (
+    f"UPDATE {_TABLE}\n"
+    f"    SET fingerprint_api = %s,\n"
+    f"        fingerprint_local  = %s,\n"
+    f"        primary_key     = %s,\n"
+    f"        setup_status    = 'ready',\n"
+    f"        updated_at      = NOW()\n"
+    f"    WHERE table_name = %s"
+)
+_SQL_SET_STATUS = (
+    f"UPDATE {_TABLE} SET setup_status = %s, updated_at = NOW() "
+    f"WHERE table_name = %s"
+)
+
 
 class TableConfigManager:
     """
@@ -72,11 +118,7 @@ class TableConfigManager:
             Exception: Si la requête SQL échoue (pour déclencher le retry du caller)
         """
         try:
-            rows = self._hook.get_records(
-                f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_local, setup_status "
-                f"FROM {_TABLE} ORDER BY table_name"
-            )
+            rows = self._hook.get_records(_SQL_SELECT_ALL)
             result = [self._row_to_dict(row) for row in (rows or [])]
             logger.info(f"[TABLE_CONFIG] {len(result)} tables chargées depuis la BDD")
             return result
@@ -96,9 +138,7 @@ class TableConfigManager:
         """
         try:
             row = self._hook.get_first(
-                f"SELECT table_name, enabled, primary_key, delta, "
-                f"fingerprint_api, fingerprint_local, setup_status "
-                f"FROM {_TABLE} WHERE table_name = %s",
+                _SQL_SELECT_ONE,
                 parameters=(table_name.upper(),)
             )
             if not row:
@@ -142,13 +182,7 @@ class TableConfigManager:
             try:
                 execute_values(
                     cursor,
-                    f"""UPDATE {_TABLE} AS t
-                        SET fingerprint_api = v.fp_api,
-                            fingerprint_local  = v.fp_local,
-                            primary_key     = v.pk,
-                            updated_at      = NOW()
-                        FROM (VALUES %s) AS v(fp_api, fp_local, pk, tname)
-                        WHERE t.table_name = v.tname""",
+                    _SQL_BATCH_UPDATE,
                     rows,
                     template="(%s, %s, %s, %s)",
                 )
@@ -170,8 +204,7 @@ class TableConfigManager:
         """
         try:
             self._hook.run(
-                f"UPDATE {_TABLE} SET primary_key = %s, updated_at = NOW() "
-                f"WHERE table_name = %s",
+                _SQL_SAVE_PKS,
                 parameters=(primary_keys, table_name.upper())
             )
             logger.info(f"[TABLE_CONFIG] PKs sauvegardées pour {table_name}: {primary_keys}")
@@ -192,11 +225,7 @@ class TableConfigManager:
         """
         try:
             self._hook.run(
-                f"""UPDATE {_TABLE}
-                    SET fingerprint_api = '',
-                        fingerprint_local  = '',
-                        updated_at      = NOW()
-                    WHERE table_name = %s""",
+                _SQL_RESET_META,
                 parameters=(table_name.upper(),)
             )
             logger.info(f"[TABLE_CONFIG] Métadonnées réinitialisées pour {table_name}")
@@ -228,13 +257,7 @@ class TableConfigManager:
         """
         try:
             self._hook.run(
-                f"""UPDATE {_TABLE}
-                    SET fingerprint_api = %s,
-                        fingerprint_local  = %s,
-                        primary_key     = %s,
-                        setup_status    = 'ready',
-                        updated_at      = NOW()
-                    WHERE table_name = %s""",
+                _SQL_SAVE_SETUP,
                 parameters=(
                     fingerprint_api,
                     fingerprint_local,
@@ -257,8 +280,7 @@ class TableConfigManager:
         """
         try:
             self._hook.run(
-                f"UPDATE {_TABLE} SET setup_status = %s, updated_at = NOW() "
-                f"WHERE table_name = %s",
+                _SQL_SET_STATUS,
                 parameters=(status, table_name.upper())
             )
             logger.info(f"[TABLE_CONFIG] setup_status={status} pour {table_name}")

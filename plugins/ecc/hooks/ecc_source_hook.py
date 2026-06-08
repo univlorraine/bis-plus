@@ -14,6 +14,7 @@ Le backend est déduit du champ `conn_type` de la connexion Airflow :
 """
 import json
 import logging
+import os
 import time
 from typing import Iterator, List, Tuple
 
@@ -133,6 +134,10 @@ class ECCSourceHook:
         port = conn.port or _DEFAULT_MSSQL_PORT
         extra = _parse_extra(conn)
         odbc_driver = extra.get('driver') or _DEFAULT_MSSQL_DRIVER
+        # TrustServerCertificate=yes désactive la validation du certificat serveur (MITM possible).
+        # En production (AIRFLOW_ENV=prod), passer "no" et s'assurer que le serveur a un cert valide.
+        _env = os.environ.get("AIRFLOW_ENV", "dev").lower()
+        trust_cert = "yes" if _env == "dev" else "no"
         dsn = (
             f"Driver={{{odbc_driver}}};"
             f"Server={host},{port};"
@@ -140,7 +145,7 @@ class ECCSourceHook:
             f"UID={login};"
             f"PWD={password};"
             f"Encrypt=yes;"
-            f"TrustServerCertificate=yes"
+            f"TrustServerCertificate={trust_cert}"
         )
         return {'dsn': dsn}
 
@@ -175,9 +180,12 @@ class ECCSourceHook:
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(
-                    f"[ECC] Connexion {backend.upper()}: "
-                    f"{airflow_conn.login}@{airflow_conn.host} "
-                    f"(db={airflow_conn.schema}, tentative {attempt}/{max_retries})"
+                    "[ECC] Tentative connexion %s %d/%d (conn_id=%s)",
+                    backend.upper(), attempt, max_retries, self.conn_id,
+                )
+                logger.debug(
+                    "[ECC] Détail connexion %s: %s@%s (db=%s)",
+                    backend.upper(), airflow_conn.login, airflow_conn.host, airflow_conn.schema,
                 )
                 return self._connect(driver, backend, connect_kwargs)
             except Exception as e:
@@ -241,10 +249,14 @@ class ECCSourceHook:
                                 f"[ECC] Connexion {backend.upper()} perdue à {fetched} lignes, "
                                 f"reconnexion {reconnects + 1}/{max_reconnects}..."
                             )
-                            try: cursor.close()
-                            except Exception: pass
-                            try: conn.close()
-                            except Exception: pass
+                            try:
+                                cursor.close()
+                            except Exception as _e:
+                                logger.warning(f"[ECC] Échec fermeture curseur lors reconnexion: {_e}")
+                            try:
+                                conn.close()
+                            except Exception as _e:
+                                logger.warning(f"[ECC] Échec fermeture connexion lors reconnexion: {_e}")
                             reconnects += 1
                             conn = self.get_conn()
                             cursor = conn.cursor()
@@ -259,10 +271,14 @@ class ECCSourceHook:
                         yield row
             finally:
                 logger.info(f"[ECC] Total lignes {backend.upper()} récupérées: {fetched}")
-                try: cursor.close()
-                except Exception: pass
-                try: conn.close()
-                except Exception: pass
+                try:
+                    cursor.close()
+                except Exception as _e:
+                    logger.warning(f"[ECC] Échec fermeture curseur: {_e}")
+                try:
+                    conn.close()
+                except Exception as _e:
+                    logger.warning(f"[ECC] Échec fermeture connexion: {_e}")
 
         return column_names, row_generator()
 

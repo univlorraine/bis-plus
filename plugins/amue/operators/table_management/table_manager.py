@@ -52,7 +52,25 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_.]*$')
+_SAFE_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_.]*$')  # noms qualifiés (schéma.table)
+_SAFE_COLUMN_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')      # colonnes et PKs : pas de point
+
+# Whitelist des types PostgreSQL autorisés en DDL.
+# Les types proviennent de la réponse API (champ type_postgres) — tout autre
+# token serait potentiellement du SQL injecté.
+_ALLOWED_PG_TYPE_RE = re.compile(
+    r'^('
+    r'TEXT|BOOLEAN|BYTEA|DATE|UUID|JSON|JSONB|INTERVAL'
+    r'|SMALLINT|INTEGER|INT|BIGINT'
+    r'|REAL|FLOAT8?|DOUBLE\s+PRECISION'
+    r'|NUMERIC|DECIMAL'
+    r'|(?:NUMERIC|DECIMAL)\s*\(\s*\d+\s*(?:,\s*\d+\s*)?\)'
+    r'|(?:VARCHAR|CHAR(?:ACTER)?(?:\s+VARYING)?)\s*(?:\(\s*\d+\s*\))?'
+    r'|TIMESTAMP(?:\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE)?'
+    r'|TIME(?:\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE)?'
+    r')$',
+    re.IGNORECASE,
+)
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2 import DatabaseError, IntegrityError, ProgrammingError
@@ -132,6 +150,11 @@ class AMUETableManager:
         Args:
             table_name: Nom de la table à mettre à jour
         """
+        if not _SAFE_COLUMN_RE.match(table_name):
+            raise AMUESchemaError(
+                f"Nom de table non sécurisé pour ensure_meta_columns: {table_name!r}",
+                table_name=table_name,
+            )
         qualified_name = self._get_qualified_table_name(table_name)
         if not _SAFE_IDENTIFIER_RE.match(qualified_name):
             raise AMUESchemaError(f"Nom de table non sécurisé pour le DDL : {qualified_name!r}")
@@ -291,24 +314,35 @@ class AMUETableManager:
         Returns:
             Instruction SQL CREATE TABLE complète
         """
-        # Définitions des colonnes
-        column_defs = [
-            f"{col['name'].lower()} {col['type_postgres']}"
-            for col in columns
-        ]
-
-        # Ajout des meta colonnes pour le traçage
-        column_defs.append(f"_source VARCHAR(50) DEFAULT '{self.default_source}'")
-        column_defs.append("_imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-
-        # Contrainte de clé primaire
-        pk_constraint = self._build_primary_key_constraint(primary_keys_str)
-
-        # Validation du nom de table avant interpolation DDL
+        # 1) Valider le nom de table en premier — avant tout traitement
         if not _SAFE_IDENTIFIER_RE.match(table_name):
             raise AMUESchemaError(f"Nom de table non sécurisé pour le DDL : {table_name!r}")
 
-        # Assembly du SQL
+        # 2) Valider chaque colonne (nom + type) puis construire les définitions
+        column_defs = []
+        for col in columns:
+            col_name = col['name'].lower()
+            col_type = col['type_postgres'].strip()
+
+            if not _SAFE_COLUMN_RE.match(col_name):
+                raise AMUESchemaError(
+                    f"Nom de colonne non sécurisé: {col_name!r}",
+                    table_name=table_name,
+                )
+            if not _ALLOWED_PG_TYPE_RE.match(col_type):
+                raise AMUESchemaError(
+                    f"Type PostgreSQL non autorisé pour la colonne '{col_name}': {col_type!r}",
+                    table_name=table_name,
+                )
+            column_defs.append(f"{col_name} {col_type}")
+
+        # 3) Meta colonnes (constantes de confiance, pas de données API)
+        column_defs.append(f"_source VARCHAR(50) DEFAULT '{self.default_source}'")
+        column_defs.append("_imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+
+        # 4) Contrainte PRIMARY KEY (avec validation des noms)
+        pk_constraint = self._build_primary_key_constraint(primary_keys_str, table_name)
+
         columns_sql = ',\n    '.join(column_defs)
 
         create_sql = f"""
@@ -321,12 +355,15 @@ class AMUETableManager:
 
         return create_sql
 
-    def _build_primary_key_constraint(self, primary_keys_str: str) -> str:
+    def _build_primary_key_constraint(
+        self, primary_keys_str: str, table_name: str = 'unknown'
+    ) -> str:
         """
         Construit la clause PRIMARY KEY
 
         Args:
             primary_keys_str: Clés primaires CSV
+            table_name: Nom de table utilisé dans les messages d'erreur
 
         Returns:
             Clause SQL ou chaîne vide si pas de PK
@@ -335,11 +372,17 @@ class AMUETableManager:
             logger.warning("[WARN] Aucune clé primaire définie")
             return ''
 
-        pk_list = [
-            pk.strip().lower()
-            for pk in primary_keys_str.split(',')
-            if pk.strip()
-        ]
+        pk_list = []
+        for pk in primary_keys_str.split(','):
+            pk_name = pk.strip().lower()
+            if not pk_name:
+                continue
+            if not _SAFE_COLUMN_RE.match(pk_name):
+                raise AMUESchemaError(
+                    f"Nom de clé primaire non sécurisé: {pk_name!r}",
+                    table_name=table_name,
+                )
+            pk_list.append(pk_name)
 
         if not pk_list:
             return ''

@@ -1,4 +1,4 @@
-# Guide d'installation — DemoDAGS
+﻿# Guide d'installation — DemoDAGS
 
 Pipeline Airflow d'import de données AMUE/ECC vers PostgreSQL avec architecture Blue/Green.
 
@@ -25,8 +25,8 @@ Pipeline Airflow d'import de données AMUE/ECC vers PostgreSQL avec architecture
 ### Étape 1 — Cloner le projet
 
 ```bash
-git clone <repo-url> BISPlus
-cd BISPlus
+git clone <repo-url> DemoDAGS
+cd DemoDAGS
 ```
 
 ### Étape 2 — Lancer le setup interactif
@@ -68,9 +68,7 @@ Accès aux interfaces :
 - Airflow UI : http://localhost:8080 (airflow / airflow par défaut)
 - MailHog UI : http://localhost:8025
 
-> 📷 **Capture d'écran suggérée** : *Page d'accueil de l'UI Airflow (`http://localhost:8080`) montrant la liste des DAGs (`amue_multi_table_import`, `amue_table_setup`, etc.) avec leurs statuts (actif/pause) et le dernier run.*
 
-> 📷 **Capture d'écran suggérée** : *Interface MailHog (`http://localhost:8025`) affichant un email de test ou de rapport capturé, confirmant que le SMTP fonctionne.*
 
 ---
 
@@ -79,8 +77,8 @@ Accès aux interfaces :
 ### Étape 1 — Cloner le projet
 
 ```bash
-git clone <repo-url> BISPlus
-cd BISPlus
+git clone <repo-url> DemoDAGS
+cd DemoDAGS
 ```
 
 ### Étape 2 — Créer et configurer `.env`
@@ -152,7 +150,6 @@ docker compose ps
 Services attendus : `postgres`, `postgres-data`, `airflow-apiserver`, `airflow-scheduler`,
 `airflow-dag-processor`, `airflow-triggerer`, `mailhog`.
 
-> 📷 **Capture d'écran suggérée** : *Sortie de `docker compose ps` avec tous les services en statut `healthy` (colonne STATUS).*
 
 > Si un service reste en `starting` plus de 2 minutes, consulter ses logs :
 > ```bash
@@ -192,7 +189,6 @@ psql -h localhost -p 5433 -U datauser -d business_data \
 
 #### Option A — Via l'UI Airflow
 
-> 📷 **Capture d'écran suggérée** : *Page Admin → Variables de l'UI Airflow, montrant la liste complète des variables importées (clés et valeurs tronquées).*
 
 Aller sur http://localhost:8080 → **Admin** → **Variables** → bouton **+**
 
@@ -251,7 +247,6 @@ Répéter pour chaque variable du tableau ci-dessus.
 
 #### Option A — Via l'UI Airflow
 
-> 📷 **Capture d'écran suggérée** : *Page Admin → Connections avec les 3 connexions créées (`oauth_api`, `postgres_data`, `oracle_data`) et leurs types respectifs.*
 
 Aller sur http://localhost:8080 → **Admin** → **Connections** → bouton **+**
 
@@ -388,11 +383,9 @@ Accès aux interfaces :
 - **Airflow UI** : http://localhost:8080 (login: `airflow` / `airflow`)
 - **MailHog** : http://localhost:8025 (capture des emails de rapport)
 
-> 📷 **Capture d'écran suggérée** : *Sortie de la commande de vérification de l'état Blue/Green (requête sur `splus_admin.amue_state`) montrant `active_schema`, `import_in_progress = false` et `updated_at`.*
 
 ### Étape 9 — Premier import
 
-> 📷 **Capture d'écran suggérée** : *DAG `amue_table_setup` dans l'UI Airflow après exécution réussie — vue Graph montrant toutes les tasks `setup_table.*` en vert.*
 
 Avant le premier import de données, initialiser les tables (fingerprints + création des tables PostgreSQL) :
 
@@ -539,7 +532,7 @@ Si MailHog n'est pas accessible : vérifier que le service tourne (`docker compo
 | Fichier                           | Rôle                                              |
 |-----------------------------------|---------------------------------------------------|
 | `.env`                            | Variables Docker (générées depuis `.env.example`) |
-| `docker-compose.yml`              | Définition des 8 services                         |
+| `docker-compose.yml`              | Définition des 10 services                        |
 | `scripts/sql/init_db.sql`         | Création des schémas et tables admin              |
 | `config/airflow_variables.json`   | Variables Airflow (import en masse)               |
 | `config/airflow_connections.json` | Structure des connexions (sans credentials)       |

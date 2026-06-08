@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS splus_admin.amue_tables (
 -- ON CONFLICT (table_name) DO NOTHING;
 
 -- ============================================================================
+-- SUIVI DES MIGRATIONS APPLICATIVES (scripts/sql/migrations/)
+-- Alimentée par `./manage.sh db-migrate` (appelée par `./manage.sh update`)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS splus_admin.schema_migrations (
+    version     VARCHAR(10)  PRIMARY KEY,   -- ex. '0001'
+    description TEXT         NOT NULL DEFAULT '',
+    applied_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    applied_by  VARCHAR(100) NOT NULL DEFAULT current_user
+);
+
+-- ============================================================================
 -- PERMISSIONS DATAUSER SUR SPLUS_ADMIN
 -- ============================================================================
 GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO datauser;
@@ -166,3 +177,4 @@ SELECT 'Permissions granted to datauser' AS info;
 SELECT 'Schema splus_admin created' AS info;
 SELECT 'Table splus_admin.amue_state ready' AS info;
 SELECT 'Table splus_admin.amue_tables ready' AS info;
+SELECT 'Table splus_admin.schema_migrations ready' AS info;

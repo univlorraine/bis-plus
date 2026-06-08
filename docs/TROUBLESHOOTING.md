@@ -1,4 +1,4 @@
-# Guide de Dépannage DemoDAGS
+﻿# Guide de Dépannage DemoDAGS
 
 Ce document répertorie les erreurs fréquentes et leurs solutions.
 
@@ -75,7 +75,6 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
 
 ### Table en statut `blocked` — Changement de structure détecté
 
-> 📷 **Capture d'écran suggérée** : *Email d'alerte reçu dans MailHog signalant une table bloquée, avec le nom de la table et les fingerprints en désaccord.*
 
 **Symptôme** : Le DAG `amue_table_setup` (ou `amue_multi_table_import`) échoue avec un message de fingerprint mismatch. La table est passée en statut `blocked`.
 
@@ -169,19 +168,19 @@ WHERE enabled = true AND setup_status != 'ready';
 **Solution** :
 1. Vérifier la connexion Airflow :
    ```bash
-   airflow connections get amue_api
+   airflow connections get oauth_api
    ```
 2. Tester manuellement :
    ```bash
-   curl -X POST "https://oauth.amue.fr/token" \
+   curl -X POST "https://sandbox.auth.amue.fr/auth/fer/oauth/token" \
      -d "grant_type=client_credentials" \
      -d "client_id=YOUR_ID" \
      -d "client_secret=YOUR_SECRET"
    ```
 3. Mettre à jour les credentials si nécessaire :
    ```bash
-   airflow connections delete amue_api
-   airflow connections add amue_api --conn-extra '{"client_id": "...", "client_secret": "..."}'
+   airflow connections delete oauth_api
+   # Recréer avec les bons credentials (voir INSTALL.md, Étape 6)
    ```
 
 ### AMUENetworkError: Connection timeout
@@ -299,7 +298,6 @@ Si l'erreur persiste, vérifier :
 
 ### ConcurrentImportError: Un import est déjà en cours
 
-> 📷 **Capture d'écran suggérée** : *Logs de la tâche `init_bluegreen` dans l'UI Airflow (onglet Logs d'un run échoué), affichant le message `ConcurrentImportError` avec le timestamp du verrou.*
 
 **Symptôme** : Nouvel import impossible car un import est détecté en cours.
 
@@ -352,7 +350,6 @@ WHERE id = 1;
 
 ### ViewSwitchError: Erreur lors du switch des vues
 
-> 📷 **Capture d'écran suggérée** : *Logs de la tâche `switch_views` en erreur dans l'UI Airflow, affichant la trace de l'exception `ViewSwitchError` et le nom de la vue ayant échoué.*
 
 **Symptôme** : Les vues n'ont pas basculé correctement.
 
@@ -392,7 +389,6 @@ WHERE id = 1;
 
 ### DAG non visible dans l'interface
 
-> 📷 **Capture d'écran suggérée** : *Page "Import Errors" dans l'UI Airflow (menu Browse → Import Errors ou `airflow dags list-import-errors`), montrant le fichier DAG en erreur, le message d'exception Python et le numéro de ligne.*
 
 **Causes** :
 - Erreur de syntaxe dans le fichier DAG
@@ -411,7 +407,6 @@ WHERE id = 1;
 
 ### Tâche bloquée en "running"
 
-> 📷 **Capture d'écran suggérée** : *Vue Grid d'un DAG dans l'UI Airflow avec une tâche bloquée en jaune/spinning depuis plusieurs heures (colonne horodatée visible), contrastant avec les runs précédents en vert.*
 
 **Symptôme** : Une tâche reste en running sans progresser.
 

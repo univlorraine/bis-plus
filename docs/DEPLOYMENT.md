@@ -1,4 +1,4 @@
-# Guide de Déploiement DemoDAGS
+﻿# Guide de Déploiement DemoDAGS
 
 Ce document décrit les étapes nécessaires pour déployer le système DemoDAGS d'import AMUE.
 
@@ -100,14 +100,13 @@ ON CONFLICT (table_name) DO NOTHING;
 
 > Le fichier `init_db.sql` contient en commentaire la liste complète des 35+ tables configurées pour cet environnement.
 
-> 📷 **Capture d'écran suggérée** : *Vue dans pgAdmin ou DBeaver après exécution de `init_db.sql` — les 4 schémas (`splus`, `splus_blue`, `splus_green`, `splus_admin`) sont visibles dans l'arborescence, avec les tables `amue_state` et `amue_tables` dans `splus_admin`.*
 
 ### Étape 4 : Configurer Airflow
 
 1. Initialiser la base Airflow :
 
 ```bash
-airflow db init
+airflow db migrate
 ```
 
 2. Créer un utilisateur admin :
@@ -151,7 +150,6 @@ airflow connections add 'oracle_data' \
 
 > Ces connexions peuvent aussi être importées depuis `config/airflow_connections.json` via l'UI Airflow (Admin → Connections → Import).
 
-> 📷 **Capture d'écran suggérée** : *Page Admin → Connections dans l'UI Airflow, montrant les 3 connexions créées (`postgres_data`, `oauth_api`, `oracle_data`) avec leur type et host respectifs.*
 
 ### Étape 5 : Configurer les variables Airflow
 
@@ -165,7 +163,6 @@ Variables importantes à personnaliser :
 - `universite` : Code de l'établissement
 - `environment` : `dev` ou `production`
 
-> 📷 **Capture d'écran suggérée** : *Page Admin → Variables dans l'UI Airflow après import, montrant les variables clés (`universite`, `amue_import_schedule`, `amue_report_recipients`, etc.) avec leur valeur.*
 
 ---
 
@@ -251,10 +248,9 @@ airflow connections test postgres_data
 
 ```bash
 airflow dags list | grep amue
-airflow dags test amue_multi_table_import 2024-01-01
+airflow dags list-import-errors
 ```
 
-> 📷 **Capture d'écran suggérée** : *Page DAGs dans l'UI Airflow filtrée sur "amue", listant les 7 DAGs du projet (`amue_multi_table_import`, `amue_table_setup`, `amue_sync_schemas`, `amue_rollback`, `amue_refresh_views`, `amue_status_monitor`, `ecc_multi_table_import`) tous actifs (toggle bleu).*
 
 ### Exécuter les tests
 
@@ -269,50 +265,22 @@ SELECT schema_name FROM information_schema.schemata
 WHERE schema_name IN ('splus', 'splus_blue', 'splus_green');
 ```
 
-> 📷 **Capture d'écran suggérée** : *Résultat de la requête SQL ci-dessus dans un client PostgreSQL, confirmant la présence des 3 schémas, et en parallèle la requête `SELECT * FROM splus_admin.amue_state WHERE id = 1` montrant l'état initial (`active_schema = 'blue'`, `import_in_progress = false`).*
 
 ---
 
 ## Mise à jour
 
-### Procédure de mise à jour
+La mise à jour du projet (code, dépendances, image Docker, schéma SQL applicatif,
+métadonnées Airflow, variables) est entièrement décrite dans
+**[UPGRADE.md](UPGRADE.md)**, qui couvre :
 
-1. **Arrêter le scheduler Airflow** :
-   ```bash
-   airflow scheduler stop
-   ```
+- la procédure automatisée `./manage.sh update [tag]` (cible toujours une release GitHub
+  publiée — jamais une branche ou un commit)
+- la procédure manuelle équivalente, étape par étape, si besoin d'auditer ou de dépanner
+- comment écrire une migration SQL (`scripts/sql/migrations/`)
+- la marche à suivre en cas de rollback : DAG `amue_rollback` (problème de données après
+  un import) versus rollback complet du projet (mauvaise release — code/schéma/dépendances)
 
-2. **Sauvegarder la configuration** :
-   ```bash
-   airflow variables export backup_variables.json
-   ```
-
-3. **Mettre à jour le code** :
-   ```bash
-   git pull origin master
-   pip install -r requirements.txt
-   ```
-
-4. **Appliquer les migrations SQL si nécessaire** :
-   ```bash
-   psql -U airflow -d business_data -f scripts/sql/migrations/XXXX.sql
-   ```
-
-5. **Redémarrer Airflow** :
-   ```bash
-   airflow scheduler &
-   airflow webserver &
-   ```
-
-### Rollback
-
-En cas de problème, utiliser le DAG `amue_rollback` si blue/green est activé :
-
-1. Aller dans Airflow UI
-2. Déclencher le DAG `amue_rollback`
-3. Les vues basculeront vers le schéma précédent
-
-> 📷 **Capture d'écran suggérée** : *Boîte de dialogue "Trigger DAG" dans l'UI Airflow pour `amue_rollback`, puis le run immédiatement terminé en vert (durée < 5 s).*
 
 ---
 

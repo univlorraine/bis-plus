@@ -1,4 +1,4 @@
-# Documentation technique — Base intermédiaire SifacPlus
+﻿# Documentation technique — Base intermédiaire SifacPlus
 
 ## Stack
 
@@ -8,7 +8,7 @@
 | PostgreSQL     | 15        |
 | Python         | 3.12      |
 | Docker Compose | —         |
-| pytest         | 861 tests |
+| pytest         | 878 tests |
 
 ---
 
@@ -17,12 +17,14 @@
 ```
 dags/
 ├── dag_amue_dynamic_table.py      # DAG principal d'import SIFAC+ (dag_id: amue_multi_table_import)
+├── dag_amue_correction.py         # Ré-import AMUE manuel — tables sélectionnées (dag_id: amue_correction_import)
 ├── dag_ecc_dynamic_table.py       # DAG d'import ECC (dag_id: ecc_multi_table_import)
+├── dag_ecc_correction.py          # Ré-import ECC manuel — tables sélectionnées (dag_id: ecc_correction_import)
 ├── dag_amue_sync.py               # Synchronisation Blue/Green (dag_id: amue_sync_schemas)
 ├── dag_amue_rollback.py           # Rollback Blue/Green (dag_id: amue_rollback)
 ├── dag_amue_refresh_views.py      # Rafraîchissement des vues (dag_id: amue_refresh_views)
 ├── dag_amue_status_monitor.py     # Monitoring d'état (dag_id: amue_status_monitor)
-└── dag_amue_table_setup.py        # Setup des tables (dag_id: amue_table_setup)
+├── dag_amue_table_setup.py        # Setup des tables (dag_id: amue_table_setup)
 
 plugins/common/                    # Socle partagé AMUE + ECC
 ├── exceptions.py                  # BaseError, BatchError, DataError, DatabaseError, SchemaError, BlueGreenError, ConcurrentImportError, ViewSwitchError
@@ -82,7 +84,7 @@ plugins/amue/
 │   └── table_setup_orchestrator.py
 ├── sensors/amue_api_sensor.py
 ├── tasks/
-│   ├── import_dag/                # @task : check_setup_status, polling, import_data, ...
+│   ├── import_dag/                # @task : check_setup_status, polling, select_tables_correction, import_data, ...
 │   ├── refresh_views_dag/
 │   ├── rollback_dag/
 │   ├── setup_dag/
@@ -98,12 +100,14 @@ plugins/amue/
     └── transformers.py            # parse_column_definition (SQLite → PostgreSQL, AMUE-spécifique)
 
 plugins/ecc/
-├── hooks/ecc_source_hook.py       # Hook source ECC
+├── hooks/ecc_source_hook.py       # Hook source ECC (Oracle / SQL Server / ODBC)
+├── operators/pipeline/
+│   └── ecc_data_importer.py       # ECCDataImporter (Oracle → PostgreSQL inactif)
 ├── notifications/
 │   ├── ecc_notifier.py
 │   ├── ecc_callbacks.py
 │   └── ecc_templates.py
-├── tasks/import_dag/              # @task : select_tables, import_data, sync_to_active, ...
+├── tasks/import_dag/              # @task : select_tables, select_tables_correction, import_data, sync_to_active, ...
 └── utils/config/settings.py       # ECCConfig, ECCDefaults
 
 config/
@@ -115,7 +119,7 @@ scripts/sql/
 ├── init_db.sql                    # Crée schémas, tables splus_admin, permissions
 └── custom_views/                  # Vues métier personnalisées
 
-tests/                             # 861 tests (pytest)
+tests/                             # 878 tests (pytest)
 ```
 
 ---
@@ -131,7 +135,6 @@ splus_admin       Administration
   └── amue_tables Configuration et fingerprints par table
 ```
 
-> 📷 **Capture d'écran suggérée** : *Arborescence dans DBeaver ou pgAdmin listant les 4 schémas avec leurs tables et vues, montrant par exemple `splus.csks` (vue) pointant vers `splus_blue.csks` (table).*
 
 ### Table `splus_admin.amue_state`
 

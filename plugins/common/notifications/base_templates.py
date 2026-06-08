@@ -135,10 +135,12 @@ class BaseTemplates:
     @classmethod
     def _render_header(cls, title: str, subtitle: str, header_color: str) -> str:
         """Rendu du header commun."""
-        subtitle_html = f'<div class="subtitle">{subtitle}</div>' if subtitle else ''
+        safe_title = cls.escape_html(title)
+        safe_subtitle = cls.escape_html(subtitle)
+        subtitle_html = f'<div class="subtitle">{safe_subtitle}</div>' if subtitle else ''
         return f"""
         <div class="header" style="background: {header_color};">
-            <h1>{title}</h1>
+            <h1>{safe_title}</h1>
             {subtitle_html}
         </div>
         """

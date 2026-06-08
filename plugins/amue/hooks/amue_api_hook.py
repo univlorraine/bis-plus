@@ -77,9 +77,9 @@ USAGE
 import json
 import logging
 import os
-import tempfile
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
@@ -89,16 +89,34 @@ from common.utils.config.airflow_helpers import get_airflow_connection
 
 logger = logging.getLogger(__name__)
 
+# Validation TLS explicite pour tous les appels HTTP (OAuth + API AMUE).
+# Surcharger via AMUE_CA_BUNDLE=/chemin/vers/ca-bundle.crt si certificat interne.
+_TLS_VERIFY = os.environ.get("AMUE_CA_BUNDLE", True)
+if isinstance(_TLS_VERIFY, str) and _TLS_VERIFY.lower() in ("0", "false", ""):
+    raise EnvironmentError("AMUE_CA_BUNDLE ne peut pas désactiver la vérification TLS.")
+
 
 # =============================================================================
 # CACHE DE TOKEN (Thread-Safe + Cross-Process via fichier)
 # =============================================================================
 # En mode reschedule Airflow, chaque itération du sensor s'exécute dans un
 # nouveau processus — un cache en mémoire serait réinitialisé à chaque fois.
-# Le token est donc persisté dans un fichier temporaire partagé entre processus.
+# Le token est donc persisté dans un fichier dans un répertoire privé sous
+# AIRFLOW_HOME (0o700), avec des permissions 0o600 sur le fichier lui-même.
 # =============================================================================
 
-_CACHE_FILE = os.path.join(tempfile.gettempdir(), "amue_token_cache.json")
+def _get_cache_file() -> str:
+    """Retourne le chemin du fichier cache du token, en créant le répertoire si besoin.
+
+    Appelé au moment de l'utilisation (pas à l'import) pour éviter tout effet
+    de bord sur les systèmes où AIRFLOW_HOME n'est pas initialisé (ex: tests Windows).
+    """
+    airflow_home = Path(os.environ.get("AIRFLOW_HOME", "/opt/airflow"))
+    cache_dir = airflow_home / ".cache" / "amue"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return str(cache_dir / "token.json")
+
+
 _file_lock = threading.Lock()
 
 
@@ -108,7 +126,7 @@ class _TokenCache:
     def get_token(self) -> tuple[Optional[str], bool]:
         with _file_lock:
             try:
-                with open(_CACHE_FILE, "r") as f:
+                with open(_get_cache_file(), "r") as f:
                     data = json.load(f)
                 token = data.get("token")
                 expires_at = data.get("expires_at")
@@ -124,14 +142,14 @@ class _TokenCache:
             safe_duration = int(expires_in_seconds * 0.9)
             expires_at = datetime.now() + timedelta(seconds=safe_duration)
             data = json.dumps({"token": token, "expires_at": expires_at.isoformat()})
-            fd = os.open(_CACHE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            fd = os.open(_get_cache_file(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, 'w') as f:
                 f.write(data)
 
     def invalidate(self) -> None:
         with _file_lock:
             try:
-                os.remove(_CACHE_FILE)
+                os.remove(_get_cache_file())
             except FileNotFoundError:
                 pass
 
@@ -241,7 +259,8 @@ class AMUEAPIHook:
                 auth=auth,
                 data=data,
                 headers=headers,
-                timeout=30
+                timeout=30,
+                verify=_TLS_VERIFY,
             )
             response.raise_for_status()
 
@@ -354,7 +373,8 @@ class AMUEAPIHook:
                 url,
                 headers=headers,
                 params=params,
-                timeout=timeout
+                timeout=timeout,
+                verify=_TLS_VERIFY,
             )
 
             if check_status_only:
@@ -410,7 +430,8 @@ class AMUEAPIHook:
                 url,
                 headers=headers,
                 params=params,
-                timeout=timeout
+                timeout=timeout,
+                verify=_TLS_VERIFY,
             )
 
             # Gestion spéciale du 401 (token expiré)

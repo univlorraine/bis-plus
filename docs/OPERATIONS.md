@@ -28,9 +28,10 @@ question concrète du type "je veux faire X".
   - [3.13 Consulter les emails en dev (MailHog)](#313-consulter-les-emails-en-dev-mailhog)
   - [3.14 Sauvegarder la base métier](#314-sauvegarder-la-base-métier)
   - [3.15 Importer une table depuis Oracle ECC](#315-importer-une-table-depuis-oracle-ecc)
-  - [3.16 Reprendre un import après échec partiel](#316-reprendre-un-import-après-échec-partiel)
-  - [3.17 Consulter l'historique des imports](#317-consulter-lhistorique-des-imports)
-  - [3.18 Gérer les utilisateurs Airflow](#318-gérer-les-utilisateurs-airflow)
+  - [3.16 Ré-importer des tables spécifiques (correction)](#316-ré-importer-des-tables-spécifiques-correction)
+  - [3.17 Reprendre un import après échec partiel](#317-reprendre-un-import-après-échec-partiel)
+  - [3.18 Consulter l'historique des imports](#318-consulter-lhistorique-des-imports)
+  - [3.19 Gérer les utilisateurs Airflow](#319-gérer-les-utilisateurs-airflow)
 - [4. Comprendre les logs](#4-comprendre-les-logs)
 - [5. Gérer les erreurs](#5-gérer-les-erreurs)
 - [6. Superviser l'état du système](#6-superviser-létat-du-système)
@@ -76,15 +77,17 @@ Quand intervenir ?
 
 ### 2.2 Les DAGs que vous allez croiser
 
-| DAG                       | Rôle                                           | Quand on y touche                                          |
-|---------------------------|------------------------------------------------|------------------------------------------------------------|
-| `amue_multi_table_import` | Import principal (quotidien)                   | Tous les jours (surveillance) ; relance manuelle si échec  |
-| `amue_table_setup`        | Préparation des tables (structure, empreintes) | Après **toute** modification de la liste des tables        |
-| `amue_refresh_views`      | Recrée les vues SQL custom                     | Après ajout/modification d'un fichier `custom_views/*.sql` |
-| `amue_sync_schemas`       | Synchronise blue ↔ green                       | Après une intervention manuelle sur un schéma              |
-| `amue_rollback`           | Repointe les vues vers l'état précédent        | En cas d'import foireux, avant le prochain import          |
-| `amue_status_monitor`     | Fenêtre de surveillance de l'API AMUE          | Rarement — surveillance avancée                            |
-| `ecc_multi_table_import`  | Import depuis Oracle ECC                       | Tous les jours si ECC est activé                           |
+| DAG                        | Rôle                                           | Quand on y touche                                          |
+|----------------------------|------------------------------------------------|------------------------------------------------------------|
+| `amue_multi_table_import`  | Import principal (quotidien)                   | Tous les jours (surveillance) ; relance manuelle si échec  |
+| `amue_correction_import`   | Ré-import AMUE pour des tables spécifiques     | Correction ciblée sans attendre l'heure planifiée          |
+| `amue_table_setup`         | Préparation des tables (structure, empreintes) | Après **toute** modification de la liste des tables        |
+| `amue_refresh_views`       | Recrée les vues SQL custom                     | Après ajout/modification d'un fichier `custom_views/*.sql` |
+| `amue_sync_schemas`        | Synchronise blue ↔ green                       | Après une intervention manuelle sur un schéma              |
+| `amue_rollback`            | Repointe les vues vers l'état précédent        | En cas d'import foireux, avant le prochain import          |
+| `amue_status_monitor`      | Fenêtre de surveillance de l'API AMUE          | Rarement — surveillance avancée                            |
+| `ecc_multi_table_import`   | Import depuis Oracle ECC                       | Tous les jours si ECC est activé                           |
+| `ecc_correction_import`    | Ré-import ECC pour des tables spécifiques      | Correction ciblée ECC sans attendre l'heure planifiée      |
 
 ### 2.3 Les schémas PostgreSQL
 
@@ -525,7 +528,63 @@ valide (`./manage.sh conn-test oracle_data`).
    SELECT COUNT(*) FROM splus.ecc_fournisseurs;
    ```
 
-### 3.16 Reprendre un import après échec partiel
+### 3.16 Ré-importer des tables spécifiques (correction)
+
+**Quand** : une ou plusieurs tables ont des données incorrectes après un import, vous avez corrigé la cause, et vous voulez ré-importer uniquement ces tables sans attendre l'heure planifiée ni relancer l'import complet.
+
+**Prérequis** : les tables ciblées doivent avoir `setup_status = 'ready'` dans `splus_admin.amue_tables`. Si ce n'est pas le cas, lancer d'abord `amue_table_setup`.
+
+**Différences avec le DAG principal :**
+
+- Pas de sensor (l'API est appelée directement au déclenchement)
+- Import toujours en mode FULL (pas de delta)
+- Seules les tables listées dans `selected_tables` sont traitées
+
+**Étapes via l'UI Airflow :**
+
+1. Ouvrir le DAG `amue_correction_import` (ou `ecc_correction_import` pour ECC)
+2. Cliquer sur **Trigger DAG w/ config**
+3. Dans le champ `selected_tables`, saisir le tableau JSON des tables à ré-importer :
+
+   ```json
+   ["CSKS", "LFA1", "BKPF"]
+   ```
+
+4. Soumettre.
+
+**Via CLI :**
+
+```bash
+docker compose exec airflow-apiserver airflow dags trigger amue_correction_import \
+  --conf '{"selected_tables": ["CSKS", "LFA1"]}'
+```
+
+**Pour ECC :**
+
+```bash
+docker compose exec airflow-apiserver airflow dags trigger ecc_correction_import \
+  --conf '{"selected_tables": ["ecc_fournisseurs"]}'
+```
+
+**Vérifier** : dans la vue Grid du run, les tâches `import_data[CSKS]`, `import_data[LFA1]` doivent passer en vert. Les tables non sélectionnées ne sont pas touchées.
+
+**Lister les tables disponibles** si vous ne vous souvenez pas des noms exacts :
+
+```sql
+-- Tables AMUE activées
+SELECT table_name, setup_status FROM splus_admin.amue_tables
+ WHERE enabled = TRUE ORDER BY table_name;
+
+-- Tables ECC activées (avec ecc_query)
+SELECT table_name FROM splus_admin.amue_tables
+ WHERE enabled = TRUE AND ecc_query IS NOT NULL ORDER BY table_name;
+```
+
+---
+
+### 3.17 Reprendre un import après échec partiel
+
+
 
 **Contexte** : l'import s'est planté au milieu (ex : 25 tables sur 32
 importées, puis `import_data[25]` a échoué à cause d'un timeout API).
@@ -560,7 +619,7 @@ ré-appeler le sensor et de retraiter depuis le début) :
 Attention : le nouveau run attendra que l'API publie **un nouveau
 rapport** (sauf si vous activez `amue_force_import=true` pour le test).
 
-### 3.17 Consulter l'historique des imports
+### 3.18 Consulter l'historique des imports
 
 **Dans l'UI** : DAG → vue **Grid** ou **Calendar**. Chaque colonne/jour
 est un run, la couleur indique le résultat.
@@ -593,7 +652,7 @@ docker compose exec airflow-apiserver airflow dags list-runs \
   -d amue_multi_table_import --limit 20
 ```
 
-### 3.18 Gérer les utilisateurs Airflow
+### 3.19 Gérer les utilisateurs Airflow
 
 **Lister** :
 

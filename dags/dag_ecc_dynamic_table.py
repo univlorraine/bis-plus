@@ -35,7 +35,7 @@ CONFIGURATION (Variables Airflow)
   ecc_import_batch_size   Taille batch (défaut: 5000)
   ecc_report_recipients   Destinataires emails (séparés par virgule)
 
-Tables configurées dans : splus_admin.ecc_tables
+Tables configurées dans : splus_admin.amue_tables (colonne ecc_query)
 
 ================================================================================
 """

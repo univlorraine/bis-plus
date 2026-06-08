@@ -310,6 +310,14 @@ class TracingContext:
         }
 
     def __enter__(self) -> 'TracingContext':
+        # Bind le correlation_id au contexte structlog si activé (no-op sinon)
+        from common.utils.structured_logging import is_enabled
+        if is_enabled():
+            import structlog
+            self._structlog_tokens = structlog.contextvars.bind_contextvars(
+                correlation_id=self.correlation_id,
+                operation=self.operation,
+            )
         self.start()
         return self
 
@@ -318,6 +326,12 @@ class TracingContext:
             self.add_metadata("error", str(exc_val))
             self.add_metadata("error_type", exc_type.__name__)
         self.stop()
+        # Détache le correlation_id du contexte structlog
+        tokens = getattr(self, '_structlog_tokens', None)
+        if tokens:
+            import structlog
+            structlog.contextvars.reset_contextvars(**tokens)
+            self._structlog_tokens = None
 
 
 # =============================================================================

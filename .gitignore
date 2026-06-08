@@ -5,7 +5,6 @@
 # Fichiers de configuration sensibles
 # .env contient TOUS les secrets (credentials, passwords)
 .env
-
 # Artefact Windows (redirection >nul)
 nul
 
@@ -29,7 +28,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-!scripts/lib
+!scripts/lib/
 lib64/
 parts/
 sdist/

@@ -6,6 +6,13 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
 
 
+@pytest.fixture(autouse=True)
+def _use_temp_airflow_home(tmp_path, monkeypatch):
+    """Redirige AIRFLOW_HOME vers un répertoire temporaire pour éviter
+    toute tentative de création de /opt/airflow/.cache/amue sur Windows."""
+    monkeypatch.setenv('AIRFLOW_HOME', str(tmp_path))
+
+
 class TestAMUEAPIHookTokenExpiration:
     """Tests pour la gestion d'expiration du token OAuth"""
 

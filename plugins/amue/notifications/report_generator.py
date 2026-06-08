@@ -163,7 +163,8 @@ class AMUEReportGenerator:
         if start_time_str:
             try:
                 start_dt = datetime.fromisoformat(start_time_str)
-                duration_seconds = (datetime.now() - start_dt).total_seconds()
+                now = datetime.now(tz=start_dt.tzinfo) if start_dt.tzinfo else datetime.now()
+                duration_seconds = (now - start_dt).total_seconds()
                 return self._format_duration(duration_seconds)
             except Exception as e:
                 logger.warning(f"[REPORT] Erreur calcul durée: {e}")

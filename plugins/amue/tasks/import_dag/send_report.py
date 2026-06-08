@@ -2,7 +2,7 @@
 import logging
 from typing import Dict, List
 
-from airflow.sdk import task
+from airflow.sdk import get_current_context, task
 
 from amue.notifications.report_generator import AMUEReportGenerator
 from amue.services.table_config_manager import TableConfigManager
@@ -23,6 +23,18 @@ def send_report(import_results: List[Dict], switch_result: Dict, polling_result:
     Returns:
         Statut de l'envoi : {"sent": True/False, "recipients": [...]}
     """
+    polling_result = dict(polling_result or {})
+    if not polling_result.get('start_time'):
+        # Pas de phase de polling (ex: DAG de correction) — on se base sur le
+        # début du dag_run pour que le rapport affiche tout de même une durée.
+        try:
+            dag_run = get_current_context().get('dag_run')
+        except Exception as e:
+            logger.debug(f"[SEND_REPORT] dag_run non disponible dans le contexte: {e}")
+            dag_run = None
+        if dag_run and dag_run.start_date:
+            polling_result['start_time'] = dag_run.start_date.isoformat()
+
     blocked = [
         t['table_name'] for t in TableConfigManager().get_tables_config()
         if t.get('setup_status') == 'blocked'
@@ -34,4 +46,4 @@ def send_report(import_results: List[Dict], switch_result: Dict, polling_result:
         )
 
     generator = AMUEReportGenerator()
-    return generator.generate_and_send(import_results, polling_result or {})
+    return generator.generate_and_send(import_results, polling_result)

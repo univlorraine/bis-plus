@@ -61,7 +61,7 @@ def create_postgres_hook(
         >>> hook = create_postgres_hook(bluegreen_schema='splus_blue')
     """
     # Le schéma blue/green a priorité s'il est spécifié
-    effective_schema = bluegreen_schema if bluegreen_schema else schema
+    effective_schema = bluegreen_schema if bluegreen_schema in (SCHEMA_BLUE, SCHEMA_GREEN) else schema
 
     return PostgresHook(
         postgres_conn_id=conn_id,

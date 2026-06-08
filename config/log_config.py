@@ -18,6 +18,10 @@ LOGGING_CONFIG = deep_update(deepcopy(DEFAULT_LOGGING_CONFIG),
                     "level": "WARNING",
                     "propagate": False,
                 },
+                "alembic.runtime.plugins": {
+                    "level": "WARNING",
+                    "propagate": False,
+                },
             }
         }
     )

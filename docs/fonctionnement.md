@@ -17,12 +17,14 @@
 - [Chaînage pré/post-import](#chaînage-prépost-import)
 - [DAGs disponibles](#dags-disponibles)
   - [`amue_multi_table_import`](#amue_multi_table_import)
+  - [`amue_correction_import`](#amue_correction_import)
   - [`amue_table_setup`](#amue_table_setup)
   - [`amue_sync_schemas`](#amue_sync_schemas)
   - [`amue_rollback`](#amue_rollback)
   - [`amue_refresh_views`](#amue_refresh_views)
   - [`amue_status_monitor`](#amue_status_monitor)
   - [`ecc_multi_table_import`](#ecc_multi_table_import)
+  - [`ecc_correction_import`](#ecc_correction_import)
 
 ---
 
@@ -301,15 +303,17 @@ Cas d'usage typiques :
 
 ## DAGs disponibles
 
-| DAG                         | Déclenchement              | Rôle                                                      |
-|-----------------------------|---------------------------|-----------------------------------------------------------|
-| `amue_multi_table_import`   | Cron + manuel             | Import AMUE principal (5 phases).                         |
-| `amue_table_setup`          | Déclenché + manuel        | Crée/vérifie les structures de tables + fingerprints.     |
-| `amue_sync_schemas`         | Manuel                    | Copie le contenu actif → inactif (snapshot de rollback).  |
-| `amue_rollback`             | Manuel                    | Revient à l'état précédent un import.                     |
-| `amue_refresh_views`        | Manuel                    | Recrée les vues SQL personnalisées.                       |
-| `amue_status_monitor`       | Cron                      | Surveille l'API AMUE pendant la fenêtre nocturne.         |
-| `ecc_multi_table_import`    | Cron + manuel             | Import ECC Oracle → PostgreSQL.                           |
+| DAG                         | Déclenchement              | Rôle                                                                      |
+|-----------------------------|---------------------------|---------------------------------------------------------------------------|
+| `amue_multi_table_import`   | Cron + manuel             | Import AMUE principal (5 phases).                                         |
+| `amue_correction_import`    | Manuel uniquement         | Ré-import AMUE ciblé sur des tables sélectionnées (sans sensor, FULL).    |
+| `amue_table_setup`          | Déclenché + manuel        | Crée/vérifie les structures de tables + fingerprints.                     |
+| `amue_sync_schemas`         | Manuel                    | Copie le contenu actif → inactif (snapshot de rollback).                  |
+| `amue_rollback`             | Manuel                    | Revient à l'état précédent un import.                                     |
+| `amue_refresh_views`        | Manuel                    | Recrée les vues SQL personnalisées.                                       |
+| `amue_status_monitor`       | Cron                      | Surveille l'API AMUE pendant la fenêtre nocturne.                         |
+| `ecc_multi_table_import`    | Cron + manuel             | Import ECC Oracle → PostgreSQL.                                           |
+| `ecc_correction_import`     | Manuel uniquement         | Ré-import ECC ciblé sur des tables sélectionnées.                         |
 
 ---
 

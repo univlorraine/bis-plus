@@ -38,17 +38,17 @@ class TestParseColumnDefinition:
         """NVARCHAR doit être converti en VARCHAR"""
         assert parse_column_definition('NVARCHAR(100)') == 'VARCHAR(100)'
 
-    def test_char_to_bpchar(self):
-        """CHAR doit être converti en BPCHAR"""
-        assert parse_column_definition('CHAR(10)') == 'BPCHAR(10)'
+    def test_char_to_char(self):
+        """CHAR doit être converti en CHAR"""
+        assert parse_column_definition('CHAR(10)') == 'CHAR(10)'
 
-    def test_character_to_bpchar(self):
-        """CHARACTER doit être converti en BPCHAR"""
-        assert parse_column_definition('CHARACTER(20)') == 'BPCHAR(20)'
+    def test_character_to_char(self):
+        """CHARACTER doit être converti en CHAR"""
+        assert parse_column_definition('CHARACTER(20)') == 'CHAR(20)'
 
-    def test_nchar_to_bpchar(self):
-        """NCHAR doit être converti en BPCHAR"""
-        assert parse_column_definition('NCHAR(10)') == 'BPCHAR(10)'
+    def test_nchar_to_char(self):
+        """NCHAR doit être converti en CHAR"""
+        assert parse_column_definition('NCHAR(10)') == 'CHAR(10)'
 
     # --- Types entiers ---
 

@@ -94,11 +94,25 @@ class TestImportConfigValidatorGetPrimaryKeys:
         assert result == []
 
     @patch('amue.operators.pipeline.import_config_validator.TableConfigManager')
-    def test_get_primary_keys_db_error_returns_empty(self, MockTCM):
-        """Retourne [] en cas d'exception BDD (pas de propagation)."""
+    def test_get_primary_keys_db_error_propagates(self, MockTCM):
+        """Une erreur DB (psycopg2.Error) est propagée — un import sans PK serait dangereux."""
+        from psycopg2 import OperationalError
+
         from amue.operators.pipeline.import_config_validator import ImportConfigValidator
 
-        MockTCM.return_value.get_table_metadata.side_effect = Exception("DB error")
+        MockTCM.return_value.get_table_metadata.side_effect = OperationalError("DB down")
+
+        validator = ImportConfigValidator()
+        with pytest.raises(OperationalError):
+            validator.get_primary_keys("CSKS")
+
+    @patch('amue.operators.pipeline.import_config_validator.TableConfigManager')
+    def test_get_primary_keys_invalid_config_returns_empty(self, MockTCM):
+        """Une erreur de format de config (KeyError/AttributeError) retourne []."""
+        from amue.operators.pipeline.import_config_validator import ImportConfigValidator
+
+        # Objet sans `.get()` → AttributeError dans le bloc try interne
+        MockTCM.return_value.get_table_metadata.return_value = "not_a_dict"
 
         validator = ImportConfigValidator()
         result = validator.get_primary_keys("CSKS")

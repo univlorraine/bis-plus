@@ -135,6 +135,12 @@ validate_password_strength() {
     return 0
 }
 
+airflow_exec() {
+    $DOCKER_CMD exec -T airflow-apiserver airflow "$@" 2>&1 \
+        | { grep -v "\[alembic\.runtime\.plugins\]" || true; }
+    return ${PIPESTATUS[0]}
+}
+
 ###############################################################################
 # Étape 1: Vérification des prérequis
 ###############################################################################
@@ -184,6 +190,7 @@ ENV_CHOICE=$(ask_choice "Quel environnement voulez-vous configurer ?" "1")
 case "$ENV_CHOICE" in
     1|dev)
         ENVIRONMENT="dev"
+        AIRFLOW_ENV_VALUE="dev"
         AMUE_API_HOST="https://sandbox.api.amue.fr"
         AMUE_TOKEN_URL="https://sandbox.auth.amue.fr/auth/fer/oauth/token"
         AMUE_API_ENV_PATH="preprod"
@@ -193,6 +200,7 @@ case "$ENV_CHOICE" in
         ;;
     2|prod)
         ENVIRONMENT="production"
+        AIRFLOW_ENV_VALUE="prod"
         AMUE_API_HOST="https://api.amue.fr"
         AMUE_TOKEN_URL="https://auth.amue.fr/auth/fer/oauth/token"
         AMUE_API_ENV_PATH="prod"
@@ -253,6 +261,119 @@ log_info "Les tables sont pré-configurées dans splus_admin.amue_tables (init_d
 log_info "Pour ajouter/modifier des tables après le setup : ./manage.sh add-table"
 
 echo ""
+log_info "=== Authentification CAS (protocole CAS classique) ==="
+CAS_SERVER_URL=""
+CAS_VERSION="2"
+CAS_DEFAULT_ROLE="Viewer"
+CAS_SERVICE_URL=""
+CAS_ALLOWED_USERS=""
+CAS_ADMIN_USERS=""
+AIRFLOW_ADMIN_USERNAME="airflow"
+AIRFLOW_ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -base64 32 | tr -d '\n')
+
+_USE_CAS=$(ask_confirm "Voulez-vous activer l'authentification CAS ?" "o")
+if [[ ! "${_USE_CAS,,}" =~ ^[oy]$ ]]; then
+    log_warning "CAS désactivé — fallback AUTH_DB actif (dev uniquement). Ne jamais utiliser en production."
+else
+    # ── Validation du serveur CAS (Option B) ──────────────────────────────────
+    log_info "Une seule URL suffit — demandez-la à votre DSI."
+    while true; do
+        CAS_SERVER_URL=$(ask "URL du serveur CAS (ex: https://cas.votre-universite.fr)" "")
+        if [[ -z "$CAS_SERVER_URL" ]]; then
+            log_error "L'URL du serveur CAS est obligatoire."
+            continue
+        fi
+        # Appel /serviceValidate avec un faux ticket — un vrai CAS répond toujours
+        # avec du XML <cas:serviceResponse>, même pour un ticket invalide.
+        echo -n "  Vérification du serveur CAS..." >&2
+        _CAS_RESP=$(curl -s --max-time 10 \
+            "${CAS_SERVER_URL%/}/serviceValidate?ticket=ST-FAKE-SETUP-CHECK&service=http://localhost" \
+            2>/dev/null)
+        if echo "$_CAS_RESP" | grep -q "<cas:serviceResponse"; then
+            log_success "Serveur CAS valide (endpoint serviceValidate opérationnel)"
+            break
+        else
+            _HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                "${CAS_SERVER_URL%/}/login" 2>/dev/null)
+            if [[ "$_HTTP" =~ ^(200|302|301)$ ]]; then
+                log_warning "Le serveur répond (HTTP $_HTTP) mais l'endpoint /serviceValidate n'a pas retourné de XML CAS."
+                log_warning "Cela peut indiquer une URL incorrecte ou un chemin de contexte différent."
+                _FORCE=$(ask_confirm "Continuer quand même avec cette URL ?" "n")
+                [[ "${_FORCE,,}" =~ ^[oy]$ ]] && break
+            else
+                log_error "Impossible de joindre le serveur CAS (HTTP ${_HTTP:-timeout}). Vérifiez l'URL."
+            fi
+        fi
+    done
+
+    CAS_VERSION=$(ask "Version du protocole CAS" "2")
+    echo "Rôles disponibles : Admin, Op, User, Viewer" >&2
+    CAS_DEFAULT_ROLE=$(ask "Rôle attribué à la première connexion" "Viewer")
+    CAS_SERVICE_URL=$(ask "URL de callback (vide = auto-détection)" "")
+    CAS_ALLOWED_USERS=$(ask "Usernames autorisés à se connecter, séparés par des virgules (vide = tous)" "")
+
+    # ── Validation des admins CAS (format + confirmation) ─────────────────────
+    echo ""
+    log_info "=== Administrateurs Airflow (rôle Admin) ==="
+    log_info "Seuls ces usernames CAS pourront avoir le rôle Admin."
+    log_info "Tout autre utilisateur sera bloqué au rôle '${CAS_DEFAULT_ROLE}'."
+    while true; do
+        CAS_ADMIN_USERS=$(ask "Usernames Admin CAS, séparés par des virgules (obligatoire)" "")
+        if [[ -z "$CAS_ADMIN_USERS" ]]; then
+            log_error "Au moins un username Admin CAS est requis."
+            continue
+        fi
+
+        # Validation de format : lettres, chiffres, point, tiret, underscore uniquement
+        _format_ok=true
+        for _u in ${CAS_ADMIN_USERS//,/ }; do
+            _u="${_u// /}"
+            if [[ ! "$_u" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+                log_error "Username invalide : '$_u' — seuls les caractères a-z A-Z 0-9 . - _ sont autorisés."
+                _format_ok=false
+            fi
+        done
+        [[ "$_format_ok" == false ]] && continue
+
+        # Confirmation explicite
+        echo "" >&2
+        log_info "Récapitulatif des administrateurs CAS :"
+        for _u in ${CAS_ADMIN_USERS//,/ }; do
+            echo "    • ${_u// /}" >&2
+        done
+        echo "" >&2
+        log_warning "Ces usernames doivent correspondre à des comptes CAS existants."
+        log_warning "Aucune vérification d'existence n'est possible sans connexion réelle."
+        _CONFIRM=$(ask_confirm "Confirmez-vous ces usernames Admin ?" "o")
+        if [[ "${_CONFIRM,,}" =~ ^[oy]$ ]]; then
+            break
+        fi
+        log_info "Resaisissez les usernames Admin."
+    done
+
+    echo ""
+    log_info "=== Utilisateur de bootstrap Airflow ==="
+    log_info "Compte technique créé au démarrage (accessible via AUTH_DB uniquement, pas via CAS)."
+    AIRFLOW_ADMIN_USERNAME=$(ask "Username de bootstrap" "airflow")
+    if [[ -z "$AIRFLOW_ADMIN_USERNAME" ]]; then
+        AIRFLOW_ADMIN_USERNAME="airflow"
+    fi
+
+    # Ajouter automatiquement les admins CAS à la whitelist de connexion
+    if [[ -n "$CAS_ADMIN_USERS" ]]; then
+        for _admin in ${CAS_ADMIN_USERS//,/ }; do
+            _admin="${_admin// /}"
+            if [[ -z "$CAS_ALLOWED_USERS" ]]; then
+                CAS_ALLOWED_USERS="$_admin"
+            elif [[ "$CAS_ALLOWED_USERS" != *"$_admin"* ]]; then
+                CAS_ALLOWED_USERS="$_admin,$CAS_ALLOWED_USERS"
+            fi
+        done
+        log_info "Admins CAS ajoutés à CAS_ALLOWED_USERS : $CAS_ADMIN_USERS"
+    fi
+fi
+
+echo ""
 log_info "=== Credentials AMUE API (stockés dans Airflow DB uniquement) ==="
 OAUTH_CLIENT_ID=$(ask "OAuth Client ID" "")
 OAUTH_CLIENT_SECRET=$(ask_secret "OAuth Client Secret")
@@ -291,9 +412,9 @@ fi
 
 log_info "Étape 5/9: Génération des fichiers de configuration"
 
-# Packages pip — oracledb uniquement si ECC configuré
-PIP_REQS="requests oauthlib requests-oauthlib"
-[[ -n "$ORACLE_HOST" ]] && PIP_REQS="$PIP_REQS oracledb"
+# Les dépendances sont gérées via requirements.txt + image Docker (./manage.sh build).
+# _PIP_ADDITIONAL_REQUIREMENTS est laissé vide pour ne pas réinstaller à chaque démarrage.
+PIP_REQS=""
 
 # Lecture de la version Airflow depuis docker-compose.yml pour rester synchronisé
 AIRFLOW_IMAGE_NAME=$(grep 'AIRFLOW_IMAGE_NAME:-' "$PROJECT_DIR/docker-compose.yml" \
@@ -306,11 +427,19 @@ generate_fernet_key() {
     openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 }
 
+# Génération d'une secret key Flask aléatoire (signe les cookies de session Airflow)
+generate_secret_key() {
+    python3 -c "import secrets; print(secrets.token_hex(64))" 2>/dev/null || \
+    openssl rand -hex 64
+}
+
 # Nouvelle clé à chaque setup (down -v supprime les volumes — l'ancienne clé est inutile)
 FERNET_KEY=$(generate_fernet_key)
 log_info "Clé Fernet générée"
+SECRET_KEY=$(generate_secret_key)
+log_info "Secret key Flask générée"
 
-# Création du fichier .env (sans credentials)
+# Création du fichier .env (sans credentials de connexion)
 cat > ".env" << EOFENV
 ###############################################################################
 # Configuration Airflow AMUE
@@ -323,9 +452,22 @@ cat > ".env" << EOFENV
 AIRFLOW_UID=1001
 AIRFLOW_IMAGE_NAME=$AIRFLOW_IMAGE_NAME
 AIRFLOW__CORE__FERNET_KEY=$FERNET_KEY
-_AIRFLOW_WWW_USER_USERNAME=airflow
-_AIRFLOW_WWW_USER_PASSWORD=airflow
+AIRFLOW__API__SECRET_KEY=$SECRET_KEY
+
+_AIRFLOW_WWW_USER_USERNAME=$AIRFLOW_ADMIN_USERNAME
+_AIRFLOW_WWW_USER_PASSWORD=$AIRFLOW_ADMIN_PASSWORD
 _PIP_ADDITIONAL_REQUIREMENTS="$PIP_REQS"
+
+# Environnement de déploiement (conditionne TrustServerCertificate MSSQL et d'autres comportements)
+AIRFLOW_ENV=$AIRFLOW_ENV_VALUE
+
+# Authentification CAS classique (protocole ticket CAS v2/v3)
+CAS_SERVER_URL=$CAS_SERVER_URL
+CAS_VERSION=$CAS_VERSION
+CAS_DEFAULT_ROLE=$CAS_DEFAULT_ROLE
+CAS_SERVICE_URL=$CAS_SERVICE_URL
+CAS_ALLOWED_USERS=$CAS_ALLOWED_USERS
+CAS_ADMIN_USERS=$CAS_ADMIN_USERS
 
 # SMTP
 SMTP_HOST=$SMTP_HOST
@@ -338,7 +480,7 @@ PG_DATA_DB=$PG_DATABASE
 PG_DATA_PORT=5433
 EOFENV
 
-log_success "Fichier .env créé (sans credentials — stockés dans Airflow DB)"
+log_success "Fichier .env créé (sans credentials de connexion — stockés dans Airflow DB)"
 
 # Calcul des endpoints selon l'environnement (prod : pas de segment de chemin intermédiaire)
 if [[ "$ENVIRONMENT" == "production" ]]; then
@@ -368,23 +510,26 @@ cat > "config/airflow_variables.json" << EOFVARS
   "amue_max_wait_hours": "6",
   "amue_polling_exponential_backoff": "false",
   "amue_polling_max_backoff_minutes": "60",
+  "amue_pre_import_dags": "[]",
+  "amue_post_import_dags": "[]",
   "ecc_import_batch_size": "5000",
-  "ecc_report_recipients": "$AMUE_REPORT_RECIPIENTS",
-  "amue_report_recipients": "$AMUE_REPORT_RECIPIENTS",
   "amue_reports_dir": "/opt/airflow/logs/reports",
+  "amue_report_recipients": "",
+  "ecc_report_recipients": "",
   "smtp_host": "$SMTP_HOST",
   "smtp_port": "$SMTP_PORT",
-  "smtp_mail_from": "$SMTP_MAIL_FROM",
   "smtp_use_tls": "false",
   "smtp_timeout": "30",
+  "smtp_mail_from": "$SMTP_MAIL_FROM",
+  "smtp_sender_name": "Airflow",
   "TYPE_MAPPING_SQLITE_TO_POSTGRES": {
     "TEXT": "TEXT",
     "CLOB": "TEXT",
     "VARCHAR": "VARCHAR",
     "NVARCHAR": "VARCHAR",
-    "CHAR": "BPCHAR",
-    "CHARACTER": "BPCHAR",
-    "NCHAR": "BPCHAR",
+    "CHAR": "CHAR",
+    "CHARACTER": "CHAR",
+    "NCHAR": "CHAR",
     "INTEGER": "INTEGER",
     "TINYINT": "SMALLINT",
     "SMALLINT": "SMALLINT",
@@ -394,6 +539,7 @@ cat > "config/airflow_variables.json" << EOFVARS
     "INT8": "BIGINT",
     "NUMERIC": "NUMERIC",
     "DECIMAL": "NUMERIC",
+    "DEC": "NUMERIC",
     "BOOLEAN": "BOOLEAN",
     "REAL": "DOUBLE PRECISION",
     "DOUBLE": "DOUBLE PRECISION",
@@ -416,6 +562,13 @@ log_info "Étape 6/9: Démarrage des containers Docker"
 
 log_info "Arrêt des containers existants et suppression des volumes..."
 $DOCKER_CMD down -v 2>/dev/null || true
+
+log_info "Construction de l'image Docker (installe les dépendances de requirements.txt)..."
+if ! $DOCKER_CMD build; then
+    log_error "Échec de la construction de l'image Docker"
+    exit 1
+fi
+log_success "Image construite"
 
 log_info "Démarrage des containers (cela peut prendre quelques minutes)..."
 $DOCKER_CMD up -d
@@ -473,16 +626,23 @@ while [[ $_api_retries -gt 0 ]]; do
     sleep 5
 done
 
-# Lancer le script de configuration (variables uniquement)
-log_info "Configuration des variables Airflow..."
+# Lancer le script de configuration (variables non sensibles depuis JSON)
+log_info "Configuration des variables Airflow (non sensibles)..."
 chmod +x "$SCRIPT_DIR/setup_airflow_config.sh"
 "$SCRIPT_DIR/setup_airflow_config.sh" --variables-only
+
+# Injection des variables sensibles directement via CLI (jamais dans le JSON committé)
+log_info "Injection des variables sensibles dans Airflow DB..."
+airflow_exec variables set smtp_mail_from              "$SMTP_MAIL_FROM"
+airflow_exec variables set amue_report_recipients     "$AMUE_REPORT_RECIPIENTS"
+airflow_exec variables set ecc_report_recipients      "$AMUE_REPORT_RECIPIENTS"
+log_success "Variables sensibles injectées dans Airflow DB (non committées)"
 
 # Injection directe des credentials dans Airflow (jamais sur disque)
 log_info "Injection des credentials dans les connexions Airflow..."
 
 $DOCKER_CMD exec -T airflow-apiserver airflow connections delete oauth_api 2>/dev/null || true
-if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add oauth_api \
+if ! airflow_exec connections add oauth_api \
     --conn-type http \
     --conn-host "$AMUE_API_HOST" \
     --conn-login "$OAUTH_CLIENT_ID" \
@@ -492,7 +652,7 @@ if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add oauth_api \
 fi
 
 $DOCKER_CMD exec -T airflow-apiserver airflow connections delete postgres_data 2>/dev/null || true
-if ! $DOCKER_CMD exec -T airflow-apiserver airflow connections add postgres_data \
+if ! airflow_exec connections add postgres_data \
     --conn-type postgres \
     --conn-host "$PG_HOST" \
     --conn-schema "$PG_DATABASE" \
@@ -505,19 +665,15 @@ fi
 
 if [[ -n "$ORACLE_HOST" ]]; then
     $DOCKER_CMD exec -T airflow-apiserver airflow connections delete oracle_data 2>/dev/null || true
-    # Construction JSON via jq pour gérer les caractères spéciaux dans les valeurs
-    _ORACLE_JSON=$(jq -n \
-        --arg host     "$ORACLE_HOST" \
-        --arg schema   "$ORACLE_SID" \
-        --argjson port "$ORACLE_PORT" \
-        --arg login    "$ORACLE_LOGIN" \
-        --arg password "$ORACLE_PASSWORD" \
-        '{"oracle_data":{"conn_type":"odbc","host":$host,"schema":$schema,"port":$port,"login":$login,"password":$password}}')
-    if ! echo "$_ORACLE_JSON" | $DOCKER_CMD exec -i airflow-apiserver \
-            bash -c 'cat > /tmp/_oc.json && airflow connections import /tmp/_oc.json; EC=$?; rm -f /tmp/_oc.json; exit $EC'; then
+    if ! airflow_exec connections add oracle_data \
+        --conn-type odbc \
+        --conn-host "$ORACLE_HOST" \
+        --conn-schema "$ORACLE_SID" \
+        --conn-port "$ORACLE_PORT" \
+        --conn-login "$ORACLE_LOGIN" \
+        --conn-password "$ORACLE_PASSWORD"; then
         log_error "Échec création connexion oracle_data"
     fi
-    unset _ORACLE_JSON
 fi
 
 log_success "Credentials injectés directement dans Airflow DB"
@@ -576,7 +732,14 @@ TABLE_COUNT=0
 while true; do
     echo -n "Ajouter une table ? (o/N) : " >&2
     read -r ADD_TABLE </dev/tty
-    [[ ! "$ADD_TABLE" =~ ^[oOyY]$ ]] && break
+    # Réponse invalide (ni o/y ni n/vide) : probablement un nom de table tapé au mauvais endroit
+    if [[ -n "$ADD_TABLE" && ! "$ADD_TABLE" =~ ^[oOnNyY]$ ]]; then
+        log_warning "Répondre 'o' pour ajouter une table, 'n' ou Entrée pour terminer."
+        continue
+    fi
+    if [[ ! "$ADD_TABLE" =~ ^[oOyY]$ ]]; then
+        break
+    fi
 
     echo -n "  Nom de la table : " >&2
     read -r T_NAME </dev/tty
@@ -716,7 +879,7 @@ while true; do
 done
 
 log_info "Liste des utilisateurs:"
-$DOCKER_CMD exec -T airflow-apiserver airflow users list
+airflow_exec users list
 
 ###############################################################################
 # Vérification finale
@@ -726,11 +889,11 @@ log_info "Vérification finale..."
 
 echo ""
 log_info "Vérification des variables..."
-$DOCKER_CMD exec -T airflow-apiserver airflow variables list | head -20
+airflow_exec variables list | head -20
 
 echo ""
 log_info "Vérification des connexions..."
-$DOCKER_CMD exec -T airflow-apiserver airflow connections list
+airflow_exec connections list
 
 echo ""
 log_info "État des containers..."

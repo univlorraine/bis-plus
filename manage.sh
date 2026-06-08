@@ -36,6 +36,14 @@ fi
 # Fonctions
 ###############################################################################
 
+# Wrapper : exécute une commande airflow dans le container en filtrant les logs
+# de démarrage alembic (ils précèdent la config logging d'Airflow)
+airflow_exec() {
+    $DOCKER_CMD exec -T airflow-apiserver airflow "$@" 2>&1 \
+        | { grep -v "\[alembic\.runtime\.plugins\]" || true; }
+    return ${PIPESTATUS[0]}
+}
+
 show_banner() {
     cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
@@ -124,6 +132,12 @@ Commandes disponibles:
     db-shell            Connexion au shell PostgreSQL
     db-backup           Sauvegarde la base de données
     db-restore [file]   Restaure une sauvegarde
+    db-migrate          Applique les migrations SQL applicatives en attente
+
+  MISE À JOUR
+    update [tag]        Met à jour le projet vers une release GitHub publiée
+                        (sans argument : dernière release ; --resume pour reprendre)
+                        Voir docs/UPGRADE.md pour la procédure complète
 
   MAINTENANCE
     cleanup-logs [days] Supprime les logs > N jours (défaut: 30)
@@ -368,6 +382,13 @@ CREATE TABLE IF NOT EXISTS splus_admin.amue_tables (
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS splus_admin.schema_migrations (
+    version     VARCHAR(10)  PRIMARY KEY,
+    description TEXT         NOT NULL DEFAULT '',
+    applied_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    applied_by  VARCHAR(100) NOT NULL DEFAULT current_user
+);
+
 GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO $PG_USER;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO $PG_USER;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO $PG_USER;
@@ -428,6 +449,65 @@ EOSQL
     fi
 }
 
+# Applique les migrations SQL applicatives en attente (scripts/sql/migrations/NNNN_*.sql)
+# Idempotent : peut être rejouée sans risque (chaque migration doit l'être elle-même,
+# voir scripts/sql/migrations/README.md). Suit l'avancement dans splus_admin.schema_migrations.
+cmd_db_migrate() {
+    _load_pg_creds
+
+    local migrations_dir="scripts/sql/migrations"
+    if [[ ! -d "$migrations_dir" ]]; then
+        log_warning "Aucun répertoire de migrations ($migrations_dir) — rien à faire"
+        return 0
+    fi
+
+    local applied
+    applied=$(PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data \
+        psql -U "$PG_USER" -d "$PG_DB" -t -A \
+        -c "SELECT version FROM splus_admin.schema_migrations ORDER BY version;" 2>/dev/null)
+
+    local pending=()
+    local file version description
+    for file in "$migrations_dir"/[0-9][0-9][0-9][0-9]_*.sql; do
+        [[ -e "$file" ]] || continue
+        version=$(basename "$file" | cut -d'_' -f1)
+        if ! grep -qx "$version" <<< "$applied"; then
+            pending+=("$file")
+        fi
+    done
+
+    if [[ ${#pending[@]} -eq 0 ]]; then
+        log_info "Aucune migration en attente"
+        return 0
+    fi
+
+    log_info "${#pending[@]} migration(s) en attente :"
+    for file in "${pending[@]}"; do
+        log_info "  - $(basename "$file")"
+    done
+
+    for file in "${pending[@]}"; do
+        version=$(basename "$file" | cut -d'_' -f1)
+        description=$(basename "$file" .sql | cut -d'_' -f2- | tr '_' ' ')
+
+        log_info "Application de la migration $version ($description)..."
+        if ! PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data \
+            psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 -q < "$file"; then
+            log_error "Échec de la migration $version ($(basename "$file"))"
+            log_error "Le fichier est censé être idempotent : corrigez-le puis relancez './manage.sh db-migrate'"
+            return 1
+        fi
+
+        PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data \
+            psql -U "$PG_USER" -d "$PG_DB" -q -c \
+            "INSERT INTO splus_admin.schema_migrations (version, description) VALUES ('$version', '$description') ON CONFLICT (version) DO NOTHING;"
+
+        log_success "Migration $version appliquée"
+    done
+
+    log_success "${#pending[@]} migration(s) appliquée(s)"
+}
+
 cmd_build() {
     if [[ ! -f "Dockerfile" ]]; then
         log_error "Dockerfile absent — rien à construire"
@@ -485,7 +565,7 @@ cmd_export() {
 
 cmd_dags() {
     log_info "Liste des DAGs:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags list
+    airflow_exec dags list
 }
 
 cmd_trigger() {
@@ -498,7 +578,7 @@ cmd_trigger() {
     fi
 
     log_info "Déclenchement du DAG $dag_id..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags trigger "$dag_id"
+    airflow_exec dags trigger "$dag_id"
     log_success "DAG déclenché"
 }
 
@@ -510,7 +590,7 @@ cmd_pause() {
     fi
 
     log_info "Mise en pause du DAG $dag_id..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags pause "$dag_id"
+    airflow_exec dags pause "$dag_id"
     log_success "DAG mis en pause"
 }
 
@@ -522,18 +602,18 @@ cmd_unpause() {
     fi
 
     log_info "Réactivation du DAG $dag_id..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags unpause "$dag_id"
+    airflow_exec dags unpause "$dag_id"
     log_success "DAG réactivé"
 }
 
 cmd_variables() {
     log_info "Variables Airflow:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow variables list
+    airflow_exec variables list
 }
 
 cmd_connections() {
     log_info "Connexions Airflow:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow connections list
+    airflow_exec connections list
 }
 
 ###############################################################################
@@ -589,7 +669,7 @@ cmd_var_set() {
     fi
 
     log_info "Définition de la variable '$key'..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$value"
+    airflow_exec variables set "$key" "$value"
     log_success "Variable '$key' définie"
 }
 
@@ -609,7 +689,7 @@ cmd_var_delete() {
     read -r CONFIRM </dev/tty
     [[ ! "$CONFIRM" =~ ^[oOyY]$ ]] && { log_info "Annulé"; exit 0; }
 
-    $DOCKER_CMD exec -T airflow-apiserver airflow variables delete "$key"
+    airflow_exec variables delete "$key"
     log_success "Variable '$key' supprimée"
 }
 
@@ -664,7 +744,7 @@ cmd_var_import() {
     [[ ! "$CONFIRM" =~ ^[oOyY]$ ]] && { log_info "Annulé"; exit 0; }
 
     log_info "Import en cours..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow variables import - < "$input_file"
+    airflow_exec variables import - < "$input_file"
     log_success "Variables importées"
 
     echo ""
@@ -884,19 +964,59 @@ cmd_config_validate() {
     # 1. Vérification du fichier .env
     log_info "=== Fichier .env ==="
     if [[ -f ".env" ]]; then
+        # Variables obligatoires — leur absence bloque le démarrage
         local required_vars=(
             "AIRFLOW__CORE__FERNET_KEY"
+            "AIRFLOW__API__SECRET_KEY"
             "AIRFLOW_IMAGE_NAME"
+            "AIRFLOW_ENV"
+        )
+        # Variables CAS — optionnelles : fallback AUTH_DB avec warning si absentes
+        local cas_vars=(
+            "CAS_SERVER_URL"
         )
 
         for var in "${required_vars[@]}"; do
-            if grep -q "^${var}=" .env && [[ -n "$(grep "^${var}=" .env | cut -d'=' -f2-)" ]]; then
-                echo "  ✓ $var"
-            else
+            local val
+            val=$(grep "^${var}=" .env 2>/dev/null | cut -d'=' -f2-)
+            if [[ -z "$val" ]]; then
                 echo "  ✗ $var (manquant ou vide)"
                 ((errors+=1))
+            elif echo "$val" | grep -qE '<À_COMPLÉTER>|REMPLACER_PAR'; then
+                echo "  ✗ $var (placeholder non remplacé)"
+                ((errors+=1))
+            else
+                echo "  ✓ $var"
             fi
         done
+
+        local cas_missing=0
+        for var in "${cas_vars[@]}"; do
+            local val
+            val=$(grep "^${var}=" .env 2>/dev/null | cut -d'=' -f2-)
+            if [[ -z "$val" ]] || echo "$val" | grep -qE '<À_COMPLÉTER>|REMPLACER_PAR'; then
+                echo "  ⚠ $var (non configuré — fallback AUTH_DB actif)"
+                ((cas_missing+=1))
+            else
+                echo "  ✓ $var"
+            fi
+        done
+        if [[ $cas_missing -gt 0 ]]; then
+            log_warning "CAS non configuré : Airflow utilise l'authentification locale (dev uniquement)"
+        else
+            # CAS configuré — afficher les variables optionnelles pour information
+            local cas_optional_vars=(CAS_VERSION CAS_DEFAULT_ROLE CAS_SERVICE_URL)
+            local cas_optional_defaults=("2" "Viewer" "(auto)")
+            echo ""
+            log_info "  Variables CAS optionnelles :"
+            for i in "${!cas_optional_vars[@]}"; do
+                local ovar="${cas_optional_vars[$i]}"
+                local oval
+                oval=$(grep "^${ovar}=" .env 2>/dev/null | cut -d'=' -f2-)
+                local display="${oval:-${cas_optional_defaults[$i]}}"
+                echo "    ${ovar} = ${display}"
+            done
+        fi
     else
         log_error ".env non trouvé"
         ((errors+=1))
@@ -938,21 +1058,27 @@ cmd_config_validate() {
         "api_endpoint_table"
         "amue_import_batch_size"
         "amue_report_recipients"
+        "ecc_report_recipients"
         "smtp_host"
         "smtp_port"
         "smtp_mail_from"
     )
 
-    # Fetch une seule fois pour eviter 8 docker exec separes
+    # Fetch une seule fois pour eviter N docker exec separes
     local _vars_json
     _vars_json=$($DOCKER_CMD exec -T airflow-apiserver airflow variables list --output json 2>/dev/null || echo "[]")
 
     for var in "${airflow_vars[@]}"; do
-        if printf '%s' "$_vars_json" | jq -e --arg v "$var" '.[] | select(.key == $v)' >/dev/null 2>&1; then
-            echo "  ✓ $var"
-        else
+        local _val
+        _val=$(printf '%s' "$_vars_json" | jq -r --arg v "$var" '.[] | select(.key == $v) | .val // ""' 2>/dev/null)
+        if [[ -z "$_val" ]]; then
             echo "  ✗ $var (non définie)"
             ((errors+=1))
+        elif echo "$_val" | grep -qE 'VOIR_ENV|<À_COMPLÉTER>|REMPLACER_PAR'; then
+            echo "  ✗ $var (placeholder non remplacé : $_val)"
+            ((errors+=1))
+        else
+            echo "  ✓ $var"
         fi
     done
 
@@ -1117,7 +1243,7 @@ cmd_config_restore() {
 
 cmd_users() {
     log_info "Utilisateurs Airflow:"
-    $DOCKER_CMD exec -T airflow-apiserver airflow users list
+    airflow_exec users list
 }
 
 cmd_add_user() {
@@ -1153,7 +1279,7 @@ cmd_add_user() {
 
     log_info "Création de l'utilisateur $USERNAME avec le rôle $ROLE..."
 
-    $DOCKER_CMD exec -T airflow-apiserver airflow users create \
+    airflow_exec users create \
         --username "$USERNAME" \
         --email "$EMAIL" \
         --firstname "$FIRSTNAME" \
@@ -1174,7 +1300,7 @@ cmd_delete_user() {
     fi
 
     log_warning "Suppression de l'utilisateur $username"
-    $DOCKER_CMD exec -T airflow-apiserver airflow users delete --username "$username"
+    airflow_exec users delete --username "$username"
     log_success "Utilisateur $username supprimé"
 }
 
@@ -1678,6 +1804,364 @@ cmd_db_restore() {
     log_success "Base de données restaurée"
 }
 
+# Résout/valide une release GitHub PUBLIÉE et expose le résultat dans les variables
+# globales GITHUB_RELEASE_TAG / GITHUB_RELEASE_NAME (vides + retour != 0 en cas d'échec).
+# - Sans argument : récupère la dernière release publiée
+# - Avec un tag    : vérifie qu'il correspond bien à une release publiée (pas une simple
+#                    branche ou un tag git quelconque) — la mise à jour ne doit cibler
+#                    que des releases GitHub.
+_resolve_github_release() {
+    local requested="${1:-}"
+    GITHUB_RELEASE_TAG=""
+    GITHUB_RELEASE_NAME=""
+
+    local remote_url owner_repo releases_url
+    remote_url=$(git remote -v 2>/dev/null | awk '/github\.com/ {print $2; exit}')
+    if [[ -z "$remote_url" ]]; then
+        log_error "Aucun remote git ne pointe vers github.com (cf. 'git remote -v')"
+        return 1
+    fi
+    owner_repo=$(echo "$remote_url" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')
+    releases_url="https://api.github.com/repos/${owner_repo}/releases"
+
+    local query_url
+    if [[ -n "$requested" ]]; then
+        query_url="${releases_url}/tags/${requested}"
+    else
+        query_url="${releases_url}/latest"
+    fi
+
+    local response http_code body
+    response=$(curl -s --max-time 10 -w '\n%{http_code}' "$query_url" 2>/dev/null)
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+
+    if [[ "$http_code" != "200" ]]; then
+        if [[ -n "$requested" ]]; then
+            log_error "'$requested' n'est pas une release GitHub publiée (HTTP ${http_code:-?})"
+            log_info "Releases disponibles : https://github.com/${owner_repo}/releases"
+        else
+            log_error "Impossible de récupérer la dernière release GitHub (HTTP ${http_code:-?})"
+            log_info "Vérifiez l'accès réseau à api.github.com (timeout ou limite de taux possible)"
+        fi
+        return 1
+    fi
+
+    local _parsed
+    _parsed=$(echo "$body" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print('\x1f'.join([d.get('tag_name') or '', d.get('name') or '']))
+except Exception:
+    print('\x1f')
+" 2>/dev/null)
+    IFS=$'\x1f' read -r GITHUB_RELEASE_TAG GITHUB_RELEASE_NAME <<< "$_parsed"
+
+    if [[ -z "$GITHUB_RELEASE_TAG" ]]; then
+        log_error "Réponse GitHub invalide — impossible d'extraire le tag de la release"
+        return 1
+    fi
+
+    return 0
+}
+
+# Synchronise les variables Airflow depuis config/airflow_variables.json de façon
+# "diff-based" : n'écrase JAMAIS une valeur existante, n'ajoute/ne met à jour que
+# les clés nouvelles ou dont la valeur a changé par rapport au référentiel versionné.
+# Les clés personnalisées par l'opérateur (absentes du template) sont préservées telles quelles.
+_sync_variables() {
+    local template="config/airflow_variables.json"
+    if [[ ! -f "$template" ]]; then
+        log_warning "$template introuvable — synchronisation des variables ignorée"
+        return 0
+    fi
+
+    local current_json
+    current_json=$($DOCKER_CMD exec -T airflow-apiserver airflow variables export - 2>/dev/null)
+
+    local diff_output
+    diff_output=$(echo "$current_json" | python3 -c "
+import json, sys
+
+with open('$template', encoding='utf-8') as f:
+    template = json.load(f)
+
+try:
+    current = json.load(sys.stdin)
+except Exception:
+    current = {}
+if isinstance(current, list):
+    current = {item['key']: item.get('val', '') for item in current}
+
+for key, new_val in template.items():
+    new_val = new_val if isinstance(new_val, str) else json.dumps(new_val)
+    if key not in current:
+        print(f'NEW\x1f{key}\x1f{new_val}')
+    elif current[key] != new_val:
+        print(f'CHANGED\x1f{key}\x1f{new_val}')
+" 2>/dev/null)
+
+    if [[ -z "$diff_output" ]]; then
+        log_info "Variables Airflow déjà à jour — rien à synchroniser"
+        return 0
+    fi
+
+    local action key value count=0
+    while IFS=$'\x1f' read -r action key value; do
+        [[ -z "$key" ]] && continue
+        if [[ "$action" == "NEW" ]]; then
+            log_info "  + nouvelle variable : $key"
+        else
+            log_info "  ~ variable mise à jour (template modifié) : $key"
+        fi
+        $DOCKER_CMD exec -T airflow-apiserver airflow variables set "$key" "$value" > /dev/null 2>&1
+        ((count+=1))
+    done <<< "$diff_output"
+
+    log_success "$count variable(s) synchronisée(s) depuis $template"
+}
+
+# Écrit le fichier marqueur de progression de cmd_update (étape atteinte + contexte de reprise/rollback)
+_update_write_marker() {
+    local marker="$1" step="$2" tag="$3" prev_ref="$4" db_backup="$5" config_backup="$6"
+    mkdir -p backups
+    cat > "$marker" << EOF
+UPDATE_LAST_STEP=$step
+UPDATE_TARGET_TAG=$tag
+UPDATE_PREVIOUS_REF=$prev_ref
+UPDATE_DB_BACKUP=$db_backup
+UPDATE_CONFIG_BACKUP=$config_backup
+EOF
+}
+
+# Affiche les instructions de reprise/rollback quand une étape de cmd_update échoue
+_update_fail() {
+    local marker="$1" step_num="$2" total_steps="$3" step_name="$4" \
+          tag="$5" prev_ref="$6" db_backup="$7" config_backup="$8"
+    _update_write_marker "$marker" "$((step_num - 1))" "$tag" "$prev_ref" "$db_backup" "$config_backup"
+    echo "" >&2
+    log_error "Mise à jour interrompue à l'étape $step_num/$total_steps ($step_name)."
+    log_info "Pour corriger le problème puis reprendre : ./manage.sh update $tag --resume"
+    log_info "Pour annuler complètement la mise à jour :"
+    log_info "  git checkout $prev_ref"
+    [[ -n "$db_backup" ]] && log_info "  ./manage.sh db-restore $db_backup"
+    [[ -n "$config_backup" ]] && log_info "  ./manage.sh config-restore $config_backup"
+    log_info "  ./manage.sh build && ./manage.sh start"
+}
+
+# Met à jour le PROJET DANS SON ENSEMBLE (code, dépendances/image Docker, schéma SQL
+# applicatif, métadonnées Airflow, variables Airflow) à partir d'une RELEASE GITHUB PUBLIÉE.
+# La cible est toujours une release publiée — jamais une branche ou un commit arbitraire :
+#   ./manage.sh update              -> prend la dernière release publiée
+#   ./manage.sh update v1.2.0       -> vérifie que v1.2.0 est une release publiée
+#   ./manage.sh update v1.2.0 --resume -> reprend une mise à jour interrompue à l'étape v1.2.0
+cmd_update() {
+    local target="" resume=false
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --resume) resume=true ;;
+            *) [[ -z "$target" ]] && target="$arg" ;;
+        esac
+    done
+
+    local marker="backups/.update_in_progress"
+    local total_steps=9
+    local current_ref
+    current_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    [[ "$current_ref" == "HEAD" ]] && current_ref=$(git rev-parse --short HEAD 2>/dev/null)
+
+    local last_step=0 db_backup_file="" config_backup_file="" release_tag=""
+
+    if [[ "$resume" == true && -f "$marker" ]]; then
+        # shellcheck disable=SC1090
+        source "$marker"
+        last_step="${UPDATE_LAST_STEP:-0}"
+        db_backup_file="${UPDATE_DB_BACKUP:-}"
+        config_backup_file="${UPDATE_CONFIG_BACKUP:-}"
+        release_tag="${UPDATE_TARGET_TAG:-}"
+        current_ref="${UPDATE_PREVIOUS_REF:-$current_ref}"
+        log_info "Reprise d'une mise à jour interrompue après l'étape $last_step (marqueur : $marker)"
+        [[ -n "$target" && -n "$release_tag" && "$target" != "$release_tag" ]] \
+            && log_warning "Cible '$target' ignorée — reprise de la mise à jour vers '$release_tag' déjà en cours"
+        target="$release_tag"
+    fi
+
+    # ---- Étape 1/9 : résolution de la release + pré-checks ----
+    if [[ "$last_step" -lt 1 ]]; then
+        log_info "[ÉTAPE 1/$total_steps] Résolution de la release cible et vérifications préalables..."
+
+        if [[ -n "$target" ]]; then
+            log_info "Vérification que '$target' correspond à une release GitHub publiée..."
+        else
+            log_info "Recherche de la dernière release GitHub publiée..."
+        fi
+        if ! _resolve_github_release "$target"; then
+            log_error "Une mise à jour ne peut cibler qu'une release GitHub publiée (jamais une branche ou un commit)"
+            return 1
+        fi
+        release_tag="$GITHUB_RELEASE_TAG"
+        log_success "Release cible : $release_tag${GITHUB_RELEASE_NAME:+ ($GITHUB_RELEASE_NAME)}"
+
+        if [[ -n "$(git status --porcelain)" ]]; then
+            log_error "Arbre de travail git non propre — committez ou annulez vos changements avant la mise à jour"
+            git status --short
+            return 1
+        fi
+
+        git fetch --tags --quiet 2>/dev/null \
+            || log_warning "'git fetch --tags' a échoué (pas d'accès au remote ?) — utilisation des tags locaux"
+        if ! git rev-parse "$release_tag" > /dev/null 2>&1; then
+            log_error "Le tag '$release_tag' est introuvable localement même après 'git fetch --tags'"
+            return 1
+        fi
+
+        log_info "Vérification de l'état de santé actuel (référence avant mise à jour)..."
+        cmd_health || log_warning "L'état de santé actuel n'est pas entièrement vert — la mise à jour peut tout de même continuer"
+
+        _update_write_marker "$marker" 1 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 1/$total_steps] déjà effectuée (reprise) — release cible : $release_tag"
+    fi
+
+    # ---- Étape 2/9 : confirmation ----
+    if [[ "$last_step" -lt 2 ]]; then
+        log_info "[ÉTAPE 2/$total_steps] Confirmation..."
+
+        local current_version target_version
+        current_version=$(cat VERSION 2>/dev/null || echo "inconnue")
+        target_version=$(git show "${release_tag}:VERSION" 2>/dev/null || echo "inconnue")
+
+        echo "" >&2
+        log_info "Version actuelle  : $current_version (réf. git : $current_ref)"
+        log_info "Version cible     : $target_version (release : $release_tag)"
+        [[ -n "$GITHUB_RELEASE_NAME" ]] && log_info "Nom de la release : $GITHUB_RELEASE_NAME"
+
+        local migrations_dir="scripts/sql/migrations"
+        if [[ -d "$migrations_dir" ]]; then
+            local migration_count
+            migration_count=$(find "$migrations_dir" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' 2>/dev/null | wc -l | tr -d ' ')
+            [[ "$migration_count" -gt 0 ]] && log_info "Migrations présentes dans le dépôt : $migration_count (statut exact vérifié à l'étape 8)"
+        fi
+
+        echo "" >&2
+        log_warning "Cette opération va arrêter les services, mettre à jour le code, reconstruire l'image,"
+        log_warning "appliquer les migrations SQL et redémarrer. Des sauvegardes seront créées avant toute action destructive."
+        echo -n "Continuer la mise à jour vers $release_tag ? (o/N) : " >&2
+        read -r _CONFIRM </dev/tty
+        if [[ ! "$_CONFIRM" =~ ^[oOyY]$ ]]; then
+            log_info "Mise à jour annulée"
+            return 0
+        fi
+
+        _update_write_marker "$marker" 2 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 2/$total_steps] déjà effectuée (reprise)"
+    fi
+
+    # ---- Étape 3/9 : sauvegardes ----
+    if [[ "$last_step" -lt 3 ]]; then
+        log_info "[ÉTAPE 3/$total_steps] Sauvegarde de la base de données et de la configuration..."
+        mkdir -p backups backups/config
+
+        if ! cmd_db_backup; then
+            _update_fail "$marker" 3 "$total_steps" "sauvegarde de la base de données" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        db_backup_file=$(ls -t backups/*.sql 2>/dev/null | head -1)
+
+        if ! cmd_config_backup; then
+            _update_fail "$marker" 3 "$total_steps" "sauvegarde de la configuration" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        config_backup_file=$(ls -t backups/config/*.tar.gz 2>/dev/null | head -1)
+
+        log_success "Sauvegardes prêtes : $db_backup_file / $config_backup_file"
+        _update_write_marker "$marker" 3 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 3/$total_steps] déjà effectuée (reprise) — sauvegardes : $db_backup_file / $config_backup_file"
+    fi
+
+    # ---- Étape 4/9 : arrêt des services ----
+    if [[ "$last_step" -lt 4 ]]; then
+        log_info "[ÉTAPE 4/$total_steps] Arrêt des services..."
+        if ! cmd_stop; then
+            _update_fail "$marker" 4 "$total_steps" "arrêt des services" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        _update_write_marker "$marker" 4 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 4/$total_steps] déjà effectuée (reprise)"
+    fi
+
+    # ---- Étape 5/9 : mise à jour du code ----
+    if [[ "$last_step" -lt 5 ]]; then
+        log_info "[ÉTAPE 5/$total_steps] Mise à jour du code vers $release_tag..."
+        if ! git checkout "$release_tag"; then
+            _update_fail "$marker" 5 "$total_steps" "checkout de la release '$release_tag'" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        log_success "Code à jour : $release_tag"
+        _update_write_marker "$marker" 5 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 5/$total_steps] déjà effectuée (reprise) — code déjà sur $release_tag"
+    fi
+
+    # ---- Étape 6/9 : reconstruction de l'image Docker ----
+    if [[ "$last_step" -lt 6 ]]; then
+        log_info "[ÉTAPE 6/$total_steps] Reconstruction de l'image Docker (code + dépendances Python)..."
+        if ! cmd_build; then
+            _update_fail "$marker" 6 "$total_steps" "reconstruction de l'image Docker" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        _update_write_marker "$marker" 6 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 6/$total_steps] déjà effectuée (reprise)"
+    fi
+
+    # ---- Étape 7/9 : redémarrage ----
+    if [[ "$last_step" -lt 7 ]]; then
+        log_info "[ÉTAPE 7/$total_steps] Redémarrage des services..."
+        log_info "Le service airflow-init exécute automatiquement 'airflow db migrate' au démarrage (_AIRFLOW_DB_MIGRATE=true)"
+        if ! cmd_start; then
+            _update_fail "$marker" 7 "$total_steps" "redémarrage des services" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        _update_write_marker "$marker" 7 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 7/$total_steps] déjà effectuée (reprise)"
+    fi
+
+    # ---- Étape 8/9 : migrations SQL applicatives + synchro variables ----
+    if [[ "$last_step" -lt 8 ]]; then
+        log_info "[ÉTAPE 8/$total_steps] Application des migrations SQL et synchronisation des variables Airflow..."
+        if ! cmd_db_migrate; then
+            _update_fail "$marker" 8 "$total_steps" "migrations SQL applicatives" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        if ! _sync_variables; then
+            _update_fail "$marker" 8 "$total_steps" "synchronisation des variables Airflow" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+            return 1
+        fi
+        _update_write_marker "$marker" 8 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
+    else
+        log_info "[ÉTAPE 8/$total_steps] déjà effectuée (reprise)"
+    fi
+
+    # ---- Étape 9/9 : vérification finale ----
+    log_info "[ÉTAPE 9/$total_steps] Vérification finale..."
+    cmd_health
+    cmd_verify || log_warning "cmd_verify a signalé des avertissements — vérifiez la sortie ci-dessus"
+
+    rm -f "$marker"
+
+    echo "" >&2
+    log_success "Mise à jour terminée : $current_ref -> $release_tag"
+    log_info "Sauvegardes conservées : $db_backup_file / $config_backup_file"
+    log_info "Pour revenir en arrière si besoin, voir docs/UPGRADE.md (section Rollback)"
+}
+
 cmd_test() {
     local dag_id=${1:-}
     if [[ -z "$dag_id" ]]; then
@@ -1686,7 +2170,7 @@ cmd_test() {
     fi
 
     log_info "Test du DAG $dag_id..."
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags test "$dag_id"
+    airflow_exec dags test "$dag_id"
 }
 
 cmd_test_email() {
@@ -1717,7 +2201,29 @@ cmd_clean() {
 }
 
 cmd_version() {
-    log_info "Versions:"
+    log_info "Version applicative:"
+    echo ""
+
+    local app_version
+    app_version=$(cat VERSION 2>/dev/null || git describe --tags 2>/dev/null || echo "inconnue")
+    echo "DemoDAGS: $app_version"
+    echo "Référence git: $(git rev-parse --abbrev-ref HEAD 2>/dev/null) ($(git rev-parse --short HEAD 2>/dev/null))"
+
+    if $DOCKER_CMD ps 2>/dev/null | grep -q "postgres-data"; then
+        _load_pg_creds
+        local migrations
+        migrations=$(PGPASSWORD="$PG_PASSWORD" $DOCKER_CMD exec -T postgres-data \
+            psql -U "$PG_USER" -d "$PG_DB" -t -A -F ' | ' \
+            -c "SELECT version, description, applied_at FROM splus_admin.schema_migrations ORDER BY version DESC LIMIT 5;" 2>/dev/null)
+        if [[ -n "$migrations" ]]; then
+            echo ""
+            echo "Dernières migrations appliquées (splus_admin.schema_migrations) :"
+            echo "$migrations" | while IFS= read -r line; do echo "  $line"; done
+        fi
+    fi
+
+    echo ""
+    log_info "Versions runtime:"
     echo ""
 
     echo -n "Docker: "
@@ -1819,7 +2325,7 @@ cmd_task_logs() {
     log_info "Logs de la tâche $task_id du DAG $dag_id..."
 
     if [[ -n "$run_id" ]]; then
-        $DOCKER_CMD exec -T airflow-apiserver airflow tasks logs "$dag_id" "$task_id" "$run_id"
+        airflow_exec tasks logs "$dag_id" "$task_id" "$run_id"
     else
         # Récupère le dernier run_id — dag_id et task_id passés en args positionnels (évite l'injection)
         log_info "Recherche du dernier run..."
@@ -1886,7 +2392,7 @@ cmd_backfill() {
     log_info "Backfill du DAG $dag_id du $start_date au $end_date..."
     log_warning "Cette opération peut prendre du temps..."
 
-    $DOCKER_CMD exec -T airflow-apiserver airflow dags backfill \
+    airflow_exec dags backfill \
         --start-date "$start_date" \
         --end-date "$end_date" \
         "$dag_id"
@@ -1939,7 +2445,7 @@ cmd_cleanup_db() {
         || date -v-${days}d +%Y-%m-%d 2>/dev/null \
         || { log_error "Commande date incompatible — impossible de calculer la date"; exit 1; })
 
-    $DOCKER_CMD exec -T airflow-apiserver airflow db clean \
+    airflow_exec db clean \
         --clean-before-timestamp "$cutoff_date" \
         --yes
 
@@ -2004,7 +2510,7 @@ cmd_validate() {
         log_success "Tous les DAGs sont valides"
     else
         # Affichage texte uniquement en cas d'erreurs (evite le double appel dans le cas nominal)
-        $DOCKER_CMD exec -T airflow-apiserver airflow dags list-import-errors
+        airflow_exec dags list-import-errors
         log_error "$error_count erreur(s) d'import détectée(s)"
     fi
 
@@ -2207,6 +2713,8 @@ main() {
         db-shell)       cmd_db_shell "$@" ;;
         db-backup)      cmd_db_backup "$@" ;;
         db-restore)     cmd_db_restore "$@" ;;
+        db-migrate)     cmd_db_migrate "$@" ;;
+        update)         cmd_update "$@" ;;
 
         # Maintenance
         cleanup-logs)   cmd_cleanup_logs "$@" ;;

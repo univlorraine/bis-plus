@@ -1,8 +1,10 @@
 # Base intermédiaire SifacPlus
 
-Outil d'import automatisé des données financières SIFAC+ et ECC vers une base PostgreSQL, orchestré par Apache Airflow.
+Pipeline d'intégration de données financières universitaires vers PostgreSQL, orchestré par Apache Airflow.
 
-Les données sont importées quotidiennement depuis l'API SIFAC+, avec détection des changements de structure, import différentiel, et rollback instantané via une architecture Blue/Green.
+Deux sources sont prises en charge : l'API **AMUE (SIFAC+)** pour l'import quotidien des données financières, et les bases **Oracle ECC** pour les tables SAP complémentaires.
+
+L'architecture Blue/Green garantit des bascules atomiques et un rollback instantané — les vues publiques `splus.*` pointent toujours vers un schéma cohérent et complet.
 
 ## Prérequis
 
@@ -24,4 +26,6 @@ Le script configure l'environnement, les credentials API AMUE et PostgreSQL, pui
 
 - [Fonctionnement](docs/fonctionnement.md) — cycle d'import, Blue/Green, rollback, notifications
 - [Technique](docs/technique.md) — structure du projet, schémas PostgreSQL, principes de conception
+- [Opérations](docs/OPERATIONS.md) — scénarios quotidiens, gestion des tables, correction, dépannage
 - [Installation](INSTALL.md) — prérequis, configuration, commandes, résolution de problèmes
+- [Présentation](PRESENTATION.md) — architecture détaillée des DAGs, composants, variables

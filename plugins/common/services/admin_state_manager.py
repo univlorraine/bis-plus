@@ -19,8 +19,11 @@ un UPDATE ... WHERE import_in_progress = FALSE RETURNING id.
 ================================================================================
 """
 import logging
+from contextlib import closing
 from datetime import datetime
 from typing import Optional
+
+from psycopg2 import sql as pgsql
 
 from common.services.bluegreen.bluegreen_state_manager import BlueGreenState
 from common.utils.database.hooks import create_postgres_hook
@@ -28,10 +31,9 @@ from common.utils.tracing import to_iso_str
 
 logger = logging.getLogger(__name__)
 
-_TABLE = "splus_admin.amue_state"
-# SECURITY: _TABLE must never become user-configurable — all queries interpolate it via f-strings.
-# To make it dynamic, migrate all queries to psycopg2.sql.Identifier first.
-assert _TABLE == "splus_admin.amue_state", "Unsafe _TABLE modification detected"
+# psycopg2.sql.Identifier garantit que le nom de table/schéma est correctement
+# entre guillemets même si _TABLE venait à être rendu dynamique.
+_TABLE = pgsql.Identifier("splus_admin", "amue_state")
 _ROW_ID = 1
 
 
@@ -52,6 +54,28 @@ class AdminStateManager:
         self._hook = postgres_hook or create_postgres_hook(schema='public')
 
     # =========================================================================
+    # HELPERS D'EXÉCUTION SQL (psycopg2.sql.Composable)
+    # =========================================================================
+
+    def _fetch_one(self, query: pgsql.Composable, params: tuple = ()) -> Optional[tuple]:
+        with closing(self._hook.get_conn()) as conn:
+            with closing(conn.cursor()) as cur:
+                cur.execute(query, params)
+                return cur.fetchone()
+
+    def _fetch_all(self, query: pgsql.Composable, params: tuple = ()) -> list:
+        with closing(self._hook.get_conn()) as conn:
+            with closing(conn.cursor()) as cur:
+                cur.execute(query, params)
+                return cur.fetchall()
+
+    def _run(self, query: pgsql.Composable, params: tuple = ()) -> None:
+        with closing(self._hook.get_conn()) as conn:
+            with closing(conn.cursor()) as cur:
+                cur.execute(query, params)
+            conn.commit()
+
+    # =========================================================================
     # TIMESTAMPS DE SYNCHRO
     # =========================================================================
 
@@ -63,9 +87,9 @@ class AdminStateManager:
             Chaîne ISO 8601 ou None si jamais enregistré
         """
         try:
-            row = self._hook.get_first(
-                f"SELECT last_finish_timestamp FROM {_TABLE} WHERE id = %s",
-                parameters=(_ROW_ID,)
+            row = self._fetch_one(
+                pgsql.SQL("SELECT last_finish_timestamp FROM {} WHERE id = %s").format(_TABLE),
+                (_ROW_ID,)
             )
             if row and row[0] is not None:
                 return to_iso_str(row[0])
@@ -82,9 +106,11 @@ class AdminStateManager:
             ts: Valeur ISO 8601 retournée par l'API AMUE
         """
         try:
-            self._hook.run(
-                f"UPDATE {_TABLE} SET last_finish_timestamp = %s, updated_at = NOW() WHERE id = %s",
-                parameters=(ts, _ROW_ID)
+            self._run(
+                pgsql.SQL(
+                    "UPDATE {} SET last_finish_timestamp = %s, updated_at = NOW() WHERE id = %s"
+                ).format(_TABLE),
+                (ts, _ROW_ID)
             )
             logger.info(f"[ADMIN_STATE] last_finish_timestamp mis à jour: {ts}")
         except Exception as e:
@@ -98,9 +124,9 @@ class AdminStateManager:
             Chaîne ISO 8601 ou None
         """
         try:
-            row = self._hook.get_first(
-                f"SELECT last_successful_run FROM {_TABLE} WHERE id = %s",
-                parameters=(_ROW_ID,)
+            row = self._fetch_one(
+                pgsql.SQL("SELECT last_successful_run FROM {} WHERE id = %s").format(_TABLE),
+                (_ROW_ID,)
             )
             if row and row[0] is not None:
                 return to_iso_str(row[0])
@@ -117,9 +143,11 @@ class AdminStateManager:
             ts: Valeur ISO 8601
         """
         try:
-            self._hook.run(
-                f"UPDATE {_TABLE} SET last_successful_run = %s, updated_at = NOW() WHERE id = %s",
-                parameters=(ts, _ROW_ID)
+            self._run(
+                pgsql.SQL(
+                    "UPDATE {} SET last_successful_run = %s, updated_at = NOW() WHERE id = %s"
+                ).format(_TABLE),
+                (ts, _ROW_ID)
             )
             logger.info(f"[ADMIN_STATE] last_successful_run mis à jour: {ts}")
         except Exception as e:
@@ -137,9 +165,9 @@ class AdminStateManager:
             Chaîne ISO 8601 ou None si jamais enregistré
         """
         try:
-            row = self._hook.get_first(
-                f"SELECT last_report_start FROM {_TABLE} WHERE id = %s",
-                parameters=(_ROW_ID,)
+            row = self._fetch_one(
+                pgsql.SQL("SELECT last_report_start FROM {} WHERE id = %s").format(_TABLE),
+                (_ROW_ID,)
             )
             if row and row[0] is not None:
                 return to_iso_str(row[0])
@@ -156,9 +184,11 @@ class AdminStateManager:
             ts: Valeur ISO 8601 du champ 'start' retourné par l'API AMUE
         """
         try:
-            self._hook.run(
-                f"UPDATE {_TABLE} SET last_report_start = %s, updated_at = NOW() WHERE id = %s",
-                parameters=(ts, _ROW_ID)
+            self._run(
+                pgsql.SQL(
+                    "UPDATE {} SET last_report_start = %s, updated_at = NOW() WHERE id = %s"
+                ).format(_TABLE),
+                (ts, _ROW_ID)
             )
             logger.info(f"[ADMIN_STATE] last_report_start mis à jour: {ts}")
         except Exception as e:
@@ -176,13 +206,15 @@ class AdminStateManager:
             BlueGreenState ou état par défaut si la table est inaccessible
         """
         try:
-            row = self._hook.get_first(
-                f"""
-                SELECT active_schema, last_switch_timestamp, last_sync_timestamp,
-                       import_in_progress, import_started_at, import_correlation_id
-                FROM {_TABLE} WHERE id = %s
-                """,
-                parameters=(_ROW_ID,)
+            row = self._fetch_one(
+                pgsql.SQL(
+                    """
+                    SELECT active_schema, last_switch_timestamp, last_sync_timestamp,
+                           import_in_progress, import_started_at, import_correlation_id
+                    FROM {} WHERE id = %s
+                    """
+                ).format(_TABLE),
+                (_ROW_ID,)
             )
             if not row:
                 return BlueGreenState()
@@ -209,19 +241,21 @@ class AdminStateManager:
             True si succès
         """
         try:
-            self._hook.run(
-                f"""
-                UPDATE {_TABLE} SET
-                    active_schema         = %s,
-                    last_switch_timestamp = %s,
-                    last_sync_timestamp   = %s,
-                    import_in_progress    = %s,
-                    import_started_at     = %s,
-                    import_correlation_id = %s,
-                    updated_at            = NOW()
-                WHERE id = %s
-                """,
-                parameters=(
+            self._run(
+                pgsql.SQL(
+                    """
+                    UPDATE {} SET
+                        active_schema         = %s,
+                        last_switch_timestamp = %s,
+                        last_sync_timestamp   = %s,
+                        import_in_progress    = %s,
+                        import_started_at     = %s,
+                        import_correlation_id = %s,
+                        updated_at            = NOW()
+                    WHERE id = %s
+                    """
+                ).format(_TABLE),
+                (
                     state.last_import_schema or None,
                     state.last_switch_timestamp or None,
                     state.last_sync_timestamp or None,
@@ -256,17 +290,19 @@ class AdminStateManager:
             True si le verrou a été acquis, False si déjà verrouillé
         """
         try:
-            rows = self._hook.get_records(
-                f"""
-                UPDATE {_TABLE}
-                SET import_in_progress    = TRUE,
-                    import_started_at     = %s,
-                    import_correlation_id = %s,
-                    updated_at            = NOW()
-                WHERE id = %s AND import_in_progress = FALSE
-                RETURNING id
-                """,
-                parameters=(started_at, correlation_id, _ROW_ID)
+            rows = self._fetch_all(
+                pgsql.SQL(
+                    """
+                    UPDATE {}
+                    SET import_in_progress    = TRUE,
+                        import_started_at     = %s,
+                        import_correlation_id = %s,
+                        updated_at            = NOW()
+                    WHERE id = %s AND import_in_progress = FALSE
+                    RETURNING id
+                    """
+                ).format(_TABLE),
+                (started_at, correlation_id, _ROW_ID)
             )
             acquired = bool(rows)
             if acquired:
@@ -293,18 +329,20 @@ class AdminStateManager:
             Exception: Si l'UPDATE BDD échoue (verrou reste actif)
         """
         try:
-            result = self._hook.get_first(
-                f"""
-                UPDATE {_TABLE}
-                SET import_in_progress    = FALSE,
-                    active_schema         = COALESCE(%s, active_schema),
-                    import_started_at     = NULL,
-                    import_correlation_id = NULL,
-                    updated_at            = NOW()
-                WHERE id = %s AND import_in_progress = TRUE
-                RETURNING id
-                """,
-                parameters=(active_schema or None, _ROW_ID)
+            result = self._fetch_one(
+                pgsql.SQL(
+                    """
+                    UPDATE {}
+                    SET import_in_progress    = FALSE,
+                        active_schema         = COALESCE(%s, active_schema),
+                        import_started_at     = NULL,
+                        import_correlation_id = NULL,
+                        updated_at            = NOW()
+                    WHERE id = %s AND import_in_progress = TRUE
+                    RETURNING id
+                    """
+                ).format(_TABLE),
+                (active_schema or None, _ROW_ID)
             )
             if result is None:
                 logger.warning("[ADMIN_STATE] release_import_lock: verrou non tenu, aucune ligne mise à jour")
@@ -328,16 +366,18 @@ class AdminStateManager:
             Exception: Si l'UPDATE BDD échoue (verrou reste actif)
         """
         try:
-            self._hook.run(
-                f"""
-                UPDATE {_TABLE}
-                SET import_in_progress    = FALSE,
-                    import_started_at     = NULL,
-                    import_correlation_id = NULL,
-                    updated_at            = NOW()
-                WHERE id = %s
-                """,
-                parameters=(_ROW_ID,)
+            self._run(
+                pgsql.SQL(
+                    """
+                    UPDATE {}
+                    SET import_in_progress    = FALSE,
+                        import_started_at     = NULL,
+                        import_correlation_id = NULL,
+                        updated_at            = NOW()
+                    WHERE id = %s
+                    """
+                ).format(_TABLE),
+                (_ROW_ID,)
             )
             logger.warning("[ADMIN_STATE] Verrou forcément libéré")
             return True
@@ -356,15 +396,17 @@ class AdminStateManager:
             True si succès
         """
         try:
-            self._hook.run(
-                f"""
-                UPDATE {_TABLE}
-                SET last_switch_timestamp = NOW(),
-                    active_schema         = %s,
-                    updated_at            = NOW()
-                WHERE id = %s
-                """,
-                parameters=(active_schema or None, _ROW_ID)
+            self._run(
+                pgsql.SQL(
+                    """
+                    UPDATE {}
+                    SET last_switch_timestamp = NOW(),
+                        active_schema         = %s,
+                        updated_at            = NOW()
+                    WHERE id = %s
+                    """
+                ).format(_TABLE),
+                (active_schema or None, _ROW_ID)
             )
             logger.info(f"[ADMIN_STATE] Switch enregistré (nouveau actif: {active_schema})")
             return True
@@ -389,16 +431,18 @@ class AdminStateManager:
         Raises:
             Exception: Si l'UPDATE échoue
         """
-        self._hook.run(
-            f"""
-            UPDATE {_TABLE} SET
-                last_finish_timestamp = COALESCE(%s, last_finish_timestamp),
-                last_report_start     = COALESCE(%s, last_report_start),
-                last_successful_run   = COALESCE(%s, last_successful_run),
-                updated_at            = NOW()
-            WHERE id = %s
-            """,
-            parameters=(finish_timestamp, report_start, last_successful_run, _ROW_ID)
+        self._run(
+            pgsql.SQL(
+                """
+                UPDATE {} SET
+                    last_finish_timestamp = COALESCE(%s, last_finish_timestamp),
+                    last_report_start     = COALESCE(%s, last_report_start),
+                    last_successful_run   = COALESCE(%s, last_successful_run),
+                    updated_at            = NOW()
+                WHERE id = %s
+                """
+            ).format(_TABLE),
+            (finish_timestamp, report_start, last_successful_run, _ROW_ID)
         )
         logger.info(
             f"[ADMIN_STATE] Timestamps mis à jour (finish={finish_timestamp},"
@@ -413,9 +457,11 @@ class AdminStateManager:
             True si succès
         """
         try:
-            self._hook.run(
-                f"UPDATE {_TABLE} SET last_sync_timestamp = NOW(), updated_at = NOW() WHERE id = %s",
-                parameters=(_ROW_ID,)
+            self._run(
+                pgsql.SQL(
+                    "UPDATE {} SET last_sync_timestamp = NOW(), updated_at = NOW() WHERE id = %s"
+                ).format(_TABLE),
+                (_ROW_ID,)
             )
             logger.info("[ADMIN_STATE] Sync enregistrée")
             return True

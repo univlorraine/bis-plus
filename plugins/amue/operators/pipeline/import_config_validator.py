@@ -6,6 +6,8 @@ Récupère et valide les clés primaires depuis splus_admin.amue_tables.
 import logging
 from typing import List
 
+import psycopg2
+
 from amue.services.table_config_manager import TableConfigManager
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,8 @@ class ImportConfigValidator:
             if pk_str:
                 return [pk.strip().lower() for pk in pk_str.split(',') if pk.strip()]
             return []
+        except psycopg2.Error:
+            raise  # Les erreurs DB sont critiques : un import sans PK serait dangereux
         except Exception as e:
             logger.warning(f"Erreur lecture PKs depuis config pour {table_name}: {e}")
             return []
