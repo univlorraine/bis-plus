@@ -25,7 +25,7 @@ import pendulum
 from airflow.sdk import dag, task
 
 from common.dags import standard_default_args
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.infrastructure.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 _MONITOR_DURATION_HOURS = 4
 _POLL_INTERVAL_SECONDS = 60
@@ -50,9 +50,9 @@ def amue_status_monitor():
         retries=0,
     )
     def watch_status():
-        from amue.hooks.amue_api_hook import AMUEAPIHook
-        from amue.services.api.status_checker import AMUEStatusChecker
-        from amue.services.api.status_monitor import StatusMonitor
+        from amue.infrastructure.hooks.amue_api_hook import AMUEAPIHook
+        from amue.infrastructure.api.status_checker import AMUEStatusChecker
+        from amue.application.status_monitor import StatusMonitor
 
         checker = AMUEStatusChecker(api_hook=AMUEAPIHook())
         StatusMonitor(

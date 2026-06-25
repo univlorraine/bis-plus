@@ -68,4 +68,4 @@ airflow connections get postgres_data
 
 Le `schema` dans la connexion Airflow est ignoré : chaque `PostgresHook` est
 créé avec `options='-c search_path=<schema>'` via `create_postgres_hook()` /
-`resolve_postgres_hook()` (voir `plugins/common/utils/database/hooks.py`).
+`resolve_postgres_hook()` (voir `plugins/common/infrastructure/database/hooks.py`).

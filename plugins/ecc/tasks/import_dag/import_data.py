@@ -4,8 +4,8 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from ecc.operators.pipeline.ecc_data_importer import ECCDataImporter
-from ecc.utils.config.settings import get_ecc_batch_size
+from ecc.application.ecc_data_importer import ECCDataImporter
+from ecc.infrastructure.config.settings import get_ecc_batch_size
 
 logger = logging.getLogger(__name__)
 

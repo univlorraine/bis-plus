@@ -34,9 +34,9 @@ Le DAG peut aussi être déclenché manuellement.
 """
 from airflow.sdk import dag
 
-from amue.notifications import send_failure_notification
+from amue.infrastructure.notifications import send_failure_notification
 from common.dags import DEFAULT_START_DATE, standard_default_args
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.infrastructure.config.airflow_helpers import AirflowVariableManager as VarMgr
 from amue.tasks.sync_dag import init_sync, run_sync, send_sync_report
 
 

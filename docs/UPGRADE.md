@@ -1,165 +1,260 @@
-# Guide de mise à jour DemoDAGS
+# Guide de mise à jour — DemoDAGS
 
-Ce document décrit comment mettre à jour le **projet dans son ensemble** entre deux
-releases : code, dépendances Python (image Docker), schéma SQL applicatif (`splus_admin`,
-Blue/Green), métadonnées Airflow et variables Airflow.
+Ce document décrit comment mettre à jour le projet vers une nouvelle version :
+procédure automatisée, procédure manuelle, migrations SQL applicatives,
+et rollback en cas de problème.
 
 ## Table des matières
 
-1. [Convention de versionning](#convention-de-versionning)
-2. [Procédure automatisée](#procédure-automatisée)
-3. [Procédure manuelle](#procédure-manuelle)
-4. [Écrire une migration SQL](#écrire-une-migration-sql)
+1. [Avant de commencer](#1-avant-de-commencer)
+2. [Procédure automatisée (recommandée)](#2-procédure-automatisée-recommandée)
+3. [Procédure manuelle](#3-procédure-manuelle)
+4. [Migrations SQL applicatives](#4-migrations-sql-applicatives)
 5. [Rollback](#rollback)
+6. [Vérification post-mise-à-jour](#vérification-post-mise-à-jour)
 
 ---
 
-## Convention de versionning
+## 1. Avant de commencer
 
-- La version applicative du projet est indiquée dans le fichier **`VERSION`** à la racine
-  (ex. `1.2.0`), visible aussi via `./manage.sh version`.
-- Les releases sont publiées sur le dépôt **GitHub** du projet (`github.com/univlorraine/bis-plus`,
-  remote `comunity` — à ne pas confondre avec `origin`, qui pointe vers le GitLab interne).
-- **Une mise à jour cible toujours une release GitHub publiée** — jamais une branche, un
-  commit ou un tag git "ordinaire". C'est ce que vérifie `./manage.sh update` avant d'agir
-  (voir ci-dessous).
-
----
-
-## Procédure automatisée
+**Sauvegarder** avant toute mise à jour :
 
 ```bash
-./manage.sh update            # prend automatiquement la dernière release publiée
-./manage.sh update v1.2.0     # cible une release précise (doit être publiée sur GitHub)
-./manage.sh update v1.2.0 --resume   # reprend une mise à jour interrompue
+./manage.sh db-backup          # dump horodaté de la base métier
+./manage.sh config-backup      # variables + connexions + .env
 ```
 
-La commande déroule **9 étapes**, chacune affichée avec sa progression `[ÉTAPE N/9]` :
-
-| # | Étape | Détail |
-|---|-------|--------|
-| 1 | Résolution + pré-checks | Vérifie que la cible est une release GitHub publiée (sinon refus), que l'arbre git est propre, que le tag existe localement (`git fetch --tags`), et relève l'état de santé courant |
-| 2 | Confirmation | Affiche version actuelle → version cible, le nombre de migrations en attente, et demande confirmation explicite |
-| 3 | Sauvegardes | `db-backup` (dump PostgreSQL) puis `config-backup` (variables, connexions, `.env`, `config/*.json`) — chemins enregistrés pour le rollback |
-| 4 | Arrêt des services | `cmd_stop` |
-| 5 | Mise à jour du code | `git fetch --tags && git checkout <release>` |
-| 6 | Reconstruction de l'image | `cmd_build` — couvre **à la fois** le code et les dépendances Python (`requirements.txt` est installé dans l'image, pas dans un venv séparé) |
-| 7 | Redémarrage | `cmd_start`. Le service `airflow-init` a `_AIRFLOW_DB_MIGRATE: 'true'` dans `docker-compose.yml` : **`airflow db migrate` se déclenche automatiquement** au démarrage, pas besoin de l'invoquer séparément |
-| 8 | Migrations + variables | `db-migrate` (migrations SQL applicatives en attente, cf. ci-dessous) puis synchronisation **diff-based** des variables Airflow depuis `config/airflow_variables.json` (n'écrase jamais une valeur personnalisée par l'opérateur ; n'ajoute/ne met à jour que ce qui a changé dans le référentiel) |
-| 9 | Vérification finale | `cmd_health` + `cmd_verify`, résumé (ancienne/nouvelle version, sauvegardes conservées) |
-
-### En cas d'échec en cours de route
-
-Le script écrit un fichier marqueur `backups/.update_in_progress` après chaque étape réussie
-(numéro d'étape, chemins des sauvegardes, référence git précédente). En cas d'erreur, il
-affiche directement :
-
-- comment **reprendre** après correction : `./manage.sh update <release> --resume`
-  (les étapes déjà validées sont sautées — les migrations et la synchro des variables sont
-  de toute façon rejouables sans risque)
-- comment **annuler complètement** : revenir à l'ancienne référence git, restaurer la base
-  et la configuration depuis les sauvegardes créées à l'étape 3, reconstruire et redémarrer
-
-Le marqueur est supprimé automatiquement à la fin d'une mise à jour réussie.
-
----
-
-## Procédure manuelle
-
-Si `./manage.sh update` lui-même est en cause (ou pour comprendre/auditer ce qu'il fait),
-voici l'équivalent étape par étape avec les sous-commandes existantes :
+**Vérifier** que le système est dans un état stable :
 
 ```bash
-# 1. Vérifier que la cible est bien une release publiée
-#    -> consulter https://github.com/univlorraine/bis-plus/releases
-
-# 2. Sauvegardes
-./manage.sh db-backup
-./manage.sh config-backup
-
-# 3. Arrêt
-./manage.sh stop
-
-# 4. Code
-git fetch --tags
-git checkout <tag-de-la-release>
-
-# 5. Image (code + dépendances)
-./manage.sh build
-
-# 6. Redémarrage (déclenche automatiquement `airflow db migrate` via airflow-init)
-./manage.sh start
-
-# 7. Migrations SQL applicatives + variables
-./manage.sh db-migrate
-#    Variables : comparer config/airflow_variables.json à l'existant et appliquer les
-#    nouvelles clés / valeurs modifiées avec `./manage.sh var-set <clé> <valeur>`
-#    (ne PAS faire `var-import` qui écrase tout, y compris vos personnalisations)
-
-# 8. Vérification
 ./manage.sh health
-./manage.sh verify
+```
+
+Tous les services doivent être `healthy`. Si un import est en cours
+(`import_in_progress = true` dans `splus_admin.amue_state`), attendre
+qu'il se termine.
+
+**Identifier la release cible** :
+
+```bash
+# Voir les releases disponibles
+git tag -l --sort=-version:refname | head -10
+
+# Ou sur GitHub : releases publiées avec leurs notes de mise à jour
 ```
 
 ---
 
-## Écrire une migration SQL
+## 2. Procédure automatisée (recommandée)
 
-Les migrations vivent dans `scripts/sql/migrations/` (voir
-[`README.md`](../scripts/sql/migrations/README.md) du dossier pour le détail) :
+```bash
+./manage.sh update [tag]
+```
 
-- Nommage : `NNNN_description_courte.sql` (séquence sur 4 chiffres, ordre d'application)
-- **Idempotentes obligatoirement** (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
-  blocs `DO $$ ... END $$;` pour les opérations sans variante `IF NOT EXISTS`) — c'est ce qui
-  permet à `./manage.sh db-migrate` (et donc `./manage.sh update --resume`) d'être rejoué
-  sans risque après une interruption
-- Suivies dans `splus_admin.schema_migrations` (une ligne par migration appliquée, avec
-  description, date et utilisateur)
-- Pas de "down migration" : pour annuler une mise à jour, on revient en arrière au niveau
-  du projet entier (voir [Rollback](#rollback)), pas migration par migration
+Sans `[tag]`, met à jour vers la dernière release publiée.
+
+Cette commande réalise dans l'ordre :
+
+| Étape | Action |
+|-------|--------|
+| 1 | `git fetch` + checkout du tag cible |
+| 2 | `docker compose build` (rebuild de l'image Airflow si `requirements.txt` a changé) |
+| 3 | `./manage.sh db-migrate` (applique les migrations SQL en attente) |
+| 4 | `docker compose up -d --wait` (redémarre tous les services) |
+| 5 | `airflow variables import config/airflow_variables.json` (ajoute les nouvelles variables sans écraser les existantes) |
+| 6 | Rapport de mise à jour |
+
+> La commande est idempotente : la rejouer après une erreur reprend
+> là où elle s'est arrêtée.
+
+---
+
+## 3. Procédure manuelle
+
+À utiliser si `./manage.sh update` n'est pas disponible ou pour auditer
+chaque étape individuellement.
+
+### Étape 1 — Récupérer le code
+
+```bash
+git fetch --tags
+git checkout <tag>        # ex : git checkout v2.1.0
+```
+
+### Étape 2 — Rebuilder l'image Docker (si besoin)
+
+```bash
+# Vérifier si requirements.txt a changé depuis la version précédente
+git diff <ancienne-version>..<nouvelle-version> -- requirements.txt
+
+# Si oui (ou par précaution) :
+docker compose build --no-cache airflow-apiserver
+docker compose build --no-cache airflow-scheduler
+```
+
+### Étape 3 — Appliquer les migrations SQL
+
+```bash
+./manage.sh db-migrate
+```
+
+Voir section [4. Migrations SQL applicatives](#4-migrations-sql-applicatives)
+pour le détail du mécanisme.
+
+### Étape 4 — Redémarrer les services
+
+```bash
+docker compose up -d --wait
+```
+
+### Étape 5 — Importer les nouvelles variables Airflow
+
+```bash
+docker compose exec airflow-apiserver airflow variables import \
+  /opt/airflow/config/airflow_variables.json
+```
+
+> L'import est non-destructif : les variables existantes avec des valeurs
+> personnalisées ne sont **pas** écrasées.
+
+### Étape 6 — Vérifier
+
+Voir section [6. Vérification post-mise-à-jour](#6-vérification-post-mise-à-jour).
+
+---
+
+## 4. Migrations SQL applicatives
+
+Les évolutions du schéma applicatif (`splus_admin`, `splus_blue`/`splus_green`, etc.)
+sont gérées via des fichiers SQL dans `scripts/sql/migrations/`.
+
+### Convention
+
+```
+NNNN_description_courte.sql
+```
+
+- `NNNN` : séquence à 4 chiffres, strictement croissante (`0001`, `0002`, …)
+- Chaque fichier est **idempotent** (peut être rejoué sans erreur)
+
+### Appliquer manuellement
+
+```bash
+# Voir quelles migrations sont en attente
+./manage.sh db-migrate --dry-run
+
+# Appliquer
+./manage.sh db-migrate
+```
+
+Ou directement via psql :
+
+```bash
+psql -h localhost -p 5433 -U datauser -d business_data \
+  -f scripts/sql/migrations/0001_description.sql
+```
+
+### Écrire une nouvelle migration
+
+Voir `scripts/sql/migrations/README.md` pour les patterns idempotents
+à utiliser (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
+bloc `DO $$ BEGIN ... END $$` pour les opérations sans variante `IF NOT EXISTS`).
+
+**Règle fondamentale** : aucune `DELETE`, aucune `TRUNCATE`. Le projet
+ne supprime jamais de données (UPSERT only).
 
 ---
 
 ## Rollback
 
-Il existe **deux mécanismes complémentaires**, qui ne se substituent pas l'un à l'autre :
+Deux cas distincts :
 
-### 1. Problème lié à un import récent (données) → DAG `amue_rollback`
+### 5.1 Rollback de données (import foireux)
 
-- À utiliser quand un import a corrompu/dégradé les données mais que le **code et le schéma
-  sont sains**
-- Se déclenche manuellement depuis l'UI Airflow : bascule les vues `splus.*` vers le schéma
-  Blue/Green "offline" précédent
-- **Limité dans le temps** : l'ancien schéma offline est écrasé au prochain import réussi
-- Ne touche **ni** au code, **ni** aux migrations SQL (`schema_migrations`), **ni** à la
-  base de métadonnées Airflow — un problème de release n'est pas résolu par ce DAG
-
-### 2. Mauvaise release (code, schéma, dépendances) → rollback complet du projet
-
-C'est le filet de sécurité que `amue_rollback` ne peut pas fournir, car il ignore tout de
-l'historique des migrations, du code et des métadonnées Airflow :
+Si un import vient de produire des données incorrectes, restaurer le
+schéma précédent sans toucher au code :
 
 ```bash
-./manage.sh stop
-git checkout <ancien_tag_ou_release>
-./manage.sh db-restore <backup_db.sql>          # chemin affiché lors de la mise à jour (étape 3)
-./manage.sh config-restore <backup_config.tar.gz>
-./manage.sh build
-./manage.sh start
+./manage.sh trigger amue_rollback
 ```
 
-> Les chemins des sauvegardes créées par `./manage.sh update` sont rappelés dans le message
-> d'erreur en cas d'échec, et dans le résumé final en cas de succès (utile si un problème
-> n'apparaît qu'après coup).
+Ou via l'UI : DAG `amue_rollback` → ▶
 
-### Quand utiliser lequel ?
+**Condition** : disponible uniquement jusqu'au prochain import réussi.
+Au-delà, restaurer depuis une sauvegarde (`./manage.sh db-restore`).
 
-| Symptôme | Mécanisme |
-|----------|-----------|
-| Données incohérentes après un import récent, code/schéma OK | DAG `amue_rollback` |
-| Erreurs après une mise à jour (code, dépendances, schéma, migrations) | Rollback complet du projet |
-| Les deux à la fois | Rollback complet du projet (il restaure aussi les données via le dump PostgreSQL) |
+**Vérification** :
+
+```sql
+SELECT active_schema, last_switch_timestamp
+  FROM splus_admin.amue_state WHERE id = 1;
+```
+
+### 5.2 Rollback de release (mauvaise mise à jour)
+
+Si la mise à jour elle-même pose problème (bug de code, migration SQL
+défaillante, incompatibilité de dépendances) :
+
+```bash
+# 1. Revenir au code de la version précédente
+git checkout <ancienne-version>
+
+# 2. Rebuilder si besoin
+docker compose build
+
+# 3. Restaurer la base si une migration a été appliquée par erreur
+#    (uniquement si la migration est destructive — rarissime dans ce projet)
+./manage.sh db-restore <fichier-dump-de-sauvegarde>
+
+# 4. Redémarrer
+docker compose up -d --wait
+
+# 5. Vérifier
+./manage.sh health
+```
+
+> Les migrations de ce projet sont conçues pour être non-destructives
+> (jamais de `DROP COLUMN`, jamais de `TRUNCATE`). Un rollback de release
+> ne nécessite généralement **pas** de restauration de base.
 
 ---
 
-Voir aussi : [DEPLOYMENT.md](DEPLOYMENT.md) (installation initiale), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) (dépannage courant).
+## 6. Vérification post-mise-à-jour
+
+```bash
+# Services
+./manage.sh health
+
+# Pas d'erreur de parsing de DAG
+docker compose exec airflow-apiserver airflow dags list-import-errors
+
+# Tous les DAGs attendus sont présents
+docker compose exec airflow-apiserver airflow dags list | grep amue
+
+# Migrations appliquées
+psql -h localhost -p 5433 -U datauser -d business_data \
+  -c "SELECT version, applied_at FROM splus_admin.schema_migrations ORDER BY version;"
+
+# État Blue/Green intact
+psql -h localhost -p 5433 -U datauser -d business_data \
+  -c "SELECT active_schema, import_in_progress, last_successful_run FROM splus_admin.amue_state WHERE id = 1;"
+
+# Tables configurées
+psql -h localhost -p 5433 -U datauser -d business_data \
+  -c "SELECT count(*) FROM splus_admin.amue_tables WHERE enabled = true AND setup_status = 'ready';"
+```
+
+En cas de doute, lancer le diagnostic complet :
+
+```bash
+./manage.sh diagnose
+```
+
+Et déclencher un import de test :
+
+```bash
+./manage.sh var-set amue_force_import true
+./manage.sh trigger amue_multi_table_import
+# ... puis impérativement :
+./manage.sh var-set amue_force_import false
+```

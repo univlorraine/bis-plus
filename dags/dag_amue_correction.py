@@ -32,7 +32,7 @@ import logging
 from airflow.models.param import Param
 from airflow.sdk import dag
 
-from amue.notifications import dag_failure_rollback, send_failure_notification
+from amue.infrastructure.notifications import dag_failure_rollback, send_failure_notification
 from amue.tasks.import_dag import (
     check_setup_status,
     import_data,
@@ -42,10 +42,9 @@ from amue.tasks.import_dag import (
     switch_views,
 )
 from amue.tasks.import_dag.select_tables_correction import select_tables_correction
-from common.config import PROTECTED_SOURCE
+from common.domain.protected_source import PROTECTED_SOURCE
 from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.tasks.restore_inactive import restore_inactive
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 _log = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ _log = logging.getLogger(__name__)
 def _fetch_available_tables() -> tuple[list[str], list[str]]:
     """Retourne (tables_activées, tables_désactivées) depuis splus_admin.amue_tables."""
     try:
-        from common.utils.database.hooks import create_postgres_hook
+        from common.infrastructure.database.hooks import create_postgres_hook
         hook = create_postgres_hook(schema='splus_admin')
         rows = hook.get_records(
             "SELECT table_name, enabled FROM splus_admin.amue_tables ORDER BY table_name"
@@ -62,7 +61,7 @@ def _fetch_available_tables() -> tuple[list[str], list[str]]:
         disabled = [r[0] for r in rows if not r[1]]
         return enabled, disabled
     except Exception as exc:
-        _log.debug(f"[PARAMS] DB indisponible au parsing du DAG: {exc}")
+        _log.warning(f"[PARAMS] DB indisponible au parsing du DAG: {type(exc).__name__}: {exc}")
         return [], []
 
 
@@ -97,7 +96,7 @@ _PARAM_DESCRIPTION = _build_param_description(_available_tables, _disabled_table
             default=[],
             type='array',
             description=_PARAM_DESCRIPTION,
-            items={'type': 'string', 'enum': _available_tables} if _available_tables else {'type': 'string'},
+            examples=_available_tables,
         ),
     },
 
@@ -127,7 +126,7 @@ def amue_correction_import():
     checked = check_setup_status(tables)
     imported = import_data.expand(table_info=checked)
 
-    restore = restore_inactive(tables=checked, source_name=PROTECTED_SOURCE, import_results=imported)
+    _ = restore_inactive(tables=checked, source_name=PROTECTED_SOURCE, import_results=imported)
 
     metadata = save_metadata(imported, {})
     switch_result = switch_views(metadata)

@@ -127,6 +127,8 @@ Les tables doivent déjà avoir `setup_status = 'ready'` dans `splus_admin.amue_
 | DAG | dag_id | Schedule | Rôle |
 |-----|--------|----------|------|
 | `dag_amue_table_setup.py` | `amue_table_setup` | Manuel / déclenché par import | Création tables, calcul fingerprints, détection changements de structure |
+| `dag_amue_table_discovery.py` | `amue_table_discovery` | Manuel | Détecte les tables exposées par l'API AMUE absentes de `splus_admin.amue_tables` ; enregistrement via dropdown Airflow |
+| `dag_amue_settings.py` | `amue_settings` | Manuel | Formulaire avec validation JSON-Schema pour modifier les variables Airflow du projet |
 | `dag_amue_rollback.py` | `amue_rollback` | Manuel uniquement | Restaure le schéma `_offline` vers l'actif |
 | `dag_amue_sync.py` | `amue_sync_schemas` | `amue_sync_schedule` (`0 6 * * *`) | Copie actif → inactif pour les maintenir à parité |
 | `dag_amue_refresh_views.py` | `amue_refresh_views` | Manuel uniquement | Recrée les vues custom depuis `scripts/sql/custom_views/` |
@@ -136,7 +138,7 @@ Les tables doivent déjà avoir `setup_status = 'ready'` dans `splus_admin.amue_
 
 ## Description des composants principaux
 
-### `AMUETableFilter` (`plugins/amue/operators/table_management/table_filter.py`)
+### `AMUETableFilter` (`plugins/amue/application/table_management/table_filter.py`)
 
 Filtre les tables configurées dans `splus_admin.amue_tables` :
 
@@ -145,12 +147,12 @@ Filtre les tables configurées dans `splus_admin.amue_tables` :
 3. Vérifie que chaque table activée existe dans le statut API (fail-fast si absente)
 4. Détermine FULL vs DELTA selon la présence d'une colonne delta et d'un `last_report_start`
 
-### `AMUEDataImporter` (`plugins/amue/operators/pipeline/data_importer.py`)
+### `AMUEDataImporter` (`plugins/amue/application/pipeline/data_importer.py`)
 
 Orchestre l'import d'une table :
 
 1. `DataStreamer` : récupère les données page par page depuis l'API (générateur)
-2. `BatchInserter` : UPSERT par lots de `amue_import_batch_size` lignes (défaut 5 000)
+2. `BatchUpserter` : UPSERT par lots de `amue_import_batch_size` lignes (défaut 5 000)
 3. Retry automatique sur erreurs réseau via `RetryService`
 
 ```sql
@@ -160,7 +162,7 @@ VALUES (...)
 ON CONFLICT (kokrs, kostl, datbi) DO UPDATE SET col1 = EXCLUDED.col1, ...
 ```
 
-### `BlueGreenManager` (`plugins/common/services/bluegreen/bluegreen_manager.py`)
+### `BlueGreenManager` (`plugins/common/application/bluegreen/bluegreen_manager.py`)
 
 Façade pour la gestion Blue/Green :
 
@@ -168,7 +170,7 @@ Façade pour la gestion Blue/Green :
 - `get_target_schema()` — schéma opposé à l'actif
 - `try_acquire_import_lock()` — `UPDATE ... WHERE import_in_progress = FALSE RETURNING id` (atomique, sans race condition)
 
-### `AdminStateManager` (`plugins/common/services/admin_state_manager.py`)
+### `AdminStateManager` (`plugins/common/application/admin_state_manager.py`)
 
 Accès à `splus_admin.amue_state` (singleton `id = 1`) :
 
@@ -280,6 +282,8 @@ Point d'entrée unique pour toutes les opérations du projet :
 | `amue_force_import` | `false` | Bypass sensor (dev uniquement) |
 | `amue_api_max_retries` | `3` | Tentatives sur erreur API |
 | `amue_api_retry_delay_seconds` | `30` | Délai entre retries |
+| `amue_api_source` | `entrepot` | Source API active : `cdv` ou `entrepot` (voir section ci-dessous) |
+| `api_endpoint_entrepot` | — | Endpoint de base source "entrepôt" (avec placeholder `${univ}`) |
 | `amue_pre_import_dags` | `[]` | DAGs déclenchés avant import |
 | `amue_post_import_dags` | `[]` | DAGs déclenchés après import |
 | `amue_report_recipients` | — | Destinataires email |
@@ -299,10 +303,47 @@ Point d'entrée unique pour toutes les opérations du projet :
 | `universite` | — | Code université pour les endpoints API |
 | `smtp_host` | `mailhog` | Serveur SMTP |
 | `smtp_port` | `1025` | Port SMTP |
+| `smtp_sender_name` | `Airflow` | Nom affiché comme expéditeur dans les emails |
 | `amue_sync_schedule` | `0 6 * * *` | Cron synchronisation Blue/Green |
 | `amue_monitor_schedule` | `0 22 * * *` | Cron monitoring API |
 
 Liste complète : `config/airflow_variables.json`.
+
+---
+
+## Double source API (CDV / Entrepôt)
+
+L'API AMUE expose les données via deux sources distinctes, sélectionnables par
+la variable `amue_api_source` :
+
+| Source | Valeur | Composants utilisés | Variable d'endpoint |
+|--------|--------|---------------------|---------------------|
+| CDV (CDS Views) | `cdv` | `AMUEStatusChecker`, `AMUEDataStreamer`, `APIStructureFetcher` | `api_endpoint_admin` + `api_endpoint_table` |
+| Entrepôt | `entrepot` | `EntrepotStatusChecker`, `EntrepotDataStreamer`, `EntrepotStructureFetcher` | `api_endpoint_entrepot` |
+
+La sélection est centralisée dans la **factory** `amue.application.api_source_factory` :
+
+```python
+from amue.application.api_source_factory import get_status_checker, get_data_streamer, get_structure_fetcher
+```
+
+Le registre de sources est extensible : pour ajouter une source `v2`, créer les
+trois classes (`StatusChecker`, `DataStreamer`, `StructureFetcher`) et les enregistrer
+dans `_SOURCE_REGISTRY` sans modifier les DAGs ni les tasks.
+
+### Changer de source en exploitation
+
+```bash
+# Basculer vers la source Entrepôt (par défaut)
+airflow variables set amue_api_source entrepot
+airflow variables set api_endpoint_entrepot 'finances/entrepotdedonnees/v1/preprod/${univ}'
+
+# Basculer vers CDV
+airflow variables set amue_api_source cdv
+# (api_endpoint_admin et api_endpoint_table doivent être configurés)
+```
+
+Le changement est effectif au prochain déclenchement du DAG — aucun redémarrage requis.
 
 ---
 
@@ -312,7 +353,6 @@ Liste complète : `config/airflow_variables.json`.
 |-----------|-----|--------------|
 | Airflow UI | http://localhost:8080 | airflow / airflow (dev) |
 | MailHog | http://localhost:8025 | aucun |
-| Kafka UI | http://localhost:8090 | aucun |
 
 ---
 

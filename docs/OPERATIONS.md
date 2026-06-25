@@ -32,6 +32,7 @@ question concrète du type "je veux faire X".
   - [3.17 Reprendre un import après échec partiel](#317-reprendre-un-import-après-échec-partiel)
   - [3.18 Consulter l'historique des imports](#318-consulter-lhistorique-des-imports)
   - [3.19 Gérer les utilisateurs Airflow](#319-gérer-les-utilisateurs-airflow)
+  - [3.20 Purger des tables avant l'import](#320-purger-des-tables-avant-limport)
 - [4. Comprendre les logs](#4-comprendre-les-logs)
 - [5. Gérer les erreurs](#5-gérer-les-erreurs)
 - [6. Superviser l'état du système](#6-superviser-létat-du-système)
@@ -248,18 +249,21 @@ plus des vues "1 pour 1" sur les tables AMUE.
 
    ```sql
    -- scripts/sql/custom_views/v_depenses_par_centre.sql
-   CREATE OR REPLACE VIEW splus.v_depenses_par_centre AS
+   DROP VIEW IF EXISTS splus.v_depenses_par_centre;
+   CREATE VIEW splus.v_depenses_par_centre AS
    SELECT c.prctr            AS centre_profit,
           SUM(b.dmbtr)       AS total_depense,
           COUNT(*)           AS nb_ecritures
-     FROM splus.bkpf b
-     JOIN splus.cepc c ON c.prctr = b.prctr
+     FROM {target_schema}.bkpf b
+     JOIN {target_schema}.cepc c ON c.prctr = b.prctr
     GROUP BY c.prctr;
    ```
 
-   > Référencez toujours `splus.*` (les vues publiques), **jamais**
-   > `splus_blue.*` ou `splus_green.*` : sinon votre vue resterait
-   > accrochée à un schéma physique et serait cassée au prochain switch.
+   > `{target_schema}` est substitué automatiquement à l'exécution par
+   > `amue_refresh_views` (il devient `splus_blue` ou `splus_green` selon
+   > le schéma actif). **Ne référencez pas `splus.<vue>`** dans ces fichiers :
+   > cela créerait une vue-sur-une-vue qui briserait l'atomicité du switch
+   > Blue/Green (anti-pattern documenté dans `scripts/sql/custom_views/README.md`).
 
 2. **Appliquer la vue** :
 
@@ -677,6 +681,46 @@ Airflow standards : `Admin`, `Op`, `User`, `Viewer`, `Public`.
 
 > Changez **toujours** le mot de passe par défaut (`airflow` / `airflow`)
 > avant de mettre la stack en production.
+
+### 3.20 Purger des tables avant l'import
+
+**Quand** : vous avez des lignes orphelines qu'un UPSERT ne peut pas
+éliminer (ex : des enregistrements supprimés côté AMUE mais absents des
+données reçues). En activant la purge, la table est vidée (`TRUNCATE`)
+juste avant l'appel API, puis rechargée intégralement.
+
+> **Attention** : la purge rend l'import de ces tables **toujours complet**,
+> même si la table est configurée en delta. Pendant les quelques secondes
+> entre le TRUNCATE et la fin de l'import, la vue `splus.<table>` continue
+> de pointer vers l'ancien schéma (blue/green) : les lecteurs ne voient
+> pas de données manquantes.
+
+**Activer la purge pour une ou plusieurs tables** :
+
+```bash
+./manage.sh var-set amue_tables_to_purge '["BKPF", "BSEG"]'
+```
+
+La variable contient un tableau JSON de noms de tables (insensible à la
+casse). Seules les tables **présentes dans la liste d'import** et listées
+ici sont purgées ; les autres ne sont pas affectées.
+
+**Désactiver** (aucune purge) :
+
+```bash
+./manage.sh var-set amue_tables_to_purge '[]'
+```
+
+**Vérifier** : dans les logs de la tâche `import_data[<NOM>]`, chercher
+la ligne :
+
+```
+[IMPORT] <table> : purgée avant import (amue_tables_to_purge)
+```
+
+Si elle n'apparaît pas pour une table attendue, vérifier que :
+- Son nom figure bien dans la variable (casse ignorée, mais orthographe exacte).
+- Elle est bien activée dans `splus_admin.amue_tables` (`enabled = true`).
 
 ---
 
@@ -1153,6 +1197,7 @@ docker compose exec airflow-apiserver airflow dags list-runs \
 | `amue_api_retry_delay_seconds`       | Délai entre retries API             | `30`         |
 | `amue_pre_import_dags`               | DAGs à chaîner avant l'import       | `[]`         |
 | `amue_post_import_dags`              | DAGs à chaîner après l'import       | `[]`         |
+| `amue_tables_to_purge`               | Tables purgées (TRUNCATE) avant import (JSON array) | `[]` |
 | `amue_report_recipients`             | Destinataires des rapports AMUE     | —            |
 | `ecc_report_recipients`              | Destinataires des rapports ECC      | —            |
 
@@ -1167,3 +1212,49 @@ Liste complète : `config/airflow_variables.json`.
 | `oracle_data`    | ODBC      | Oracle ECC (optionnel)                  |
 
 > Le `conn_id` AMUE est `oauth_api` (**pas** `amue_api`).
+
+---
+
+## 8. Contacts et escalade {#contacts-et-escalade}
+
+### 8.1 Escalade interne
+
+| Niveau | Qui contacter | Quand |
+|--------|--------------|-------|
+| 1 | Responsable Airflow / admin système | Import en échec, verrou bloqué, service down |
+| 2 | DSI / responsable infrastructure | Problème réseau, accès BDD indisponible |
+| 3 | Équipe AMUE | Anomalie API persistante, changement de structure non annoncé |
+
+### 8.2 Contact support AMUE
+
+Pour signaler une anomalie côté API AMUE (HTTP 5xx persistants, table disparue
+du statut, changement de structure non annoncé) :
+
+- Portail de support AMUE : à renseigner selon votre établissement
+- Email de contact : à renseigner selon votre établissement
+
+**Informations à joindre systématiquement à toute demande de support :**
+
+```bash
+./manage.sh diagnose > diagnostic_$(date +%Y%m%d_%H%M%S).txt
+```
+
+Ce rapport contient : versions, état des services, variables Airflow,
+connexions, derniers runs et erreurs de parsing.
+
+### 8.3 Informations à préparer avant d'appeler
+
+- Numéro de run Airflow (`dag_run_id`) du run en échec
+- Capture de l'exception (log complet de la tâche rouge)
+- Sortie de `./manage.sh diagnose`
+- Pour les erreurs API : le code HTTP exact et le corps de la réponse :
+  ```bash
+  # Dans le log de la tâche wait_for_api ou import_data, chercher :
+  # [API] HTTP <code> — <corps>
+  ```
+
+### 8.4 Note aux administrateurs
+
+> Ce gabarit est générique. Complétez les coordonnées (portail AMUE,
+> email DSI, numéros d'astreinte) propres à votre établissement avant
+> la mise en production.

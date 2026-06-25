@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from amue.services.metadata_manager import AMUEMetadataManager
+from amue.application.metadata_manager import AMUEMetadataManager
 
 logger = logging.getLogger(__name__)
 

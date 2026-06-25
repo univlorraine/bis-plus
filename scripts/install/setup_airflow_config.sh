@@ -186,25 +186,19 @@ setup_variables_external() {
 
     log_info "Import des variables..."
 
-    # Cree un fichier temporaire avec les valeurs complexes serialisees en JSON string
-    local temp_file
-    temp_file=$(mktemp --suffix=.json)
-    jq 'to_entries | map({key: .key, value: (if (.value | type) == "array" or (.value | type) == "object" then (.value | tojson) else .value end)}) | from_entries' "$VARIABLES_FILE" > "$temp_file"
+    # Serialise les valeurs complexes (array/object) en JSON string
+    local json_payload
+    json_payload=$(jq 'to_entries | map({key: .key, value: (if (.value | type) == "array" or (.value | type) == "object" then (.value | tojson) else .value end)}) | from_entries' "$VARIABLES_FILE")
 
-    # Copie le fichier dans le container et importe
-    $docker_cmd cp "$temp_file" airflow-apiserver:/tmp/airflow_vars_import.json
-
-    if $docker_cmd exec -T airflow-apiserver airflow variables import /tmp/airflow_vars_import.json 2>&1 | grep -v "^$"; then
+    # Import via stdin : aucun fichier ecrit sur le disque du conteneur, evite
+    # les erreurs de permission liees a docker cp + UID non-root du conteneur airflow.
+    if echo "$json_payload" | $docker_cmd exec -T airflow-apiserver airflow variables import - 2>&1 | grep -v "^$"; then
         local count
         count=$(jq 'keys | length' "$VARIABLES_FILE")
         log_success "$count variables importees"
     else
         log_warning "Import echoue"
     fi
-
-    # Nettoyage
-    rm -f "$temp_file"
-    $docker_cmd exec -T airflow-apiserver rm -f /tmp/airflow_vars_import.json 2>/dev/null || true
 }
 
 setup_connections_external() {

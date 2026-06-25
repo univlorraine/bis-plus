@@ -28,7 +28,7 @@ Déclencher via l'interface Airflow ou :
 """
 from airflow.sdk import dag
 
-from amue.notifications import send_failure_notification
+from amue.infrastructure.notifications import send_failure_notification
 from amue.tasks.rollback_dag import check_rollback, perform_rollback, send_rollback_report
 from common.dags import DEFAULT_START_DATE, standard_default_args
 

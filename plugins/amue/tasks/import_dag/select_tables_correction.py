@@ -5,10 +5,10 @@ from typing import Dict, List
 from airflow.exceptions import AirflowException
 from airflow.sdk import get_current_context, task
 
-from amue.hooks.amue_api_hook import AMUEAPIHook
-from amue.operators.table_management.table_filter import AMUETableFilter
-from amue.services.api.status_checker import AMUEStatusChecker
-from amue.services.table_config_manager import TableConfigManager
+from amue.infrastructure.hooks.amue_api_hook import AMUEAPIHook
+from amue.application.table_management.table_filter import AMUETableFilter
+from amue.application.api_source_factory import get_status_checker
+from amue.application.table_config_manager import TableConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def select_tables_correction(bluegreen_ctx: Dict) -> List[Dict]:
         )
 
     # Appel API direct (pas de XCom sensor)
-    current_status = AMUEStatusChecker(AMUEAPIHook()).get_current_status()
+    current_status = get_status_checker(AMUEAPIHook()).get_current_status()
 
     # AMUETableFilter reçoit uniquement les tables sélectionnées : validation ciblée
     # _last_report_start reste '' → import toujours FULL (comportement voulu en correction)

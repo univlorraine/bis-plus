@@ -1,18 +1,19 @@
 """Task de sélection des tables après polling API."""
 import logging
+from datetime import timedelta
 from typing import Dict, List
 
 from airflow.sdk import task
 from airflow.sdk import get_current_context
 
-from amue.hooks.amue_api_hook import AMUEAPIHook
-from amue.services.api.status_checker import AMUEStatusChecker
-from amue.operators.table_management.table_filter import AMUETableFilter
+from amue.infrastructure.hooks.amue_api_hook import AMUEAPIHook
+from amue.application.api_source_factory import get_status_checker
+from amue.application.table_management.table_filter import AMUETableFilter
 
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='select_tables')
+@task(task_id='select_tables', execution_timeout=timedelta(minutes=10))
 def select_tables(bluegreen_ctx: Dict) -> List[Dict]:
     """
     Sélection des tables après polling.
@@ -40,7 +41,7 @@ def select_tables(bluegreen_ctx: Dict) -> List[Dict]:
         logger.warning("[INIT] tables_status non disponible, appel API de secours")
         current_status = {}
         api_hook = AMUEAPIHook()
-        status_checker = AMUEStatusChecker(api_hook)
+        status_checker = get_status_checker(api_hook)
         current_status = status_checker.get_current_status()
     else:
         logger.info(f"[INIT] Utilisation du cache tables_status ({len(current_status)} tables)")

@@ -100,6 +100,7 @@ ON CONFLICT (table_name) DO NOTHING;
 
 > Le fichier `init_db.sql` contient en commentaire la liste complète des 35+ tables configurées pour cet environnement.
 
+> 📷 **Capture d'écran suggérée** : *Vue dans pgAdmin ou DBeaver après exécution de `init_db.sql` — les 4 schémas (`splus`, `splus_blue`, `splus_green`, `splus_admin`) sont visibles dans l'arborescence, avec les tables `amue_state` et `amue_tables` dans `splus_admin`.*
 
 ### Étape 4 : Configurer Airflow
 
@@ -150,6 +151,7 @@ airflow connections add 'oracle_data' \
 
 > Ces connexions peuvent aussi être importées depuis `config/airflow_connections.json` via l'UI Airflow (Admin → Connections → Import).
 
+> 📷 **Capture d'écran suggérée** : *Page Admin → Connections dans l'UI Airflow, montrant les 3 connexions créées (`postgres_data`, `oauth_api`, `oracle_data`) avec leur type et host respectifs.*
 
 ### Étape 5 : Configurer les variables Airflow
 
@@ -161,8 +163,9 @@ airflow variables import config/airflow_variables.json
 
 Variables importantes à personnaliser :
 - `universite` : Code de l'établissement
-- `environment` : `dev` ou `production`
+- `amue_api_source` : source API (`entrepot` par défaut ou `cdv`)
 
+> 📷 **Capture d'écran suggérée** : *Page Admin → Variables dans l'UI Airflow après import, montrant les variables clés (`universite`, `amue_import_schedule`, `amue_report_recipients`, etc.) avec leur valeur.*
 
 ---
 
@@ -173,9 +176,10 @@ Variables importantes à personnaliser :
 | Variable | Description | Défaut | Exemple |
 |----------|-------------|--------|---------|
 | `universite` | Code établissement | — | `univ` |
-| `environment` | Environnement | — | `production` |
-| `api_endpoint_admin` | URL API admin (polling) | — | `finances/cdv/v1/preprod/${univ}/admin` |
-| `api_endpoint_table` | URL API par table | — | `finances/cdv/v1/preprod/${univ}/table` |
+| `amue_api_source` | Source API active (`cdv` ou `entrepot`) | `entrepot` | `cdv` |
+| `api_endpoint_entrepot` | Endpoint source entrepôt | — | `finances/entrepotdedonnees/v1/preprod/${univ}` |
+| `api_endpoint_admin` | Endpoint admin CDV (polling, source `cdv` uniquement) | — | `finances/cdv/v1/preprod/${univ}/admin` |
+| `api_endpoint_table` | Endpoint table CDV (source `cdv` uniquement) | — | `finances/cdv/v1/preprod/${univ}/table` |
 | `amue_import_schedule` | Cron de l'import principal | `0 2 * * *` | `0 2 * * *` |
 | `amue_sync_schedule` | Cron de la synchro B/G | `0 6 * * *` | `0 6 * * *` |
 | `amue_monitor_schedule` | Cron du monitoring API | `0 22 * * *` | `0 22 * * *` |
@@ -193,6 +197,7 @@ Variables importantes à personnaliser :
 | `amue_force_import` | Forcer import (ignore sensor) | `false` | `true` |
 | `amue_pre_import_dags` | DAGs à déclencher avant import | `[]` | `["amue_table_setup"]` |
 | `amue_post_import_dags` | DAGs à déclencher après import | `[]` | `["amue_refresh_views"]` |
+| `amue_tables_to_purge` | Tables purgées (TRUNCATE) avant import (JSON array) | `[]` | `["BKPF","BSEG"]` |
 | `smtp_host` | Serveur SMTP | `mailhog` | `smtp.univ.fr` |
 | `smtp_port` | Port SMTP | `1025` | `587` |
 | `smtp_mail_from` | Expéditeur emails | `airflow@amue.local` | `amue@univ.fr` |
@@ -251,6 +256,7 @@ airflow dags list | grep amue
 airflow dags list-import-errors
 ```
 
+> 📷 **Capture d'écran suggérée** : *Page DAGs dans l'UI Airflow filtrée sur "amue", listant les 11 DAGs du projet (`amue_multi_table_import`, `amue_correction_import`, `amue_table_setup`, `amue_table_discovery`, `amue_settings`, `amue_sync_schemas`, `amue_rollback`, `amue_refresh_views`, `amue_status_monitor`, `ecc_multi_table_import`, `ecc_correction_import`) tous actifs (toggle bleu).*
 
 ### Exécuter les tests
 
@@ -265,6 +271,7 @@ SELECT schema_name FROM information_schema.schemata
 WHERE schema_name IN ('splus', 'splus_blue', 'splus_green');
 ```
 
+> 📷 **Capture d'écran suggérée** : *Résultat de la requête SQL ci-dessus dans un client PostgreSQL, confirmant la présence des 3 schémas, et en parallèle la requête `SELECT * FROM splus_admin.amue_state WHERE id = 1` montrant l'état initial (`active_schema = 'blue'`, `import_in_progress = false`).*
 
 ---
 

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from airflow.sdk import task
 
-from amue.notifications import NotificationService
+from amue.infrastructure.notifications import NotificationService
 
 _TZ_PARIS = ZoneInfo('Europe/Paris')
 
@@ -30,9 +30,7 @@ def send_sync_report(sync_result: Dict) -> Dict:
         logger.info("[SYNC] Rapport ignoré (synchronisation désactivée)")
         return {'sent': False, 'reason': 'skipped'}
 
-    tables_synced = sync_result.get('tables_synced', 0)
     tables_failed = sync_result.get('tables_failed', 0)
-    total_rows = sync_result.get('total_rows_copied', 0)
     source = sync_result.get('source_schema', '?')
     target = sync_result.get('target_schema', '?')
 

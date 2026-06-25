@@ -8,8 +8,8 @@ from airflow.sdk import task
 from airflow.task.trigger_rule import TriggerRule
 from psycopg2 import sql
 
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
-from common.utils.database.hooks import create_postgres_hook
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
+from common.infrastructure.database.hooks import create_postgres_hook
 
 _VALID_SCHEMAS = frozenset({"splus_blue", "splus_green"})
 

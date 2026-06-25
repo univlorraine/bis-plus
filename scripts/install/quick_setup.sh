@@ -37,16 +37,16 @@ fi
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║        Configuration rapide Airflow AMUE                      ║
+║               Configuration rapide Airflow AMUE               ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 EOF
 
 echo ""
 echo -e "\033[1;33m╔═══════════════════════════════════════════════════════════════╗\033[0m"
-echo -e "\033[1;33m║  ATTENTION : ce script supprime tous les volumes Docker        ║\033[0m"
-echo -e "\033[1;33m║  (docker-compose down -v). Toutes les données existantes       ║\033[0m"
-echo -e "\033[1;33m║  (PostgreSQL, logs) seront DÉFINITIVEMENT PERDUES.             ║\033[0m"
+echo -e "\033[1;33m║     ATTENTION : ce script supprime tous les volumes Docker    ║\033[0m"
+echo -e "\033[1;33m║     (docker-compose down -v). Toutes les données existantes   ║\033[0m"
+echo -e "\033[1;33m║     (PostgreSQL, logs) seront DÉFINITIVEMENT PERDUES.         ║\033[0m"
 echo -e "\033[1;33m╚═══════════════════════════════════════════════════════════════╝\033[0m"
 echo ""
 echo -n "Continuer ? (o/N) : "
@@ -213,6 +213,41 @@ case "$ENV_CHOICE" in
         exit 1
         ;;
 esac
+
+echo ""
+
+###############################################################################
+# Choix de la source d'API AMUE
+###############################################################################
+
+echo -e "${CYAN}Quelle source d'API AMUE utiliser ?${NC}" >&2
+echo "  1) CDV   — API SQLite (REST JSON, endpoint finances/cdv/v1/...)" >&2
+echo "  2) Entrepôt — API PostgREST (finances/entrepotdedonnees/v1/...)" >&2
+echo -n "Votre choix [1] : " >&2
+read -r _api_src_choice </dev/tty
+_api_src_choice="${_api_src_choice:-1}"
+
+case "$_api_src_choice" in
+    1|cdv)
+        AMUE_API_SOURCE="cdv"
+        log_info "Source API : CDV"
+        ;;
+    2|entrepot|entrepôt)
+        AMUE_API_SOURCE="entrepot"
+        log_info "Source API : Entrepôt v1.2"
+        ;;
+    *)
+        log_error "Choix invalide — valeurs acceptées : 1 (cdv) ou 2 (entrepot)"
+        exit 1
+        ;;
+esac
+
+# Endpoint Entrepôt selon l'environnement (même logique que CDV)
+if [[ "$ENVIRONMENT" == "production" ]]; then
+    API_ENDPOINT_ENTREPOT='finances/entrepotdedonnees/v1/${univ}'
+else
+    API_ENDPOINT_ENTREPOT="finances/entrepotdedonnees/v1/$AMUE_API_ENV_PATH/\${univ}"
+fi
 
 echo ""
 
@@ -416,9 +451,10 @@ log_info "Étape 5/9: Génération des fichiers de configuration"
 # _PIP_ADDITIONAL_REQUIREMENTS est laissé vide pour ne pas réinstaller à chaque démarrage.
 PIP_REQS=""
 
-# Lecture de la version Airflow depuis docker-compose.yml pour rester synchronisé
-AIRFLOW_IMAGE_NAME=$(grep 'AIRFLOW_IMAGE_NAME:-' "$PROJECT_DIR/docker-compose.yml" \
-    | grep -oP '(?<=:-)[^}]+' | head -1 || echo "apache/airflow:3.1.7")
+# Lecture de la version depuis le fichier VERSION
+BISPLUS_VERSION=$(cat "$PROJECT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')
+BISPLUS_VERSION="${BISPLUS_VERSION:-1.0.0}"
+AIRFLOW_IMAGE_NAME="${AIRFLOW_IMAGE_NAME:-bisplus:${BISPLUS_VERSION}}"
 
 # Génération de la clé Fernet
 generate_fernet_key() {
@@ -450,6 +486,7 @@ cat > ".env" << EOFENV
 
 # Airflow
 AIRFLOW_UID=1001
+BISPLUS_VERSION=$BISPLUS_VERSION
 AIRFLOW_IMAGE_NAME=$AIRFLOW_IMAGE_NAME
 AIRFLOW__CORE__FERNET_KEY=$FERNET_KEY
 AIRFLOW__API__SECRET_KEY=$SECRET_KEY
@@ -499,8 +536,10 @@ cat > "config/airflow_variables.json" << EOFVARS
   "amue_monitor_schedule": "0 22 * * *",
   "ecc_import_schedule": "0 4 * * *",
   "universite": "$UNIVERSITE",
+  "amue_api_source": "$AMUE_API_SOURCE",
   "api_endpoint_admin": "$API_ENDPOINT_ADMIN",
   "api_endpoint_table": "$API_ENDPOINT_TABLE",
+  "api_endpoint_entrepot": "$API_ENDPOINT_ENTREPOT",
   "amue_import_batch_size": "5000",
   "amue_import_parallel_workers": "1",
   "amue_api_max_retries": "3",
@@ -712,8 +751,9 @@ log_info "Saisissez les tables AMUE à importer (table_name, primary_key, delta)
 log_info "Vous pourrez en ajouter/modifier plus tard via : ./manage.sh load-tables"
 echo ""
 
-# Résolution de l'endpoint admin (substitue ${univ} par la valeur réelle)
+# Résolution des endpoints (substitue ${univ} par la valeur réelle)
 ADMIN_ENDPOINT_RESOLVED="${API_ENDPOINT_ADMIN/\$\{univ\}/$UNIVERSITE}"
+ENTREPOT_ENDPOINT_RESOLVED="${API_ENDPOINT_ENTREPOT/\$\{univ\}/$UNIVERSITE}"
 
 # Tentative d'obtention d'un token OAuth (silencieuse, non bloquante)
 ACCESS_TOKEN=""
@@ -725,7 +765,7 @@ if [[ -n "$OAUTH_CLIENT_ID" && -n "$OAUTH_CLIENT_SECRET" ]]; then
     unset _TOKEN_RESP
 fi
 [[ -n "$ACCESS_TOKEN" ]] \
-    && log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API" \
+    && log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API (source: $AMUE_API_SOURCE)" \
     || log_warning "Token OAuth non disponible — saisie manuelle des clés primaires"
 
 TABLE_COUNT=0
@@ -744,14 +784,37 @@ while true; do
     echo -n "  Nom de la table : " >&2
     read -r T_NAME </dev/tty
     [[ -z "$T_NAME" ]] && continue
+    T_NAME="${T_NAME^^}"
 
     # Auto-fetch de la clé primaire depuis l'API, avec fallback saisie manuelle
     T_PK=""
     if [[ -n "$ACCESS_TOKEN" ]]; then
-        _KEYS_RESP=$(curl -s --max-time 10 \
-            -H "Authorization: Bearer $ACCESS_TOKEN" \
-            "$AMUE_API_HOST/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
-        T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+        if [[ "$AMUE_API_SOURCE" == "entrepot" && -n "$ENTREPOT_ENDPOINT_RESOLVED" ]]; then
+            # API Entrepôt v1.2 : GET /rpc/get_file?nom_table=TABLE.keys  (Accept: text/plain)
+            _KEYS_RESP=$(curl -s --max-time 10 \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -H "Accept: text/plain" \
+                "$AMUE_API_HOST/$ENTREPOT_ENDPOINT_RESOLVED/rpc/get_file?nom_table=${T_NAME}.keys" 2>/dev/null)
+            T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+import sys, re
+text = sys.stdin.read().strip()
+# Valide : liste d'identifiants SQL (MANDT,WERKS) — rejette les messages d'erreur
+parts = [p.strip() for p in re.split(r'[,\n\r]+', text) if p.strip()]
+if parts and all(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', p) for p in parts):
+    print(','.join(p.upper() for p in parts))
+elif text:
+    print('WARN:' + text[:120])
+" 2>/dev/null || true)
+            if [[ "$T_PK" == WARN:* ]]; then
+                log_warning "  API Entrepôt /rpc/get_file : ${T_PK#WARN:}"
+                T_PK=""
+            fi
+        elif [[ -n "$ADMIN_ENDPOINT_RESOLVED" ]]; then
+            # API CDV (historique) : GET /admin?get=TABLE.keys&f=json
+            _KEYS_RESP=$(curl -s --max-time 10 \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                "$AMUE_API_HOST/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
+            T_PK=$(echo "$_KEYS_RESP" | python3 -c "
 import json, sys
 text = sys.stdin.read()
 try:
@@ -768,6 +831,7 @@ except (json.JSONDecodeError, ValueError):
     if cleaned and not cleaned.startswith('<'):
         print(cleaned)
 " 2>/dev/null || true)
+        fi
         unset _KEYS_RESP
     fi
     if [[ -n "$T_PK" ]]; then
@@ -822,6 +886,48 @@ log_info "Étape 9/9: Configuration des utilisateurs"
 echo ""
 log_info "=== Configuration des utilisateurs Airflow ==="
 log_info "L'utilisateur admin par défaut (airflow/airflow) a été créé."
+
+# ── Pré-inscription des utilisateurs CAS ──────────────────────────────────
+# webserver_config.py (CASAuthView) exige que l'utilisateur existe déjà en
+# base FAB avant d'autoriser la connexion CAS (protection anti-inconnu).
+# On pré-crée donc un compte FAB pour chaque username CAS_ADMIN_USERS /
+# CAS_ALLOWED_USERS, avec un email placeholder @cas.local — complété
+# automatiquement depuis les attributs CAS au premier login réel.
+if [[ -n "$CAS_SERVER_URL" ]]; then
+    _cas_admin_list=""
+    for _u in ${CAS_ADMIN_USERS//,/ }; do
+        _u="${_u// /}"
+        [[ -n "$_u" ]] && _cas_admin_list="$_cas_admin_list $_u"
+    done
+
+    _cas_pre_users=""
+    for _u in ${CAS_ADMIN_USERS//,/ } ${CAS_ALLOWED_USERS//,/ }; do
+        _u="${_u// /}"
+        [[ -z "$_u" ]] && continue
+        case " $_cas_pre_users " in *" $_u "*) continue ;; esac
+        _cas_pre_users="$_cas_pre_users $_u"
+    done
+
+    if [[ -n "$_cas_pre_users" ]]; then
+        echo ""
+        log_info "Pré-inscription des utilisateurs CAS dans Airflow..."
+        for _u in $_cas_pre_users; do
+            _role="$CAS_DEFAULT_ROLE"
+            case " $_cas_admin_list " in *" $_u "*) _role="Admin" ;; esac
+            _pw=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -base64 32 | tr -d '\n')
+            airflow_exec users create \
+                --username "$_u" \
+                --email "${_u}@cas.local" \
+                --firstname "$_u" \
+                --lastname "CAS" \
+                --role "$_role" \
+                --password "$_pw" >/dev/null 2>&1 \
+            && log_success "  Utilisateur CAS '$_u' pré-inscrit (rôle: $_role)" \
+            || log_info "  Utilisateur CAS '$_u' déjà existant"
+        done
+    fi
+fi
+
 log_info "Voulez-vous créer des utilisateurs supplémentaires ?"
 echo ""
 
@@ -916,11 +1022,15 @@ EOF
 if [[ "$ENVIRONMENT" == "dev" ]]; then
     echo -e "${GREEN}Environnement: DEV (sandbox)${NC}"
     echo -e "   API Host: $AMUE_API_HOST"
-    echo -e "   Endpoints: finances/cdv/v1/preprod/..."
 else
     echo -e "${YELLOW}Environnement: PRODUCTION${NC}"
     echo -e "   API Host: $AMUE_API_HOST"
-    echo -e "   Endpoints: finances/cdv/v1/..."
+fi
+echo -e "   Source API : ${CYAN}$AMUE_API_SOURCE${NC}"
+if [[ "$AMUE_API_SOURCE" == "cdv" ]]; then
+    echo -e "   Endpoints: $API_ENDPOINT_ADMIN / $API_ENDPOINT_TABLE"
+else
+    echo -e "   Endpoint: $API_ENDPOINT_ENTREPOT"
 fi
 
 cat << EOF

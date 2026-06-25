@@ -5,16 +5,16 @@ Ce module n'expose que les types, exceptions et la configuration. Tout le
 reste (opérateurs, services, hooks, utilitaires) doit être importé depuis
 son chemin canonique :
 
-    from amue.operators.pipeline.data_importer import AMUEDataImporter
-    from amue.services.api.polling_service import AMUEPollingService
-    from amue.notifications import send_failure_notification
+    from amue.application.pipeline.data_importer import AMUEDataImporter
+    from amue.application.polling_service import AMUEPollingService
+    from amue.infrastructure.notifications import send_failure_notification
 
 Cela évite le couplage circulaire amue↔common qui rendait nécessaire un
 mécanisme de lazy loading dans les versions précédentes.
 """
 
 # Types
-from amue.types_amue import (
+from amue.domain.types_amue import (
     TableInfo,
     TableInfoPartial,
     ColumnInfo,
@@ -34,7 +34,7 @@ from amue.types_amue import (
 )
 
 # Exceptions
-from amue.exceptions import (
+from amue.domain.exceptions import (
     AMUEError,
     AMUEAPIError,
     AMUEAuthError,
@@ -54,7 +54,7 @@ from amue.exceptions import (
 )
 
 # Configuration
-from amue.utils.config.settings import AMUEConfig, AMUEDefaults, get_config, reload_config
+from amue.infrastructure.config.settings import AMUEConfig, AMUEDefaults, get_config, reload_config
 
 
 __all__ = [

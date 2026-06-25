@@ -4,8 +4,8 @@ from typing import Dict, List
 
 from airflow.sdk import get_current_context, task
 
-from amue.notifications.report_generator import AMUEReportGenerator
-from amue.services.table_config_manager import TableConfigManager
+from amue.infrastructure.notifications.report_generator import AMUEReportGenerator
+from amue.application.table_config_manager import TableConfigManager
 
 logger = logging.getLogger(__name__)
 

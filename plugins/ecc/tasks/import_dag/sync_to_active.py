@@ -5,9 +5,9 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
-from common.utils.database.hooks import create_postgres_hook
-from ecc.utils.config.settings import ECCDefaults
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
+from common.infrastructure.database.hooks import create_postgres_hook
+from ecc.infrastructure.config.settings import ECCDefaults
 
 logger = logging.getLogger(__name__)
 

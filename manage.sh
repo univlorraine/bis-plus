@@ -26,6 +26,12 @@ trap 'log_error "Erreur à la ligne $LINENO — commande : $BASH_COMMAND"' ERR
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+BISPLUS_VERSION=$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')
+BISPLUS_VERSION="${BISPLUS_VERSION:-1.0.0}"
+export BISPLUS_VERSION
+AIRFLOW_IMAGE_NAME="${AIRFLOW_IMAGE_NAME:-bisplus:${BISPLUS_VERSION}}"
+export AIRFLOW_IMAGE_NAME
+
 # Détecte docker-compose ou docker compose
 DOCKER_CMD="docker-compose"
 if ! command -v docker-compose &> /dev/null; then
@@ -127,6 +133,7 @@ Commandes disponibles:
     config-validate     Valide toute la configuration (.env, variables, connexions)
     config-backup       Sauvegarde complète de la configuration
     config-restore <f>  Restaure depuis une sauvegarde
+    api-source [--force] Change la source d'API AMUE (cdv|entrepot) ; --force pour écraser
 
   BASE DE DONNÉES
     db-shell            Connexion au shell PostgreSQL
@@ -135,8 +142,8 @@ Commandes disponibles:
     db-migrate          Applique les migrations SQL applicatives en attente
 
   MISE À JOUR
-    update [tag]        Met à jour le projet vers une release GitHub publiée
-                        (sans argument : dernière release ; --resume pour reprendre)
+    update [tag]        Met à jour le projet vers un tag git (via git fetch/checkout)
+                        (sans argument : dernier tag ; --resume pour reprendre)
                         Voir docs/UPGRADE.md pour la procédure complète
 
   MAINTENANCE
@@ -179,11 +186,9 @@ EOF
 # Build de l'image Docker personnalisée
 ###############################################################################
 
-# Retourne le nom de l'image Airflow défini dans .env (ou la valeur par défaut)
+# Retourne le nom de l'image (priorité : env AIRFLOW_IMAGE_NAME > BISPLUS_VERSION > défaut)
 _get_airflow_image_name() {
-    local name
-    name=$(grep -E '^AIRFLOW_IMAGE_NAME=' .env 2>/dev/null | cut -d= -f2 | tr -d '"')
-    echo "${name:-apache/airflow:3.1.7}"
+    echo "${AIRFLOW_IMAGE_NAME:-bisplus:${BISPLUS_VERSION:-1.0.0}}"
 }
 
 # Construit l'image si le Dockerfile est présent. Utilisé lors du setup et du reset.
@@ -1056,6 +1061,8 @@ cmd_config_validate() {
         "universite"
         "api_endpoint_admin"
         "api_endpoint_table"
+        "amue_api_source"
+        "api_endpoint_entrepot"
         "amue_import_batch_size"
         "amue_report_recipients"
         "ecc_report_recipients"
@@ -1412,6 +1419,7 @@ cmd_add_table() {
             echo -n "Nom de la table (vide pour terminer) : " >&2
             read -r TABLE_NAME </dev/tty
             [[ -z "$TABLE_NAME" ]] && break
+            TABLE_NAME="${TABLE_NAME^^}"
 
             echo -n "Colonne delta pour import différentiel (vide si aucun) : " >&2
             read -r TABLE_DELTA </dev/tty
@@ -1455,6 +1463,7 @@ cmd_add_table() {
         local added=0
         local skipped=0
         for table in "${tables[@]}"; do
+            table="${table^^}"
             local table_esc
             table_esc=$(_pg_escape "$table")
             RESULT=$(_pg_exec -At -c "
@@ -1526,14 +1535,19 @@ except Exception:
         unset _TOKEN_RESP
     fi
 
-    local _universite _endpoint_admin
+    local _universite _endpoint_admin _api_source _endpoint_entrepot
     _universite=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get universite 2>/dev/null || echo "")
     _endpoint_admin=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_admin 2>/dev/null || echo "")
+    _api_source=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_api_source 2>/dev/null || echo "cdv")
+    _endpoint_entrepot=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get api_endpoint_entrepot 2>/dev/null || echo "finances/entrepotdedonnees/v1/preprod/ul")
     ADMIN_ENDPOINT_RESOLVED="${_endpoint_admin/\$\{univ\}/$_universite}"
+    _endpoint_entrepot="${_endpoint_entrepot/\$\{univ\}/$_universite}"
 
-    [[ -n "$ACCESS_TOKEN" ]] \
-        && log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API" \
-        || log_warning "Token OAuth non disponible — saisie manuelle des clés primaires"
+    if [[ -n "$ACCESS_TOKEN" ]]; then
+        log_info "Token OAuth obtenu — les clés primaires seront récupérées automatiquement depuis l'API (source: $_api_source)"
+    else
+        log_warning "Token OAuth non disponible — saisie manuelle des clés primaires"
+    fi
 
     local count=0
     while true; do
@@ -1544,13 +1558,36 @@ except Exception:
         echo -n "  Nom de la table : " >&2
         read -r T_NAME </dev/tty
         [[ -z "$T_NAME" ]] && continue
+        T_NAME="${T_NAME^^}"
 
         local T_PK=""
-        if [[ -n "$ACCESS_TOKEN" && -n "$_api_host" && -n "$ADMIN_ENDPOINT_RESOLVED" ]]; then
-            _KEYS_RESP=$(curl -s --max-time 10 \
-                -H "Authorization: Bearer $ACCESS_TOKEN" \
-                "$_api_host/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
-            T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+        if [[ -n "$ACCESS_TOKEN" && -n "$_api_host" ]]; then
+            if [[ "$_api_source" == "entrepot" && -n "$_endpoint_entrepot" ]]; then
+                # API Entrepôt v1.2 : GET /rpc/get_file?nom_table=TABLE.keys  (Accept: text/plain)
+                _KEYS_RESP=$(curl -s --max-time 10 \
+                    -H "Authorization: Bearer $ACCESS_TOKEN" \
+                    -H "Accept: text/plain" \
+                    "$_api_host/${_endpoint_entrepot}/rpc/get_file?nom_table=${T_NAME}.keys" 2>/dev/null)
+                T_PK=$(echo "$_KEYS_RESP" | python3 -c "
+import sys, re
+text = sys.stdin.read().strip()
+# Valide : liste d'identifiants SQL (MANDT,WERKS) — rejette les messages d'erreur
+parts = [p.strip() for p in re.split(r'[,\n\r]+', text) if p.strip()]
+if parts and all(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', p) for p in parts):
+    print(','.join(p.upper() for p in parts))
+elif text:
+    print('WARN:' + text[:120])
+" 2>/dev/null || true)
+                if [[ "$T_PK" == WARN:* ]]; then
+                    log_warning "  API Entrepôt /rpc/get_file : ${T_PK#WARN:}"
+                    T_PK=""
+                fi
+            elif [[ -n "$ADMIN_ENDPOINT_RESOLVED" ]]; then
+                # API CDV (historique) : GET /admin?get=TABLE.keys&f=json
+                _KEYS_RESP=$(curl -s --max-time 10 \
+                    -H "Authorization: Bearer $ACCESS_TOKEN" \
+                    "$_api_host/$ADMIN_ENDPOINT_RESOLVED?get=$T_NAME.keys&f=json" 2>/dev/null)
+                T_PK=$(echo "$_KEYS_RESP" | python3 -c "
 import json, sys
 text = sys.stdin.read()
 try:
@@ -1567,6 +1604,7 @@ except (json.JSONDecodeError, ValueError):
     if cleaned and not cleaned.startswith('<'):
         print(cleaned)
 " 2>/dev/null || true)
+            fi
             unset _KEYS_RESP
         fi
         if [[ -n "$T_PK" ]]; then
@@ -1815,55 +1853,93 @@ _resolve_github_release() {
     GITHUB_RELEASE_TAG=""
     GITHUB_RELEASE_NAME=""
 
-    local remote_url owner_repo releases_url
-    remote_url=$(git remote -v 2>/dev/null | awk '/github\.com/ {print $2; exit}')
-    if [[ -z "$remote_url" ]]; then
-        log_error "Aucun remote git ne pointe vers github.com (cf. 'git remote -v')"
-        return 1
+    # Rapatrie les tags depuis le remote (utilise les credentials git existants —
+    # SSH, HTTPS avec credentials helper, etc. — aucun token supplémentaire requis)
+    log_info "Récupération des tags depuis le remote..."
+    if ! git fetch --tags --quiet 2>/dev/null; then
+        log_warning "'git fetch --tags' a échoué — utilisation des tags locaux uniquement"
     fi
-    owner_repo=$(echo "$remote_url" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')
-    releases_url="https://api.github.com/repos/${owner_repo}/releases"
 
-    local query_url
     if [[ -n "$requested" ]]; then
-        query_url="${releases_url}/tags/${requested}"
-    else
-        query_url="${releases_url}/latest"
-    fi
-
-    local response http_code body
-    response=$(curl -s --max-time 10 -w '\n%{http_code}' "$query_url" 2>/dev/null)
-    http_code=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | sed '$d')
-
-    if [[ "$http_code" != "200" ]]; then
-        if [[ -n "$requested" ]]; then
-            log_error "'$requested' n'est pas une release GitHub publiée (HTTP ${http_code:-?})"
-            log_info "Releases disponibles : https://github.com/${owner_repo}/releases"
-        else
-            log_error "Impossible de récupérer la dernière release GitHub (HTTP ${http_code:-?})"
-            log_info "Vérifiez l'accès réseau à api.github.com (timeout ou limite de taux possible)"
+        # Vérifie que le tag demandé existe
+        if ! git rev-parse "$requested" > /dev/null 2>&1; then
+            log_error "Le tag '$requested' est introuvable (localement et après fetch)"
+            log_info "Tags disponibles : $(git tag --sort=-version:refname | head -10 | tr '\n' ' ')"
+            return 1
         fi
-        return 1
+        GITHUB_RELEASE_TAG="$requested"
+    else
+        # Prend le tag le plus récent (tri sémantique)
+        GITHUB_RELEASE_TAG=$(git tag --sort=-version:refname 2>/dev/null | head -1)
+        if [[ -z "$GITHUB_RELEASE_TAG" ]]; then
+            log_error "Aucun tag trouvé dans le dépôt — créez une release/tag avant de lancer update"
+            return 1
+        fi
     fi
 
-    local _parsed
-    _parsed=$(echo "$body" | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    print('\x1f'.join([d.get('tag_name') or '', d.get('name') or '']))
-except Exception:
-    print('\x1f')
-" 2>/dev/null)
-    IFS=$'\x1f' read -r GITHUB_RELEASE_TAG GITHUB_RELEASE_NAME <<< "$_parsed"
-
-    if [[ -z "$GITHUB_RELEASE_TAG" ]]; then
-        log_error "Réponse GitHub invalide — impossible d'extraire le tag de la release"
-        return 1
-    fi
-
+    # Pas de nom de release via git pur — GITHUB_RELEASE_NAME reste vide
     return 0
+}
+
+# Demande interactivement la source d'API AMUE, met à jour la variable Airflow et le template.
+# Ne fait rien si la variable est déjà définie dans Airflow (mode update silencieux).
+# Passe --force pour forcer la reconfiguration même si déjà définie.
+_configure_api_source() {
+    local force="${1:-}"
+
+    # Vérifie si la variable est déjà définie dans Airflow
+    local current_source
+    current_source=$($DOCKER_CMD exec -T airflow-apiserver airflow variables get amue_api_source 2>/dev/null || true)
+
+    if [[ -n "$current_source" && "$force" != "--force" ]]; then
+        log_info "Source API déjà configurée : $current_source (utilisez --force pour modifier)"
+        return 0
+    fi
+
+    # Si déjà configurée et --force, affiche la valeur courante
+    if [[ -n "$current_source" ]]; then
+        log_info "Source API actuelle : $current_source"
+    fi
+
+    # Prompt interactif
+    echo ""
+    echo -e "${CYAN}Quelle source d'API AMUE utiliser ?${NC}" >&2
+    echo "  1) CDV      — API v1 classique (finances/cdv/v1/...)" >&2
+    echo "  2) Entrepôt — API v1.2 PostgREST (finances/entrepotdedonnees/v1/...)" >&2
+    local default_choice="1"
+    [[ "$current_source" == "entrepot" ]] && default_choice="2"
+    echo -n "Votre choix [$default_choice] : " >&2
+    local choice
+    read -r choice </dev/tty
+    choice="${choice:-$default_choice}"
+
+    local new_source
+    case "$choice" in
+        1|cdv)      new_source="cdv" ;;
+        2|entrepot) new_source="entrepot" ;;
+        *)
+            log_error "Choix invalide — valeurs acceptées : 1 (cdv) ou 2 (entrepot)"
+            return 1
+            ;;
+    esac
+
+    # Mise à jour dans Airflow
+    $DOCKER_CMD exec -T airflow-apiserver airflow variables set amue_api_source "$new_source" > /dev/null 2>&1
+    log_success "Source API définie : $new_source"
+
+    # Mise à jour du template config/airflow_variables.json (pour les prochains syncs)
+    local template="config/airflow_variables.json"
+    if [[ -f "$template" ]]; then
+        python3 -c "
+import json, sys
+with open('$template', encoding='utf-8') as f:
+    data = json.load(f)
+data['amue_api_source'] = '$new_source'
+with open('$template', 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+" && log_info "Template $template mis à jour"
+    fi
 }
 
 # Synchronise les variables Airflow depuis config/airflow_variables.json de façon
@@ -1951,10 +2027,10 @@ _update_fail() {
 }
 
 # Met à jour le PROJET DANS SON ENSEMBLE (code, dépendances/image Docker, schéma SQL
-# applicatif, métadonnées Airflow, variables Airflow) à partir d'une RELEASE GITHUB PUBLIÉE.
-# La cible est toujours une release publiée — jamais une branche ou un commit arbitraire :
-#   ./manage.sh update              -> prend la dernière release publiée
-#   ./manage.sh update v1.2.0       -> vérifie que v1.2.0 est une release publiée
+# applicatif, métadonnées Airflow, variables Airflow) à partir d'un TAG GIT.
+# Utilise git fetch/checkout directement — aucun GITHUB_TOKEN requis.
+#   ./manage.sh update              -> prend le tag le plus récent (tri sémantique)
+#   ./manage.sh update v1.2.0       -> vérifie que v1.2.0 existe comme tag git
 #   ./manage.sh update v1.2.0 --resume -> reprend une mise à jour interrompue à l'étape v1.2.0
 cmd_update() {
     local target="" resume=false
@@ -1988,32 +2064,19 @@ cmd_update() {
         target="$release_tag"
     fi
 
-    # ---- Étape 1/9 : résolution de la release + pré-checks ----
+    # ---- Étape 1/9 : résolution du tag cible + pré-checks ----
     if [[ "$last_step" -lt 1 ]]; then
-        log_info "[ÉTAPE 1/$total_steps] Résolution de la release cible et vérifications préalables..."
+        log_info "[ÉTAPE 1/$total_steps] Résolution du tag cible et vérifications préalables..."
 
-        if [[ -n "$target" ]]; then
-            log_info "Vérification que '$target' correspond à une release GitHub publiée..."
-        else
-            log_info "Recherche de la dernière release GitHub publiée..."
-        fi
         if ! _resolve_github_release "$target"; then
-            log_error "Une mise à jour ne peut cibler qu'une release GitHub publiée (jamais une branche ou un commit)"
             return 1
         fi
         release_tag="$GITHUB_RELEASE_TAG"
-        log_success "Release cible : $release_tag${GITHUB_RELEASE_NAME:+ ($GITHUB_RELEASE_NAME)}"
+        log_success "Tag cible : $release_tag"
 
         if [[ -n "$(git status --porcelain)" ]]; then
             log_error "Arbre de travail git non propre — committez ou annulez vos changements avant la mise à jour"
             git status --short
-            return 1
-        fi
-
-        git fetch --tags --quiet 2>/dev/null \
-            || log_warning "'git fetch --tags' a échoué (pas d'accès au remote ?) — utilisation des tags locaux"
-        if ! git rev-parse "$release_tag" > /dev/null 2>&1; then
-            log_error "Le tag '$release_tag' est introuvable localement même après 'git fetch --tags'"
             return 1
         fi
 
@@ -2022,7 +2085,7 @@ cmd_update() {
 
         _update_write_marker "$marker" 1 "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
     else
-        log_info "[ÉTAPE 1/$total_steps] déjà effectuée (reprise) — release cible : $release_tag"
+        log_info "[ÉTAPE 1/$total_steps] déjà effectuée (reprise) — tag cible : $release_tag"
     fi
 
     # ---- Étape 2/9 : confirmation ----
@@ -2140,6 +2203,8 @@ cmd_update() {
             _update_fail "$marker" 8 "$total_steps" "migrations SQL applicatives" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
             return 1
         fi
+        # Configure la source API si pas encore définie (première mise à jour après ajout de la variable)
+        _configure_api_source
         if ! _sync_variables; then
             _update_fail "$marker" 8 "$total_steps" "synchronisation des variables Airflow" "$release_tag" "$current_ref" "$db_backup_file" "$config_backup_file"
             return 1
@@ -2708,6 +2773,7 @@ main() {
         config-validate)  cmd_config_validate "$@" ;;
         config-backup)    cmd_config_backup "$@" ;;
         config-restore)   cmd_config_restore "$@" ;;
+        api-source)       _configure_api_source "${1:---}" ;;
 
         # Base de données
         db-shell)       cmd_db_shell "$@" ;;

@@ -1,0 +1,37 @@
+# Fichiers/dossiers à préserver sur les serveurs lors du déploiement (rsync --delete).
+# Ces éléments n'existent pas dans le dépôt git (cf. .gitignore) mais sont
+# présents et nécessaires sur les serveurs cibles : ne pas les écraser/supprimer.
+
+.git/
+
+# Secrets et configuration locale au serveur
+.env
+config/exports/
+config/airflow.cfg
+config/webserver_config.py
+secrets/
+*.pem
+*.key
+*.crt
+
+# Données et logs runtime
+logs/
+*.log
+standalone_admin_password.txt
+*.db
+*.sqlite
+*.sqlite3
+
+# Artefacts Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+
+# Fichiers temporaires
+tmp/
+temp/
+*.tmp
+*.bak

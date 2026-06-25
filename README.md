@@ -29,3 +29,8 @@ Le script configure l'environnement, les credentials API AMUE et PostgreSQL, pui
 - [Opérations](docs/OPERATIONS.md) — scénarios quotidiens, gestion des tables, correction, dépannage
 - [Installation](INSTALL.md) — prérequis, configuration, commandes, résolution de problèmes
 - [Présentation](PRESENTATION.md) — architecture détaillée des DAGs, composants, variables
+- [Mise à jour](docs/UPGRADE.md) — procédure de mise à jour, migrations SQL, rollback de release
+- [Déploiement](docs/DEPLOYMENT.md) — guide de déploiement complet, variables, connexions
+- [Dépannage](docs/TROUBLESHOOTING.md) — erreurs courantes, diagnostic, escalade
+- [Concepts](docs/CONCEPTS.md) — glossaire, principes fondamentaux, architecture Blue/Green
+- [API AMUE — tables disponibles](openapi.md) — référence des tables SAP/SIFAC+ avec colonnes Delta

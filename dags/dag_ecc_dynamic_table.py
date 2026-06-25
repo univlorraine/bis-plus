@@ -42,10 +42,10 @@ Tables configurées dans : splus_admin.amue_tables (colonne ecc_query)
 from airflow.sdk import dag
 
 from common.dags import DEFAULT_START_DATE, standard_default_args
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
-from ecc.notifications import send_ecc_failure_notification
+from common.infrastructure.config.airflow_helpers import AirflowVariableManager as VarMgr
+from ecc.infrastructure.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import select_tables, import_data, sync_to_active, save_metadata, send_report
-from ecc.utils.config.settings import ECCDefaults
+from ecc.infrastructure.config.settings import ECCDefaults
 from common.tasks.restore_inactive import restore_inactive
 
 _import_schedule = VarMgr.get('ecc_import_schedule', default=None)
@@ -97,7 +97,7 @@ def ecc_multi_table_import():
     imported = import_data.expand(table_config=tables)
 
     # ── Phase 2b : Restauration inactif sur échec (ALL_DONE, si ≥1 import raté) ─
-    restore = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
+    _ = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
 
     # ── Phase 3 : Synchronisation inactif → actif (transaction unique) ───────
     synced = sync_to_active(imported)

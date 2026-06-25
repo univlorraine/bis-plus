@@ -1,4 +1,5 @@
 """Task d'import des données depuis l'API vers PostgreSQL."""
+import json
 import logging
 from datetime import timedelta
 from typing import Dict
@@ -6,11 +7,12 @@ from typing import Dict
 from airflow.exceptions import AirflowFailException
 from airflow.sdk import task
 
-from amue.exceptions import AMUEDataError
-from amue.hooks.amue_api_hook import AMUEAPIHook
-from amue.operators.pipeline.data_importer import AMUEDataImporter
-from common.utils.database.hooks import resolve_postgres_hook
-from common.logging_context import set_correlation_id
+from amue.domain.exceptions import AMUEDataError
+from amue.infrastructure.hooks.amue_api_hook import AMUEAPIHook
+from amue.application.pipeline.data_importer import AMUEDataImporter
+from common.infrastructure.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.infrastructure.database.hooks import resolve_postgres_hook
+from common.infrastructure.observability.logging_context import set_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,13 @@ _COLUMNS_SQL = """
 """
 
 
-@task(task_id='import_data', retries=2, retry_delay=timedelta(seconds=30), multiple_outputs=False)
+@task(
+    task_id='import_data',
+    retries=2,
+    retry_delay=timedelta(seconds=30),
+    execution_timeout=timedelta(minutes=30),
+    multiple_outputs=False,
+)
 def import_data(table_info: Dict) -> Dict:
     """
     Importe les données d'une table depuis l'API vers PostgreSQL.
@@ -47,6 +55,15 @@ def import_data(table_info: Dict) -> Dict:
 
     # Propage le correlation_id par table pour le tracing granulaire
     set_correlation_id(f"import-{table_name[:12]}")
+
+    # Purge optionnelle : TRUNCATE si la table figure dans amue_tables_to_purge
+    raw_purge = VarMgr.get('amue_tables_to_purge', default='[]') or '[]'
+    tables_to_purge = {t.strip().lower() for t in json.loads(raw_purge) if t.strip()}
+    if table_name in tables_to_purge:
+        schema = target_schema or 'splus'
+        hook = resolve_postgres_hook(target_schema=target_schema)
+        hook.run(f"TRUNCATE TABLE {schema}.{table_name}")
+        logger.info(f"[IMPORT] {table_name}: purgée avant import (amue_tables_to_purge)")
 
     hook = resolve_postgres_hook(target_schema=target_schema)
     schema = target_schema or 'splus'

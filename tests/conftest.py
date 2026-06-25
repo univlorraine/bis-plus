@@ -20,7 +20,7 @@ with _VARIABLES_PATH.open(encoding='utf-8') as _f:
 @pytest.fixture(autouse=True)
 def reset_type_mapping_cache():
     """Reset le cache du type mapping avant chaque test."""
-    import amue.utils.transformers as mod
+    import amue.domain.transformers as mod
     mod._type_mapping_cache = None
     yield
     mod._type_mapping_cache = None
@@ -29,6 +29,6 @@ def reset_type_mapping_cache():
 @pytest.fixture(autouse=True)
 def mock_type_mapping_variable():
     """Mock la variable Airflow TYPE_MAPPING_SQLITE_TO_POSTGRES pour les tests."""
-    with patch('amue.utils.transformers.VarMgr') as mock_varmgr:
+    with patch('amue.domain.transformers.VarMgr') as mock_varmgr:
         mock_varmgr.get.return_value = json.dumps(_TEST_TYPE_MAPPING)
         yield mock_varmgr

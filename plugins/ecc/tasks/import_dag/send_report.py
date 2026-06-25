@@ -5,7 +5,7 @@ from typing import Dict, List
 
 from airflow.sdk import task, get_current_context
 
-from common.log_prefixes import LogPrefixes
+from common.infrastructure.observability.log_prefixes import LogPrefixes
 from common.tasks.import_summary import summarize_import_results
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def send_report(import_results: List[Dict]) -> Dict:
         if start_date else 'N/A'
     )
 
-    from ecc.notifications.ecc_notifier import ECCNotificationService
+    from ecc.infrastructure.notifications.ecc_notifier import ECCNotificationService
     service = ECCNotificationService()
     service.notify_success({
         'dag_id': 'ecc_multi_table_import',

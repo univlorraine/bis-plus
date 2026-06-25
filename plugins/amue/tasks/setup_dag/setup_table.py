@@ -3,7 +3,7 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from amue.services.table_setup_orchestrator import TableSetupOrchestrator
+from amue.application.table_setup_orchestrator import TableSetupOrchestrator
 
 
 @task(task_id='setup_table', multiple_outputs=False)

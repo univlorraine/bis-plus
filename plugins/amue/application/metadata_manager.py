@@ -1,0 +1,201 @@
+"""
+Layer: application
+
+Gestionnaire des métadonnées d'import AMUE.
+
+================================================================================
+RÔLE DU MODULE
+================================================================================
+
+Ce module persiste les métadonnées d'import dans les variables Airflow.
+Ces métadonnées sont ESSENTIELLES pour :
+    - Détecter les changements de structure (fingerprint)
+    - Permettre l'import différentiel (last_report_start global dans amue_state)
+    - Tracer l'historique des imports
+
+================================================================================
+MÉTADONNÉES GÉRÉES
+================================================================================
+
+Pour chaque table importée, le gestionnaire sauvegarde :
+
+┌─────────────────┬────────────────────────────────────────────────────────────┐
+│ Métadonnée      │ Description                                                │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ fingerprint_API │ Hash MD5 structure originale API + PKs API                  │
+│                 │ → Détecte les changements côté fournisseur                 │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ fingerprint_local  │ Hash MD5 structure transformée PG + PKs config             │
+│                 │ → Détecte les changements côté local                       │
+├─────────────────┼────────────────────────────────────────────────────────────┤
+│ primary_key     │ Liste des colonnes formant la clé primaire (CSV)           │
+│                 │ → Utilisé pour construire les UPSERT                       │
+└─────────────────┴────────────────────────────────────────────────────────────┘
+
+NOTE : La référence temporelle pour l'import différentiel (last_report_start) est
+stockée globalement dans splus_admin.amue_state, pas par table.
+
+================================================================================
+STOCKAGE
+================================================================================
+
+Les métadonnées sont stockées dans la table PostgreSQL splus_admin.amue_tables
+via TableConfigManager.
+
+Les timestamps de synchro (last_finish_timestamp, last_successful_run) sont
+stockés dans la table PostgreSQL splus_admin.amue_state via AdminStateManager.
+
+================================================================================
+GESTION DES ERREURS
+================================================================================
+
+La sauvegarde des métadonnées est CRITIQUE. En cas d'échec :
+    1. Retry avec backoff exponentiel (3 tentatives)
+    2. Si échec persistant : le DAG échoue
+
+Pourquoi ? Si les métadonnées ne sont pas sauvegardées :
+    - Le prochain import ne détectera pas les changements de structure
+    - L'import différentiel réimportera toutes les données
+
+================================================================================
+"""
+import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Dict, Optional
+
+from airflow.exceptions import AirflowException
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TableMetadata:
+    """Métadonnées d'une table importée"""
+    name: str
+    fingerprint_API: str
+    fingerprint_local: str
+    primary_key: str = ''
+    delta: str = ''
+
+
+class AMUEMetadataManager:
+    """
+    Gestionnaire des métadonnées d'import
+
+    Responsabilités :
+    - Mise à jour des fingerprints après import
+    - Enregistrement des dates de dernier import
+    - Sauvegarde de la date du dernier succès global
+    - Gestion avec retry pour éviter les pertes de données
+    """
+
+    # Configuration retry
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+
+    def __init__(self):
+        """Initialise le gestionnaire de métadonnées"""
+
+    def update_metadata(self, import_results: List[Dict], finish_timestamp: str = None, report_start: str = None) -> None:
+        """
+        Sauvegarde les timestamps globaux après un import réussi.
+
+        Les fingerprints et primary_keys sont désormais gérés exclusivement
+        par la DAG amue_table_setup. Cette méthode ne persiste que les
+        timestamps de synchronisation dans splus_admin.amue_state.
+
+        Args:
+            import_results: Liste des résultats d'import (non utilisé, conservé pour compatibilité)
+            finish_timestamp: Timestamp finish de l'API (pour le polling)
+            report_start: Date start du rapport API AMUE (référence globale pour le mode différentiel)
+
+        Raises:
+            AirflowException: Si sauvegarde échoue après tous les retries
+        """
+        logger.info("Début mise à jour des métadonnées (timestamps uniquement)")
+
+        last_error = None
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                from common.application.admin_state_manager import AdminStateManager
+                AdminStateManager().update_import_timestamps(
+                    finish_timestamp=finish_timestamp or None,
+                    report_start=report_start or None,
+                    last_successful_run=datetime.now().isoformat(),
+                )
+
+                logger.info("Mise à jour des timestamps terminée avec succès")
+                return
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[{type(e).__name__}] Tentative {attempt + 1}/{self.MAX_RETRIES} échouée: {e}")
+
+                if attempt < self.MAX_RETRIES - 1:
+                    wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)
+                    logger.info(f"Retry dans {wait_time}s...")
+                    time.sleep(wait_time)
+
+        error_msg = f"Impossible de sauvegarder les métadonnées après {self.MAX_RETRIES} tentatives: {last_error}"
+        logger.error(error_msg)
+        raise AirflowException(error_msg)
+
+    def get_last_success_date(self) -> Optional[datetime]:
+        """
+        Récupère la date du dernier succès depuis la BDD.
+
+        Returns:
+            Date du dernier succès ou None si jamais exécuté
+        """
+        from common.application.admin_state_manager import AdminStateManager
+        try:
+            last_success_str = AdminStateManager().get_last_successful_run()
+            if last_success_str:
+                return datetime.fromisoformat(last_success_str)
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"[{type(e).__name__}] Impossible de récupérer dernier succès: {str(e)}")
+        return None
+
+    def get_table_metadata(self, table_name: str) -> Optional[TableMetadata]:
+        """
+        Récupère les métadonnées d'une table spécifique
+
+        Args:
+            table_name: Nom de la table
+
+        Returns:
+            Métadonnées de la table ou None si non trouvée
+        """
+        from amue.application.table_config_manager import TableConfigManager
+        try:
+            table = TableConfigManager().get_table_metadata(table_name)
+            if table is None:
+                return None
+            return TableMetadata(
+                name=table.get('table_name', ''),
+                fingerprint_API=table.get('fingerprint_API', ''),
+                fingerprint_local=table.get('fingerprint_local', ''),
+                primary_key=table.get('primary_key', ''),
+                delta=table.get('delta', '')
+            )
+        except Exception as e:
+            logger.warning(f"[{type(e).__name__}] Erreur récupération métadonnées {table_name}: {str(e)}")
+            return None
+
+    def reset_table_metadata(self, table_name: str) -> bool:
+        """
+        Réinitialise les métadonnées d'une table
+
+        Utile en cas de changement de structure ou de réimport complet.
+
+        Args:
+            table_name: Nom de la table à réinitialiser
+
+        Returns:
+            True si réinitialisation réussie
+        """
+        from amue.application.table_config_manager import TableConfigManager
+        return TableConfigManager().reset_table_metadata(table_name)

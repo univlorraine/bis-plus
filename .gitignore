@@ -69,7 +69,7 @@ airflow.db
 airflow.cfg
 airflow-webserver.pid
 standalone_admin_password.txt
-webserver_config.py
+#webserver_config.py
 
 # Base de données locale
 *.db

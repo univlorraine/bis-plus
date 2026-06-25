@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from amue.notifications.notifier import NotificationService
+from amue.infrastructure.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
     tables_error = [r for r in setup_results if r.get('status') == 'error' and r.get('setup_status') != 'blocked']
     tables_created = [r for r in tables_ready if r.get('created')]
 
-    logger.info(f"[SETUP_REPORT] Résultat du setup:")
+    logger.info("[SETUP_REPORT] Résultat du setup:")
     logger.info(f"  - Prêtes   : {len(tables_ready)}")
     logger.info(f"  - Créées   : {len(tables_created)}")
     logger.info(f"  - Bloquées : {len(tables_blocked)}")
@@ -55,16 +55,16 @@ def send_setup_report(setup_results: List[Dict]) -> Dict:
             if fp_local_changed:
                 ul_diff = t.get('ul_diff')
                 if ul_diff:
-                    logger.error(f"[SETUP_REPORT]   Diff colonnes (PG existant → API) :")
+                    logger.error("[SETUP_REPORT]   Diff colonnes (PG existant → API) :")
                     for line in ul_diff.splitlines():
                         logger.error(f"[SETUP_REPORT]     {line}")
                 else:
-                    logger.error(f"[SETUP_REPORT]   (table absente en PG — diff non disponible)")
+                    logger.error("[SETUP_REPORT]   (table absente en PG — diff non disponible)")
         else:
             # Fallback : parser le champ error ligne par ligne
             for line in t.get('error', 'structure modifiée').splitlines():
                 logger.error(f"[SETUP_REPORT]   {line.strip()}")
-        logger.error(f"[SETUP_REPORT]   → Action requise   : relancer amue_table_setup après vérification")
+        logger.error("[SETUP_REPORT]   → Action requise   : relancer amue_table_setup après vérification")
 
     for t in tables_error:
         name = t['table_name']

@@ -5,7 +5,7 @@ from typing import Dict, List
 from airflow.exceptions import AirflowException
 from airflow.sdk import task
 
-from amue.services.table_config_manager import TableConfigManager
+from amue.application.table_config_manager import TableConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def check_setup_status(tables: List[Dict]) -> List[Dict]:
             logger.error(f"[CHECK_SETUP]   fingerprint_API stocké : {fp_api} (dernière structure valide connue)")
             logger.error(f"[CHECK_SETUP]   fingerprint_local stocké  : {fp_local}")
             logger.error(f"[CHECK_SETUP]   primary_key configurée : {pk}")
-            logger.error(f"[CHECK_SETUP]   → Relancer amue_table_setup pour comparer la structure actuelle")
+            logger.error("[CHECK_SETUP]   → Relancer amue_table_setup pour comparer la structure actuelle")
             errors.append(
                 f"{table_name}: setup_status='blocked' — "
                 f"changement de structure détecté, intervention manuelle requise"

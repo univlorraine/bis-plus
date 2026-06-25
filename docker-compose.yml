@@ -26,7 +26,7 @@ x-airflow-common:
   build:
     context: .
     dockerfile: Dockerfile
-  image: ${AIRFLOW_IMAGE_NAME:-airflow-amue:3.1.7}
+  image: ${AIRFLOW_IMAGE_NAME:-bisplus:1.0.0}
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -54,11 +54,11 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
-    - ${AIRFLOW_PROJ_DIR:-.}/config/webserver_config.py:/opt/airflow/webserver_config.py:ro
+    - ${AIRFLOW_PROJ_DIR:-.}/config/webserver_config.py:/opt/airflow/webserver_config.py
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
-    - ${AIRFLOW_PROJ_DIR:-.}/requirements.txt:/opt/airflow/requirements.txt:ro
-    - ${AIRFLOW_PROJ_DIR:-.}/schemas:/opt/airflow/schemas:ro
+    - ${AIRFLOW_PROJ_DIR:-.}/requirements.txt:/opt/airflow/requirements.txt
+    - ${AIRFLOW_PROJ_DIR:-.}/schemas:/opt/airflow/schemas
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

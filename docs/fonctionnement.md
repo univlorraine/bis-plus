@@ -25,6 +25,9 @@
   - [`amue_status_monitor`](#amue_status_monitor)
   - [`ecc_multi_table_import`](#ecc_multi_table_import)
   - [`ecc_correction_import`](#ecc_correction_import)
+  - [`amue_table_discovery`](#amue_table_discovery)
+  - [`amue_settings`](#amue_settings)
+- [Convention d'architecture du code](#convention-darchitecture-du-code)
 
 ---
 
@@ -132,7 +135,7 @@ Ce verrou empêche également les DAGs `amue_sync_schemas` et `amue_rollback` de
 
 #### Point d'entrée côté code
 
-Toute la logique Blue/Green est encapsulée dans `plugins/common/services/bluegreen/bluegreen_manager.BlueGreenManager` :
+Toute la logique Blue/Green est encapsulée dans `plugins/common/application/bluegreen/bluegreen_manager.BlueGreenManager` :
 
 - `get_active_schema()` / `get_target_schema()` — lit l'état depuis `amue_state`.
 - `acquire_import_lock(correlation_id)` / `release_import_lock(mark_completed)` — gère le verrou.
@@ -210,6 +213,8 @@ L'import peut être :
 
 - **complet** — toutes les lignes ;
 - **différentiel** — uniquement les lignes modifiées depuis `last_report_start`, via la colonne configurée dans `delta_column`.
+
+**Purge optionnelle** : si la variable `amue_tables_to_purge` contient le nom d'une table (JSON array), cette table est vidée (`TRUNCATE`) au tout début de sa tâche `import_data`, avant tout appel API. Cela force un rechargement complet même pour les tables configurées en delta, et élimine les lignes orphelines qu'un UPSERT ne supprimerait pas. Les autres tables ne sont pas affectées.
 
 Si une ou plusieurs tables échouent, `restore_inactive` recopie les tables réussies depuis l'actif vers l'inactif (cohérence préservée).
 
@@ -314,6 +319,8 @@ Cas d'usage typiques :
 | `amue_status_monitor`       | Cron                      | Surveille l'API AMUE pendant la fenêtre nocturne.                         |
 | `ecc_multi_table_import`    | Cron + manuel             | Import ECC Oracle → PostgreSQL.                                           |
 | `ecc_correction_import`     | Manuel uniquement         | Ré-import ECC ciblé sur des tables sélectionnées.                         |
+| `amue_table_discovery`      | Manuel uniquement         | Détecte les tables API non enregistrées et les ajoute à `splus_admin.amue_tables`. |
+| `amue_settings`             | Manuel uniquement         | Formulaire validé (JSON-Schema) pour modifier les variables Airflow du projet. |
 
 ---
 
@@ -393,6 +400,7 @@ send_report                 ← email HTML avec métriques par table,
 | `amue_force_import`                | `false`     | Bypass sensor (dev/test uniquement) |
 | `amue_pre_import_dags`             | `[]`        | DAGs déclenchés avant l'import      |
 | `amue_post_import_dags`            | `[]`        | DAGs déclenchés après l'import      |
+| `amue_tables_to_purge`             | `[]`        | Tables purgées (TRUNCATE) avant import (JSON array) |
 | `amue_report_recipients`           | —           | Destinataires du rapport email      |
 
 ---
@@ -613,3 +621,157 @@ send_ecc_report             ← email récapitulatif ECC
 | `ecc_import_schedule`    | `0 4 * * *`   | Cron de déclenchement          |
 | `ecc_import_batch_size`  | `5000`        | Lignes par batch               |
 | `ecc_report_recipients`  | —             | Destinataires du rapport email |
+
+---
+
+### `amue_table_discovery`
+
+**Rôle** : compare les tables exposées par le statut API AMUE à celles déjà
+enregistrées dans `splus_admin.amue_tables` et propose l'enregistrement des
+nouvelles via un formulaire Airflow.
+
+**Schedule** : manuel uniquement (`schedule=None`).
+
+**Workflow** :
+
+```
+discover_tables()
+    ↓  Appelle l'API AMUE (statut), compare à splus_admin.amue_tables
+    ↓  Sauvegarde la liste des nouvelles tables dans la Variable amue_discovered_new_tables
+register_tables(discovery)
+    ↓  INSERT ON CONFLICT DO NOTHING des tables sélectionnées dans splus_admin.amue_tables
+trigger_setup_if_needed(added)
+    ↓  Déclenche amue_table_setup si ≥1 table a été ajoutée (optionnel)
+send_discovery_report(discovery, added, setup_triggered)
+```
+
+**Paramètres de déclenchement** (`Trigger DAG w/ config`) :
+
+| Paramètre | Type | Description |
+|-----------|------|-------------|
+| `tables_to_add` | array | Sélection dans le dropdown (alimenté par le statut API au parsing du DAG) |
+| `add_all_discovered` | boolean | Enregistre toutes les tables nouvelles en une fois (ignore `tables_to_add`) |
+| `enabled_default` | boolean | Valeur de `enabled` pour les nouvelles lignes (défaut : `true`) |
+| `trigger_setup` | boolean | Déclenche `amue_table_setup` après enregistrement (défaut : `true`) |
+
+**Variable interne** : `amue_discovered_new_tables` — liste JSON des tables nouvelles,
+écrite à chaque exécution de `discover_tables()`. Sert de repli pour peupler le
+dropdown si l'API AMUE est indisponible au moment du parsing du DAG.
+
+---
+
+### `amue_settings`
+
+**Rôle** : formulaire Airflow 3.x permettant de modifier les variables du projet
+avec validation JSON-Schema côté serveur (bornes, enum, format email).
+
+**Schedule** : manuel uniquement (`schedule=None`).
+
+**Workflow** : une seule tâche `apply_settings` qui parcourt tous les `params` du
+run et écrit chaque valeur dans la Variable Airflow correspondante.
+
+**Avantage** : les valeurs hors bornes ou hors enum sont rejetées par Airflow
+**avant** la création du DagRun — l'opérateur ne peut pas soumettre une valeur
+invalide (ex : `amue_import_batch_size = 999999`).
+
+**Variables couvertes** (extrait — liste complète dans `dags/dag_amue_settings.py`) :
+
+| Variable | Validation |
+|----------|-----------|
+| `amue_import_schedule` | string (cron) |
+| `amue_import_batch_size` | integer, 100–50 000 |
+| `amue_import_parallel_workers` | integer, 1–10 |
+| `amue_api_source` | enum : `cdv` \| `entrepot` |
+| `amue_force_import` | boolean |
+| `smtp_mail_from` | format email |
+| `smtp_port` | integer, 1–65 535 |
+| `amue_pre_import_dags` | array (dropdown des dag_id connus) |
+| `amue_post_import_dags` | array (dropdown des dag_id connus) |
+
+---
+
+## Convention d'architecture du code
+
+### Architecture en couches (domain / application / infrastructure)
+
+Chaque package (`plugins/amue`, `plugins/common`, `plugins/ecc`) est organisé par
+**couche architecturale**, pas seulement par feature :
+
+- **`domain/`** — logique métier pure. **Zéro import** `airflow.*`, `psycopg2.*`,
+  `requests`, `smtplib`. Value objects, exceptions, règles de calcul, validateurs.
+  Exemples canoniques : `common/domain/exceptions.py`, `amue/domain/transformers.py`.
+- **`application/`** — orchestration. Compose la logique domain avec des
+  dépendances injectées, typées via les interfaces de `common/domain/interfaces.py`
+  (`SqlExecutor`, `ConnectionProvider`, `StateStore`) plutôt que via les classes
+  concrètes Airflow/psycopg2. Exemple canonique : `amue/application/polling_service.py`.
+  Capturer une exception infra (`psycopg2.DatabaseError`, `AirflowException`) pour la
+  re-lever en exception domain **à la frontière** est légitime ici — ce n'est pas une
+  violation de couche (voir `amue/application/table_management/table_manager.py`).
+- **`infrastructure/`** — adaptateurs concrets : hooks Airflow, requêtes psycopg2,
+  appels HTTP, envoi SMTP, lecture de `Variable` Airflow. Exemple canonique :
+  `common/infrastructure/database/hooks.py`.
+- **`tasks/`** — bord d'orchestration `@task`, ne bouge pas. Appelle la couche
+  `application/`. Les DAGs (`dags/*.py`) restent fins et n'importent que depuis
+  `*.tasks.*`.
+
+Règle de classement pour un nouveau fichier : regarder ses imports. Présence de
+`airflow.*`/`psycopg2.*`/`requests`/`smtplib` → `infrastructure/` (sauf traduction
+d'exception ponctuelle dans une classe par ailleurs pure → `application/`). Aucun de
+ces imports et logique autonome → `domain/`. Aucun de ces imports mais composition
+d'autres objets métier (ex: appelle un service `application/`) → `application/`.
+
+Un fichier qui dépend d'imports infra n'est *pas* automatiquement classé infra s'il
+ne fait que catcher une exception au point d'entrée pour la traduire en exception
+domain — c'est le rôle normal d'un adaptateur à la frontière.
+
+### Interfaces partagées
+
+`plugins/common/domain/interfaces.py` définit 3 `Protocol` (typage structurel, pas
+d'héritage requis, pas de framework de DI) :
+- `SqlExecutor` — sous-ensemble de l'API `PostgresHook` (`run`, `get_records`,
+  `get_first`, `get_conn`).
+- `ConnectionProvider` — cycle de vie d'une connexion DB-API.
+- `StateStore` — persistance de l'état blue/green.
+
+La composition reste manuelle (`__init__(self, postgres_hook=None)` avec fallback
+lazy `create_postgres_hook()`), pas de conteneur DI.
+
+### Tests
+
+`tests/` est le miroir exact de `plugins/<package>/<layer>/<sous-chemin>` :
+`plugins/common/application/admin_state_manager.py` →
+`tests/common/application/test_admin_state_manager.py`. `pytest.ini` garde
+`pythonpath = plugins` ; seuls les chemins de module changent, pas les noms de
+classes/fonctions publiques.
+
+### Exemples de classement (cas concrets du repo)
+
+Le découpage domain/application/infrastructure se décide par les imports et la
+responsabilité réelle d'un fichier, pas par son nom. Deux cas qui ont servi à
+clarifier la règle pendant un refactor de réduction de duplication :
+
+- **`amue/application/table_management/table_manager.py`** garde un import
+  `psycopg2.DatabaseError/IntegrityError/ProgrammingError` dans son `except`, et
+  reste pourtant `application/`, pas `infrastructure/`. Catcher une exception
+  driver pour la traduire en exception domain (`AMUEDatabaseError`) à la frontière
+  est le rôle normal d'un adaptateur applicatif, pas une fuite d'infrastructure.
+
+- **Logique partagée par 2+ packages va toujours dans `plugins/common/`**, jamais
+  dupliquée localement — ex: `common/infrastructure/database/sql_file_loader.py`
+  (lecture de `.sql` + vérification d'intégrité, utilisé par `view_switcher.py`),
+  `common/infrastructure/config/recipients.py` (parsing CSV des destinataires
+  email, utilisé par AMUE et ECC), ou `common/application/table_creator.py`
+  (fragment DDL des colonnes méta, utilisé par AMUE et ECC). Si un nom de fichier
+  est trop générique (`utils.py`, `config.py`, `callbacks_utils.py`) pour dire ce
+  qu'il fait, c'est un signal qu'il mélange plusieurs responsabilités ou qu'il
+  mérite un nom plus spécifique — préférer plusieurs fichiers à responsabilité
+  unique à un seul fichier fourre-tout.
+
+### Autres conventions héritées
+
+- **Architecture Blue/Green** : voir [Architecture Blue/Green](#architecture-bluegreen)
+  plus haut dans ce document.
+- **Pas de suppression de données** : UPSERT uniquement, jamais de TRUNCATE sur les
+  données importées.
+- **DAGs = orchestration pure** : la logique métier vit dans `plugins/*/application/`
+  et `plugins/*/domain/`, jamais directement dans `dags/*.py`.

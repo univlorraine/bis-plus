@@ -1,1 +1,0 @@
-"""Opérateurs ECC."""

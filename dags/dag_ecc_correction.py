@@ -30,10 +30,10 @@ from airflow.models.param import Param
 from airflow.sdk import dag
 
 from common.dags import DEFAULT_START_DATE, standard_default_args
-from ecc.notifications import send_ecc_failure_notification
+from ecc.infrastructure.notifications import send_ecc_failure_notification
 from ecc.tasks.import_dag import import_data, save_metadata, send_report, sync_to_active
 from ecc.tasks.import_dag.select_tables_correction import select_tables_correction
-from ecc.utils.config.settings import ECCDefaults
+from ecc.infrastructure.config.settings import ECCDefaults
 from common.tasks.restore_inactive import restore_inactive
 
 _log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ _log = logging.getLogger(__name__)
 def _fetch_available_ecc_tables() -> tuple[list[str], list[str]]:
     """Retourne (tables_avec_ecc_query, tables_amue_uniquement) depuis splus_admin.amue_tables."""
     try:
-        from common.utils.database.hooks import create_postgres_hook
+        from common.infrastructure.database.hooks import create_postgres_hook
         hook = create_postgres_hook(schema='splus_admin')
         rows = hook.get_records(
             """
@@ -92,7 +92,7 @@ _ECC_PARAM_DESCRIPTION = _build_ecc_param_description(_available_ecc_tables, _am
             default=[],
             type='array',
             description=_ECC_PARAM_DESCRIPTION,
-            items={'type': 'string', 'enum': _available_ecc_tables} if _available_ecc_tables else {'type': 'string'},
+            examples=_available_ecc_tables,
         ),
     },
 
@@ -119,7 +119,7 @@ def ecc_correction_import():
     tables = select_tables_correction()
     imported = import_data.expand(table_config=tables)
 
-    restore = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
+    _ = restore_inactive(tables=tables, source_name=ECCDefaults.SOURCE_NAME, import_results=imported)
 
     synced = sync_to_active(imported)
     saved = save_metadata.expand(import_result=imported)

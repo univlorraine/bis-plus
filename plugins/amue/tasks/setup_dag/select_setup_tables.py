@@ -4,8 +4,8 @@ from typing import Dict, List
 
 from airflow.sdk import task
 
-from amue.services.table_config_manager import TableConfigManager
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+from amue.application.table_config_manager import TableConfigManager
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
 
 logger = logging.getLogger(__name__)
 

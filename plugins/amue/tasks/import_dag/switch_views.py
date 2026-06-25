@@ -1,17 +1,18 @@
 """Task de bascule atomique des vues blue/green."""
 import logging
+from datetime import timedelta
 from typing import Dict
 
 from airflow.sdk import task
 
-from amue.exceptions.bluegreen import ViewSwitchError
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
-from common.services.bluegreen.view_switcher import ViewSwitcher
+from amue.domain.exceptions.bluegreen import ViewSwitchError
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
+from common.application.bluegreen.view_switcher import ViewSwitcher
 
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='switch_views', multiple_outputs=False)
+@task(task_id='switch_views', execution_timeout=timedelta(minutes=10), multiple_outputs=False)
 def switch_views(metadata_result: Dict) -> Dict:
     """
     Bascule les vues vers le nouveau schéma après un import réussi.
@@ -41,10 +42,9 @@ def switch_views(metadata_result: Dict) -> Dict:
     if success:
         # Notification des vues custom en échec (best-effort, non bloquant)
         failed_custom = getattr(switcher, '_failed_custom_views_detail', [])
-        ok_custom_files = getattr(switcher, '_ok_custom_views_files', [])
         if failed_custom:
             try:
-                from amue.notifications.notifier import NotificationService
+                from amue.infrastructure.notifications.notifier import NotificationService
                 NotificationService().notify_switch_custom_views_ko({
                     'dag_id': 'amue_multi_table_import',
                     'target_schema': target_schema,

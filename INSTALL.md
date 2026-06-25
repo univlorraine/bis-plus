@@ -197,8 +197,10 @@ Créer chaque variable (champs `Key` et `Val`) :
 | Key | Valeur |
 |-----|--------|
 | `universite` | `univ` |
-| `api_endpoint_admin` | `finances/cdv/v1/preprod/${univ}/admin` |
-| `api_endpoint_table` | `finances/cdv/v1/preprod/${univ}/table` |
+| `amue_api_source` | `entrepot` |
+| `api_endpoint_entrepot` | `finances/entrepotdedonnees/v1/preprod/${univ}` |
+| `api_endpoint_admin` | `finances/cdv/v1/preprod/${univ}/admin` *(source `cdv` uniquement)* |
+| `api_endpoint_table` | `finances/cdv/v1/preprod/${univ}/table` *(source `cdv` uniquement)* |
 | `amue_import_schedule` | `0 2 * * *` |
 | `amue_sync_schedule` | `0 6 * * *` |
 | `amue_monitor_schedule` | `0 22 * * *` |

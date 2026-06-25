@@ -4,8 +4,8 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from common.services.bluegreen.schema_synchronizer import SchemaSynchronizer
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
+from common.application.bluegreen.schema_synchronizer import SchemaSynchronizer
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
 
 logger = logging.getLogger(__name__)
 

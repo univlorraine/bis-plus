@@ -7,10 +7,11 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
 1. [Erreurs d'import](#erreurs-dimport)
 2. [Erreurs de structure et fingerprints](#erreurs-de-structure-et-fingerprints)
 3. [Erreurs de connexion API](#erreurs-de-connexion-api)
-4. [Erreurs de base de données](#erreurs-de-base-de-données)
-5. [Erreurs Blue/Green](#erreurs-bluegreen)
-6. [Erreurs Airflow](#erreurs-airflow)
-7. [Logs à consulter](#logs-à-consulter)
+4. [Purge avant import](#purge-avant-import)
+5. [Erreurs de base de données](#erreurs-de-base-de-données)
+6. [Erreurs Blue/Green](#erreurs-bluegreen)
+7. [Erreurs Airflow](#erreurs-airflow)
+8. [Logs à consulter](#logs-à-consulter)
 
 ---
 
@@ -224,6 +225,59 @@ WHERE enabled = true AND setup_status != 'ready';
 1. Attendre et réessayer (erreur temporaire)
 2. Vérifier le statut de l'API AMUE
 3. Contacter le support AMUE si persistant
+
+---
+
+---
+
+## Purge avant import
+
+### La table n'est pas purgée malgré la variable configurée
+
+**Symptôme** : La tâche `import_data[<NOM>]` s'exécute sans purger la table — la ligne `[IMPORT] <table> : purgée avant import` est absente des logs.
+
+**Causes et vérifications** :
+
+1. **Faute de frappe ou casse différente** — le nom dans la variable doit correspondre exactement (sans sensibilité à la casse, mais sans caractères parasites) :
+
+   ```bash
+   ./manage.sh var-get amue_tables_to_purge
+   # Attendu : '["BKPF"]' ou '["bkpf"]' — les guillemets JSON sont obligatoires
+   ```
+
+2. **JSON invalide** — une syntaxe incorrecte fait tomber le parsing silencieusement vers `[]` :
+
+   ```bash
+   # INCORRECT (manque les guillemets autour du nom de table)
+   ./manage.sh var-set amue_tables_to_purge '[BKPF]'
+   # CORRECT
+   ./manage.sh var-set amue_tables_to_purge '["BKPF"]'
+   ```
+
+3. **Table désactivée** — une table non active (`enabled = false`) n'apparaît pas dans la liste d'import et ne peut donc pas être purgée :
+
+   ```sql
+   SELECT table_name, enabled FROM splus_admin.amue_tables WHERE table_name = 'BKPF';
+   ```
+
+4. **Variable lue avant la modification** — Airflow charge les variables au démarrage de la tâche. Si vous modifiez la variable pendant qu'un import tourne, la tâche déjà démarrée utilisera l'ancienne valeur. La valeur sera prise en compte au prochain run.
+
+### Erreur à l'exécution du TRUNCATE
+
+**Symptôme** : La tâche `import_data[<NOM>]` échoue avec une erreur PostgreSQL sur le TRUNCATE.
+
+**Causes** :
+
+- **Permissions insuffisantes** : l'utilisateur `datauser` doit avoir le droit `TRUNCATE` sur les tables `splus_blue.*` / `splus_green.*`. Vérifier :
+  ```sql
+  SELECT has_table_privilege('datauser', 'splus_blue.bkpf', 'TRUNCATE');
+  ```
+  Si `false`, accorder le droit :
+  ```sql
+  GRANT TRUNCATE ON ALL TABLES IN SCHEMA splus_blue TO datauser;
+  GRANT TRUNCATE ON ALL TABLES IN SCHEMA splus_green TO datauser;
+  ```
+- **Table inexistante dans le schéma cible** : la table n'a pas encore été créée par `amue_table_setup`. Lancer `amue_table_setup` avant l'import.
 
 ---
 

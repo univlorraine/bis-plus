@@ -4,7 +4,7 @@ from typing import Dict
 
 from airflow.sdk import task
 
-from amue.notifications.notifier import NotificationService
+from amue.infrastructure.notifications.notifier import NotificationService
 
 logger = logging.getLogger(__name__)
 

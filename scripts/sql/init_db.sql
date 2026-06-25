@@ -20,34 +20,40 @@ CREATE SCHEMA IF NOT EXISTS splus_blue;
 CREATE SCHEMA IF NOT EXISTS splus_green;
 
 -- ============================================================================
--- PERMISSIONS DATAUSER
+-- PERMISSIONS UTILISATEUR COURANT
+-- Utilise current_user pour fonctionner quel que soit le login configuré
+-- via POSTGRES_USER dans docker-compose / déploiement manuel.
 -- ============================================================================
 
 -- Permissions sur le schéma principal (vues)
-GRANT ALL PRIVILEGES ON SCHEMA splus TO datauser;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus TO datauser;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus TO datauser;
+GRANT ALL PRIVILEGES ON SCHEMA splus TO current_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus TO current_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus TO current_user;
 
 -- Permissions sur splus_blue
-GRANT ALL PRIVILEGES ON SCHEMA splus_blue TO datauser;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_blue TO datauser;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_blue TO datauser;
+GRANT ALL PRIVILEGES ON SCHEMA splus_blue TO current_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_blue TO current_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_blue TO current_user;
 
 -- Permissions sur splus_green
-GRANT ALL PRIVILEGES ON SCHEMA splus_green TO datauser;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_green TO datauser;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_green TO datauser;
+GRANT ALL PRIVILEGES ON SCHEMA splus_green TO current_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_green TO current_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_green TO current_user;
 
 -- Permissions par défaut pour les futures tables
 ALTER DEFAULT PRIVILEGES IN SCHEMA splus
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datauser;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO current_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA splus_blue
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datauser;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO current_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA splus_green
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datauser;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO current_user;
 
 -- Définir le search_path par défaut (inclut les schémas blue/green)
-ALTER ROLE datauser SET search_path TO splus, splus_blue, splus_green, public;
+DO $$
+BEGIN
+    EXECUTE format('ALTER ROLE %I SET search_path TO splus, splus_blue, splus_green, public', current_user);
+END
+$$;
 
 -- ============================================================================
 -- SCHÉMA ADMIN (état centralisé - remplace variables Airflow d'état)
@@ -157,13 +163,13 @@ CREATE TABLE IF NOT EXISTS splus_admin.schema_migrations (
 );
 
 -- ============================================================================
--- PERMISSIONS DATAUSER SUR SPLUS_ADMIN
+-- PERMISSIONS UTILISATEUR COURANT SUR SPLUS_ADMIN
 -- ============================================================================
-GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO datauser;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO datauser;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO datauser;
+GRANT ALL PRIVILEGES ON SCHEMA splus_admin TO current_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA splus_admin TO current_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA splus_admin TO current_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA splus_admin
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datauser;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO current_user;
 
 -- ============================================================================
 -- LOG DE CONFIRMATION
@@ -173,7 +179,7 @@ SELECT 'Schema splus created (views)' AS info;
 SELECT 'Schema splus_blue created (blue tables)' AS info;
 SELECT 'Schema splus_green created (green tables)' AS info;
 SELECT 'Blue/Green architecture ready' AS info;
-SELECT 'Permissions granted to datauser' AS info;
+SELECT 'Permissions granted to ' || current_user AS info;
 SELECT 'Schema splus_admin created' AS info;
 SELECT 'Table splus_admin.amue_state ready' AS info;
 SELECT 'Table splus_admin.amue_tables ready' AS info;

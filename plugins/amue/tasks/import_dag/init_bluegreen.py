@@ -1,16 +1,17 @@
 """Task d'initialisation du contexte blue/green."""
 import logging
+from datetime import timedelta
 from typing import Dict
 
 from airflow.sdk import task, get_current_context
 
-from common.services.bluegreen.bluegreen_manager import BlueGreenManager
-from common.logging_context import set_correlation_id
+from common.application.bluegreen.bluegreen_manager import BlueGreenManager
+from common.infrastructure.observability.logging_context import set_correlation_id
 
 logger = logging.getLogger(__name__)
 
 
-@task(task_id='init_bluegreen', multiple_outputs=False)
+@task(task_id='init_bluegreen', execution_timeout=timedelta(minutes=5), multiple_outputs=False)
 def init_bluegreen() -> Dict:
     """
     Initialise le contexte blue/green pour ce DAG run.
@@ -33,7 +34,7 @@ def init_bluegreen() -> Dict:
     active = manager.get_active_schema()
     needs_sync = manager.needs_sync()
 
-    logger.info(f"[BLUEGREEN] Mode activé")
+    logger.info("[BLUEGREEN] Mode activé")
     logger.info(f"[BLUEGREEN] Schéma actif: {active}")
     logger.info(f"[BLUEGREEN] Schéma cible: {target}")
     logger.info(f"[BLUEGREEN] Sync nécessaire: {needs_sync}")

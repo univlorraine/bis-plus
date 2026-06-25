@@ -70,8 +70,8 @@ import json
 
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import dag
-from amue.notifications import send_failure_notification, dag_failure_rollback
-from amue.sensors.amue_api_sensor import AMUEAPISensor
+from amue.infrastructure.notifications import send_failure_notification, dag_failure_rollback
+from amue.infrastructure.sensors.amue_api_sensor import AMUEAPISensor
 from amue.tasks.import_dag import (
     init_bluegreen,
     select_tables,
@@ -81,11 +81,11 @@ from amue.tasks.import_dag import (
     switch_views,
     send_report,
 )
-from amue.utils.config.settings import AMUEDefaults
-from common.config import PROTECTED_SOURCE
+from amue.infrastructure.config.settings import AMUEDefaults
+from common.domain.protected_source import PROTECTED_SOURCE
 from common.dags import DEFAULT_START_DATE, standard_default_args
 from common.tasks.restore_inactive import restore_inactive
-from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
+from common.infrastructure.config.airflow_helpers import AirflowVariableManager as VarMgr
 
 # ==============================================================================
 # DÉFINITION DU DAG
@@ -95,10 +95,12 @@ from common.utils.config.airflow_helpers import AirflowVariableManager as VarMgr
 _import_schedule = VarMgr.get('amue_import_schedule', default='0 3 * * *')
 
 # Sensor configurable via variables Airflow
-_sensor_poke_interval = int(VarMgr.get('amue_polling_interval_minutes',
-                                        AMUEDefaults.POLLING_INTERVAL_MINUTES)) * 60
-_sensor_timeout = int(VarMgr.get('amue_max_wait_hours',
-                                  AMUEDefaults.POLLING_MAX_WAIT_HOURS)) * 3600
+_sensor_poke_interval = VarMgr.get_int(
+    'amue_polling_interval_minutes', AMUEDefaults.POLLING_INTERVAL_MINUTES, min_value=1
+) * 60
+_sensor_timeout = VarMgr.get_int(
+    'amue_max_wait_hours', AMUEDefaults.POLLING_MAX_WAIT_HOURS, min_value=1
+) * 3600
 
 # DAGs à déclencher séquentiellement avant l'import (JSON array de dag_ids)
 _pre_import_dags = json.loads(
@@ -208,7 +210,7 @@ def amue_multi_table_import():
     imported = import_data.expand(table_info=checked)
 
     # Phase 3c : Restauration inactif sur échec (ALL_DONE, si ≥1 import raté)
-    restore = restore_inactive(tables=checked, source_name=PROTECTED_SOURCE, import_results=imported)
+    _ = restore_inactive(tables=checked, source_name=PROTECTED_SOURCE, import_results=imported)
 
     # Phase 4 : Finalisation - polling_result via XCom du sensor
     metadata = save_metadata(imported, wait_sensor.output)
