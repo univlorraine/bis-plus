@@ -87,6 +87,8 @@ Quand intervenir ?
 | `amue_sync_schemas`        | Synchronise blue ↔ green                       | Après une intervention manuelle sur un schéma              |
 | `amue_rollback`            | Repointe les vues vers l'état précédent        | En cas d'import foireux, avant le prochain import          |
 | `amue_status_monitor`      | Fenêtre de surveillance de l'API AMUE          | Rarement — surveillance avancée                            |
+| `amue_table_discovery`     | Découvre les tables API non encore enregistrées | Rarement — lors d'une montée de version AMUE              |
+| `amue_settings`            | Formulaire de configuration des variables Airflow | Rarement — alternative UI à `./manage.sh var-set`       |
 | `ecc_multi_table_import`   | Import depuis Oracle ECC                       | Tous les jours si ECC est activé                           |
 | `ecc_correction_import`    | Ré-import ECC pour des tables spécifiques      | Correction ciblée ECC sans attendre l'heure planifiée      |
 

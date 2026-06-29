@@ -190,9 +190,11 @@ setup_variables_external() {
     local json_payload
     json_payload=$(jq 'to_entries | map({key: .key, value: (if (.value | type) == "array" or (.value | type) == "object" then (.value | tojson) else .value end)}) | from_entries' "$VARIABLES_FILE")
 
-    # Import via stdin : aucun fichier ecrit sur le disque du conteneur, evite
-    # les erreurs de permission liees a docker cp + UID non-root du conteneur airflow.
-    if echo "$json_payload" | $docker_cmd exec -T airflow-apiserver airflow variables import - 2>&1 | grep -v "^$"; then
+    # Ecrit dans un fichier temporaire a l'interieur du container puis importe.
+    # `airflow variables import -` (stdin) n'est pas supporte par toutes les versions d'Airflow.
+    if echo "$json_payload" | $docker_cmd exec -T airflow-apiserver bash -c \
+        'cat > /tmp/_av_setup.json && airflow variables import /tmp/_av_setup.json; _rc=$?; rm -f /tmp/_av_setup.json; exit $_rc' \
+        2>&1 | grep -v "^$"; then
         local count
         count=$(jq 'keys | length' "$VARIABLES_FILE")
         log_success "$count variables importees"

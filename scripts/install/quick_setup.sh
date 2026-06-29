@@ -551,6 +551,7 @@ cat > "config/airflow_variables.json" << EOFVARS
   "amue_polling_max_backoff_minutes": "60",
   "amue_pre_import_dags": "[]",
   "amue_post_import_dags": "[]",
+  "amue_tables_to_purge": "[]",
   "ecc_import_batch_size": "5000",
   "amue_reports_dir": "/opt/airflow/logs/reports",
   "amue_report_recipients": "",

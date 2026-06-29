@@ -12,6 +12,8 @@ Ce document répertorie les erreurs fréquentes et leurs solutions.
 6. [Erreurs Blue/Green](#erreurs-bluegreen)
 7. [Erreurs Airflow](#erreurs-airflow)
 8. [Logs à consulter](#logs-à-consulter)
+9. [Diagnostic rapide](#diagnostic-rapide)
+10. [Contacts support](#contacts-support)
 
 ---
 
